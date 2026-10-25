@@ -1,0 +1,93 @@
+package swiss.sib.blastp4j.search;
+
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import org.openjdk.jmh.annotations.Benchmark;
+import org.openjdk.jmh.annotations.BenchmarkMode;
+import org.openjdk.jmh.annotations.Fork;
+import org.openjdk.jmh.annotations.Measurement;
+import org.openjdk.jmh.annotations.Mode;
+import org.openjdk.jmh.annotations.OutputTimeUnit;
+import org.openjdk.jmh.annotations.Param;
+import org.openjdk.jmh.annotations.Scope;
+import org.openjdk.jmh.annotations.Setup;
+import org.openjdk.jmh.annotations.State;
+import org.openjdk.jmh.annotations.TearDown;
+import org.openjdk.jmh.annotations.Warmup;
+import org.openjdk.jmh.infra.Blackhole;
+
+import swiss.sib.blastp4j.compo.CompoRedo;
+import swiss.sib.blastp4j.db.BlastDbReader;
+import swiss.sib.blastp4j.db.FastaReader;
+import swiss.sib.blastp4j.db.SequenceDatabase;
+import swiss.sib.blastp4j.seed.LookupTable;
+import swiss.sib.blastp4j.seed.WordFinder;
+import swiss.sib.blastp4j.stats.ScoringParameters;
+import swiss.sib.blastp4j.stats.Statistics;
+
+/**
+ * The composition-based redo of the preliminary hits ({@code CompoRedo.redo} as the search calls it, one thread): the
+ * preliminary hits of all of Swiss-Prot for one query are found once in the setup. The output is the number of HSPs
+ * after the redo, which must not change when the code is made faster. Needs the data in {@code ~/data/uniprot} (or
+ * {@code -Dblastp4j.sprot}).
+ */
+@BenchmarkMode(Mode.SingleShotTime)
+@OutputTimeUnit(TimeUnit.MILLISECONDS)
+@Warmup(iterations = 2)
+@Measurement(iterations = 5)
+@Fork(value = 1, jvmArgs = "-Xmx2g")
+@State(Scope.Benchmark)
+public class CompoRedoBench {
+	@Param({ "CDK1_HUMAN", "BRCA1_HUMAN" })
+	public String query;
+
+	private SequenceDatabase db;
+	private Statistics statistics;
+	private byte[] sequence;
+	private List<BlastpSearch.Hit> prelim;
+	private CompoRedo.Query redoQuery;
+	private double evalue;
+
+	@Setup
+	public void setup() throws Exception {
+		Path dir = Path.of(System.getProperty("blastp4j.sprot", System.getProperty("user.home") + "/data/uniprot"));
+		db = BlastDbReader.exists(dir.resolve("blastdb/sprot")) ? BlastDbReader.read(dir.resolve("blastdb/sprot"))
+				: FastaReader.read(dir.resolve("uniprot_sprot.fasta"));
+		SequenceDatabase queries = FastaReader.read(Path.of("src/test/resources/queries/uniprot_human.fasta"));
+		for (int i = 0; i < queries.size(); i++) {
+			if (queries.id(i).endsWith("|" + query)) {
+				sequence = queries.sequence(i);
+			}
+		}
+		statistics = new Statistics(ScoringParameters.BLOSUM62_11_1, db.totalResidues());
+		evalue = 10;
+		BlastpSearch search = new BlastpSearch(db, statistics, evalue, true);
+		prelim = new ArrayList<>(search.prelim(sequence,
+				new WordFinder(sequence, LookupTable.of(sequence, search.seedParameters(sequence).threshold()),
+						search.seedParameters(sequence)),
+				search.cutoff(sequence), new AtomicInteger()));
+		redoQuery = new CompoRedo.Query(sequence);
+	}
+
+	@TearDown
+	public void tearDown() {
+		db.close();
+	}
+
+	@Benchmark
+	public long redo(Blackhole bh) {
+		CompoRedo redo = new CompoRedo(redoQuery, statistics);
+		long count = 0;
+		byte[] subject = null;
+		for (BlastpSearch.Hit h : prelim) {
+			subject = db.withSentinels(h.subject(), subject);
+			count += redo.redo(h.hsps(), subject, 1, db.length(h.subject()), evalue, null).hsps().size();
+		}
+		bh.consume(count);
+		return count;
+	}
+}

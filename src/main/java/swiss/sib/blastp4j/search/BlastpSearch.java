@@ -325,7 +325,7 @@ public final class BlastpSearch {
 		return r;
 	};
 
-	private List<Hit> prelim(byte[] query, WordFinder finder, int cutoff, AtomicInteger next) {
+	List<Hit> prelim(byte[] query, WordFinder finder, int cutoff, AtomicInteger next) {
 		final GappedAligner aligner = new GappedAligner(gapOpen, gapExtend);
 		final List<Hit> found = new ArrayList<>();
 		final List<UngappedHsp> seeds = new ArrayList<>();
