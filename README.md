@@ -121,10 +121,17 @@ it takes 112 s (20.4 GCUPS). The 8-thread times per query vary more than their l
 and 11 s, while other short queries took 2 s. The 8-thread numbers on this laptop are also affected by thermal
 throttling (see cssw4j), so they are only indicative.
 
-**Use a HotSpot JDK (C2) for these runs, not GraalVM.** On Oracle GraalVM 25.4.4 (the sdkman default here), the
-Graal JIT recompiles cssw4j's 8-bit kernel after a deoptimization. In the recompiled code the Vector API calls are not
-intrinsified: the stack shows the pure-Java fallback `ByteVector.bOpTemplate`. A single search then takes over 500 s
-instead of 7.5 s. All numbers above are from Temurin 25.0.4.
+**Use a HotSpot JDK (C2) for these runs, not GraalVM.** On GraalVM 25.4.4 (Oracle and CE; the sdkman default here)
+a single search takes over 500 s instead of 7.5 s:
+
+* When the Graal JIT compiles the scan loop, it leaves cssw4j's small `Lanes.shiftBytes(ByteVector)` helper out of
+  line (`not-within-budget`).
+* With a vector crossing that call, every vector operation in the inlined kernel then runs the Vector API's pure-Java
+  fallback.
+* Raising the budget (`-Djdk.graal.TypicalGraphSize=20000`) avoids it.
+
+See the standalone reproducer in cssw4j's
+[graalvm/reproducers](../cssw4j/graalvm/reproducers/README.md). All numbers above are from Temurin 25.0.4.
 
 ## Reference results
 
