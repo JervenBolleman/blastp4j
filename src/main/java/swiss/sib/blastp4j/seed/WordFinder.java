@@ -55,12 +55,16 @@ public final class WordFinder {
 	 */
 	public void find(byte[] residues, int start, int length, List<UngappedHsp> out) {
 		final int[] cellStart = table.start, offsets = table.offsets;
+		final long[] occupied = table.occupied;
 		final int wordSize = LookupTable.WORD_SIZE;
 		final int mask = LookupTable.WORDS - 1;
 		if (length >= wordSize) {
 			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
 			for (int s = 0; s <= length - wordSize; s++) {
 				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
+				if ((occupied[word >>> 6] & (1L << word)) == 0) {
+					continue;
+				}
 				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
 					hit(residues, start, length, offsets[k], s, out);
 				}

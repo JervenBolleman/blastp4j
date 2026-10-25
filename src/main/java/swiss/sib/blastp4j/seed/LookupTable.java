@@ -21,10 +21,21 @@ public final class LookupTable {
 
 	final int[] start;
 	final int[] offsets;
+	/**
+	 * One bit per word: set when the word has neighbours. 4 KB, so the scan can test most words without touching the
+	 * 128 KB of {@code start}.
+	 */
+	final long[] occupied;
 
 	private LookupTable(int[] start, int[] offsets) {
 		this.start = start;
 		this.offsets = offsets;
+		this.occupied = new long[WORDS / Long.SIZE];
+		for (int w = 0; w < WORDS; w++) {
+			if (start[w + 1] > start[w]) {
+				occupied[w / Long.SIZE] |= 1L << w;
+			}
+		}
 	}
 
 	/** Index of the word at {@code pos} of {@code seq}. */
