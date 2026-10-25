@@ -44,7 +44,8 @@ class SwissProtDatabaseTest {
 	@Test
 	void residuesAreIdenticalToThePsqFile() throws IOException {
 		byte[] psq = Files.readAllBytes(PSQ);
-		byte[] ours = db.residues();
+		assertEquals(1, db.volumes());
+		byte[] ours = db.residues(0).toArray(java.lang.foreign.ValueLayout.JAVA_BYTE);
 		assertEquals(psq.length, ours.length, "length");
 		int first = java.util.Arrays.mismatch(psq, ours);
 		assertEquals(-1, first, "first differing byte");

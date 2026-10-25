@@ -206,8 +206,10 @@ public final class BlastpSearch {
 			tracebackTasks.add(() -> {
 				GappedAligner aligner = new GappedAligner(gapOpen, gapExtend);
 				List<Hit> out = new ArrayList<>();
+				byte[] subject = null;
 				for (int i; (i = nextHit.getAndIncrement()) < kept.size();) {
-					Hit h = traceback(query, aligner, kept.get(i));
+					subject = db.withSentinels(kept.get(i).subject(), subject);
+					Hit h = traceback(query, aligner, kept.get(i), subject);
 					if (h != null) {
 						out.add(h);
 					}
@@ -240,10 +242,11 @@ public final class BlastpSearch {
 		for (int t = 0; t < tasks; t++) {
 			work.add(() -> {
 				CompoRedo redo = new CompoRedo(q, statistics);
+				byte[] subject = null;
 				for (int i; (i = next.getAndIncrement()) < ordered.size();) {
 					Hit h = ordered.get(i);
-					results[i] = redo.redo(h.hsps(), db.residues(), db.start(h.subject()), db.length(h.subject()),
-							evalue, null);
+					subject = db.withSentinels(h.subject(), subject);
+					results[i] = redo.redo(h.hsps(), subject, 1, db.length(h.subject()), evalue, null);
 				}
 				return null;
 			});
@@ -270,7 +273,7 @@ public final class BlastpSearch {
 				if (sequential == null) {
 					sequential = new CompoRedo(q, statistics);
 				}
-				r = sequential.redo(h.hsps(), db.residues(), db.start(h.subject()), db.length(h.subject()), evalue,
+				r = sequential.redo(h.hsps(), db.withSentinels(h.subject(), null), 1, db.length(h.subject()), evalue,
 						current);
 			}
 			if (r.finalMatrix() != null) {
@@ -323,18 +326,20 @@ public final class BlastpSearch {
 	};
 
 	private List<Hit> prelim(byte[] query, WordFinder finder, int cutoff, AtomicInteger next) {
-		final byte[] residues = db.residues();
 		final GappedAligner aligner = new GappedAligner(gapOpen, gapExtend);
 		final List<Hit> found = new ArrayList<>();
 		final List<UngappedHsp> seeds = new ArrayList<>();
+		byte[] subject = null;
 		for (int chunk; (chunk = next.getAndIncrement()) * CHUNK < db.size();) {
 			int end = Math.min(db.size(), (chunk + 1) * CHUNK);
 			for (int i = chunk * CHUNK; i < end; i++) {
-				finder.find(residues, db.start(i), db.length(i), seeds);
+				subject = db.withSentinels(i, subject);
+				int length = db.length(i);
+				finder.find(subject, 1, length, seeds);
 				if (seeds.isEmpty()) {
 					continue;
 				}
-				List<Hsp> hsps = gappedScores(query, aligner, db.start(i), db.length(i), seeds, cutoff);
+				List<Hsp> hsps = gappedScores(query, aligner, subject, length, seeds, cutoff);
 				seeds.clear();
 				if (hsps.isEmpty()) {
 					continue;
@@ -344,7 +349,7 @@ public final class BlastpSearch {
 				double best = Double.MAX_VALUE;
 				List<Hsp> kept = new ArrayList<>();
 				for (Hsp h : hsps) {
-					h.evalue = statistics.evalue(h.score, query.length, db.length(i));
+					h.evalue = statistics.evalue(h.score, query.length, length);
 					if (h.evalue <= prelimEvalue) {
 						kept.add(h);
 						best = Math.min(best, h.evalue);
@@ -358,13 +363,16 @@ public final class BlastpSearch {
 		return found;
 	}
 
-	/** {@code BLAST_GetGappedScore} for one subject. */
-	List<Hsp> gappedScores(byte[] query, GappedAligner aligner, int base, int length, List<UngappedHsp> seeds,
+	/**
+	 * {@code BLAST_GetGappedScore} for one subject, given as {@link SequenceDatabase#withSentinels} gives it: residues
+	 * at {@code [1, 1 + length)}.
+	 */
+	List<Hsp> gappedScores(byte[] query, GappedAligner aligner, byte[] residues, int length, List<UngappedHsp> seeds,
 			int cutoff) {
+		final int base = 1;
 		seeds.sort(SEED_ORDER);
 		final int restrictedCutoff = (int) (RESTRICTED_MULT * cutoff);
 		boolean restricted = restrictedAlign && seeds.get(0).score() < restrictedCutoff;
-		final byte[] residues = db.residues();
 		List<Hsp> hsps = new ArrayList<>();
 		HspTree tree = new HspTree();
 		for (int index = 0; index < seeds.size(); index++) {
@@ -395,10 +403,12 @@ public final class BlastpSearch {
 		return hsps;
 	}
 
-	/** {@code Blast_TracebackFromHSPList} for one subject; null when no HSP is left. */
-	Hit traceback(byte[] query, GappedAligner aligner, Hit prelim) {
-		final byte[] residues = db.residues();
-		final int base = db.start(prelim.subject()), length = db.length(prelim.subject());
+	/**
+	 * {@code Blast_TracebackFromHSPList} for one subject, given as {@link SequenceDatabase#withSentinels} gives it;
+	 * null when no HSP is left.
+	 */
+	Hit traceback(byte[] query, GappedAligner aligner, Hit prelim, byte[] residues) {
+		final int base = 1, length = db.length(prelim.subject());
 		List<Hsp> done = new ArrayList<>();
 		HspTree tree = new HspTree();
 		for (Hsp p : prelim.hsps()) {

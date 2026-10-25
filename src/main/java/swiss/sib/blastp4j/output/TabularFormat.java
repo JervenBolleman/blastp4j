@@ -193,8 +193,8 @@ public final class TabularFormat {
 	 */
 	public static String row(List<Column> columns, String qseqid, byte[] query, SequenceDatabase db, int subject,
 			Hsp hsp, Statistics statistics) {
-		final byte[] residues = db.residues();
-		final int subjectBase = db.start(subject), subjectLength = db.length(subject);
+		final int subjectBase = 1, subjectLength = db.length(subject);
+		final byte[] residues = db.withSentinels(subject, new byte[subjectLength + 2]);
 		boolean sequences = columns.contains(Column.QSEQ) || columns.contains(Column.SSEQ);
 		Alignment a = new Alignment(query, residues, subjectBase, hsp, sequences);
 		StringBuilder line = new StringBuilder();

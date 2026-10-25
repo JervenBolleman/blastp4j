@@ -28,7 +28,7 @@ class BlastDbReaderTest {
 		for (int i = 0; i < expected.size(); i++) {
 			assertArrayEquals(expected.sequence(i), actual.sequence(i), "sequence " + i);
 		}
-		assertArrayEquals(expected.residues(), actual.residues());
+		assertEquals(expected.maxLength(), actual.maxLength());
 	}
 
 	@Test
@@ -67,7 +67,7 @@ class BlastDbReaderTest {
 			assertEquals(fasta.accession(i, true), db.accession(i, true));
 			assertEquals(fasta.title(i), db.title(i));
 		}
-		assertEquals(fasta.residues().length, db.residues().length);
+		assertEquals(6, db.volumes());
 	}
 
 	@Test

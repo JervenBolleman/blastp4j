@@ -30,9 +30,11 @@ public class DatabaseLoadBench {
 	public String file;
 
 	@Benchmark
-	public SequenceDatabase load() throws Exception {
+	public long load() throws Exception {
 		Path dir = Path.of(System.getProperty("blastp4j.sprot", System.getProperty("user.home") + "/data/uniprot"));
 		Path path = dir.resolve(file);
-		return BlastDbReader.exists(path) ? BlastDbReader.read(path) : FastaReader.read(path);
+		try (SequenceDatabase db = BlastDbReader.exists(path) ? BlastDbReader.read(path) : FastaReader.read(path)) {
+			return db.totalResidues();
+		}
 	}
 }

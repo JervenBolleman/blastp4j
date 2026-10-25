@@ -56,13 +56,14 @@ public final class SeedSearch {
 	}
 
 	private List<Seeds> scan(WordFinder finder, AtomicInteger next) {
-		final byte[] residues = db.residues();
+		byte[] subject = null;
 		final List<Seeds> found = new ArrayList<>();
 		List<UngappedHsp> hsps = new ArrayList<>();
 		for (int chunk; (chunk = next.getAndIncrement()) * CHUNK < db.size();) {
 			int end = Math.min(db.size(), (chunk + 1) * CHUNK);
 			for (int i = chunk * CHUNK; i < end; i++) {
-				finder.find(residues, db.start(i), db.length(i), hsps);
+				subject = db.withSentinels(i, subject);
+				finder.find(subject, 1, db.length(i), hsps);
 				if (!hsps.isEmpty()) {
 					hsps.sort(Comparator.comparingInt(UngappedHsp::score).reversed());
 					found.add(new Seeds(i, List.copyOf(hsps)));

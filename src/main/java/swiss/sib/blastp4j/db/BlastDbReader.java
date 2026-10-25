@@ -1,32 +1,37 @@
 package swiss.sib.blastp4j.db;
 
 import java.io.IOException;
+import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
 /**
- * Reads a BLAST protein database, as made by {@code makeblastdb -dbtype prot} (format version 4 or 5), into a
- * {@link SequenceDatabase}.
+ * Opens a BLAST protein database, as made by {@code makeblastdb -dbtype prot} (format version 4 or 5), as a
+ * {@link SequenceDatabase}. The files are memory-mapped, not read: opening takes milliseconds whatever the size of the
+ * database, and the operating system pages the sequences in as the search reads them.
  * <p>
  * A volume consists of:
  * <ul>
  * <li>{@code .pin}, the index: version, type, title, date, number of sequences, total and maximum length, then the
  * offsets of every header in {@code .phr} and of every sequence in {@code .psq}. Integers are big-endian, except the
  * total length (64 bits, little-endian);</li>
- * <li>{@code .psq}, the sequences as NCBIstdaa codes separated by a 0 byte: the in-memory layout of
- * {@link SequenceDatabase}, which is loaded as is;</li>
+ * <li>{@code .psq}, the sequences as NCBIstdaa codes separated by a 0 byte: the layout of {@link SequenceDatabase},
+ * used as is;</li>
  * <li>{@code .phr}, the headers: one {@code Blast-def-line-set} per sequence in binary ASN.1, decoded only when an
  * identifier or title is asked for.</li>
  * </ul>
- * A multi-volume database has a {@code .pal} alias file whose {@code DBLIST} names the volumes; alias files that
- * restrict the database ({@code OIDLIST}, {@code GILIST}, {@code SEQIDLIST}, {@code TAXIDLIST}...) are not
- * supported. The other files (LMDB, taxonomy, masks) are not needed.
+ * A multi-volume database has a {@code .pal} alias file whose {@code DBLIST} names the volumes, each mapped
+ * separately; alias files that restrict the database ({@code OIDLIST}, {@code GILIST}, {@code SEQIDLIST},
+ * {@code TAXIDLIST}...) are not supported. The other files (LMDB, taxonomy, masks) are not needed.
  */
 public final class BlastDbReader {
 	private BlastDbReader() {
@@ -41,42 +46,28 @@ public final class BlastDbReader {
 		return prefix.resolveSibling(prefix.getFileName() + extension);
 	}
 
-	/** Reads the database {@code prefix} (the name given to {@code makeblastdb -out}, without extension). */
+	/**
+	 * Opens the database {@code prefix} (the name given to {@code makeblastdb -out}, without extension). Its files are
+	 * memory-mapped in a shared arena, and unmapped when the returned database is closed.
+	 */
 	public static SequenceDatabase read(Path prefix) throws IOException {
-		List<Path> volumes = new ArrayList<>();
-		collectVolumes(prefix, volumes, 0);
-		List<Volume> read = new ArrayList<>();
-		long total = 1;
-		for (Path v : volumes) {
-			Volume vol = readVolume(v);
-			read.add(vol);
-			total += vol.sequences.length - 1;
-		}
-		if (total > Integer.MAX_VALUE - 16) {
-			throw new IOException("database too large for one array: " + total + " bytes of sequence data");
-		}
-		if (read.size() == 1) {
-			Volume v = read.get(0);
-			return new SequenceDatabase(v.sequences, v.seqOffsets, new DbHeaders(List.of(v)));
-		}
-		// Concatenate the volumes; each .psq starts with the sentinel that ends the previous one.
-		byte[] residues = new byte[(int) total];
-		int count = 0;
-		for (Volume v : read) {
-			count += v.count;
-		}
-		int[] starts = new int[count + 1];
-		int pos = 1, k = 0;
-		for (Volume v : read) {
-			int base = pos - 1;
-			System.arraycopy(v.sequences, 1, residues, pos, v.sequences.length - 1);
-			for (int i = 0; i < v.count; i++) {
-				starts[k++] = v.seqOffsets[i] + base;
+		List<Path> paths = new ArrayList<>();
+		collectVolumes(prefix, paths, 0);
+		Arena arena = Arena.ofShared();
+		try {
+			List<Volume> volumes = new ArrayList<>();
+			for (Path p : paths) {
+				volumes.add(readVolume(p, arena));
 			}
-			pos += v.sequences.length - 1;
+			List<SequenceDatabase.Volume> residues = new ArrayList<>();
+			for (Volume v : volumes) {
+				residues.add(v.residues);
+			}
+			return new SequenceDatabase(arena, residues, new DbHeaders(volumes));
+		} catch (IOException | RuntimeException e) {
+			arena.close();
+			throw e;
 		}
-		starts[count] = pos;
-		return new SequenceDatabase(residues, starts, new DbHeaders(read));
 	}
 
 	/** Follows alias files ({@code .pal}) down to volumes ({@code .pin}). */
@@ -140,31 +131,25 @@ public final class BlastDbReader {
 		return out;
 	}
 
-	/** One volume: its sequence file, offsets and headers. */
-	static final class Volume {
-		final String title;
-		final int count;
-		final long totalLength;
-		final byte[] sequences;
-		final int[] seqOffsets;
-		final int[] headerOffsets;
-		final byte[] headers;
-
-		Volume(String title, int count, long totalLength, byte[] sequences, int[] seqOffsets, int[] headerOffsets,
-				byte[] headers) {
-			this.title = title;
-			this.count = count;
-			this.totalLength = totalLength;
-			this.sequences = sequences;
-			this.seqOffsets = seqOffsets;
-			this.headerOffsets = headerOffsets;
-			this.headers = headers;
+	/** One volume: its sequences, and its headers with their offsets. */
+	record Volume(String title, SequenceDatabase.Volume residues, MemorySegment headers, MemorySegment headerOffsets) {
+		int count() {
+			return residues.size();
 		}
 	}
 
-	static Volume readVolume(Path prefix) throws IOException {
+	private static MemorySegment map(Path file, Arena arena) throws IOException {
+		try (FileChannel ch = FileChannel.open(file, StandardOpenOption.READ)) {
+			return ch.map(FileChannel.MapMode.READ_ONLY, 0, ch.size(), arena);
+		}
+	}
+
+	/** Maps the files of one volume; the offset tables are read in place from the mapped {@code .pin}. */
+	static Volume readVolume(Path prefix, Arena arena) throws IOException {
 		Path pin = sibling(prefix, ".pin");
-		ByteBuffer in = ByteBuffer.wrap(Files.readAllBytes(pin)).order(ByteOrder.BIG_ENDIAN);
+		MemorySegment index = map(pin, arena);
+		ByteBuffer in = index.asSlice(0, Math.min(index.byteSize(), Integer.MAX_VALUE)).asByteBuffer()
+				.order(ByteOrder.BIG_ENDIAN);
 		int version = in.getInt();
 		if (version != 4 && version != 5) {
 			throw new IOException(pin + ": unsupported format version " + version);
@@ -182,26 +167,28 @@ public final class BlastDbReader {
 		}
 		string(in); // date
 		int count = in.getInt();
-		long totalLength = in.order(ByteOrder.LITTLE_ENDIAN).getLong();
+		in.order(ByteOrder.LITTLE_ENDIAN).getLong(); // total length
 		in.order(ByteOrder.BIG_ENDIAN);
-		in.getInt(); // maximum length
-		int[] headerOffsets = new int[count + 1];
-		for (int i = 0; i <= count; i++) {
-			headerOffsets[i] = in.getInt();
+		int maxLength = in.getInt();
+		long tables = in.position(), table = 4L * (count + 1);
+		if (index.byteSize() < tables + 2 * table) {
+			throw new IOException(pin + ": truncated");
 		}
-		int[] seqOffsets = new int[count + 1];
-		for (int i = 0; i <= count; i++) {
-			seqOffsets[i] = in.getInt();
+		MemorySegment headerOffsets = index.asSlice(tables, table);
+		MemorySegment seqOffsets = index.asSlice(tables + table, table);
+		MemorySegment sequences = map(sibling(prefix, ".psq"), arena);
+		SequenceDatabase.Volume residues = new SequenceDatabase.Volume(sequences, seqOffsets,
+				SequenceDatabase.PIN_INT, count, maxLength);
+		if (residues.start(count) != sequences.byteSize()) {
+			throw new IOException(prefix + ".psq: " + sequences.byteSize() + " bytes, the index says "
+					+ residues.start(count));
 		}
-		byte[] sequences = Files.readAllBytes(sibling(prefix, ".psq"));
-		if (seqOffsets[count] != sequences.length) {
-			throw new IOException(prefix + ".psq: " + sequences.length + " bytes, the index says " + seqOffsets[count]);
+		MemorySegment headers = map(sibling(prefix, ".phr"), arena);
+		long headerEnd = Integer.toUnsignedLong(headerOffsets.getAtIndex(SequenceDatabase.PIN_INT, count));
+		if (headerEnd != headers.byteSize()) {
+			throw new IOException(prefix + ".phr: " + headers.byteSize() + " bytes, the index says " + headerEnd);
 		}
-		byte[] headers = Files.readAllBytes(sibling(prefix, ".phr"));
-		if (headerOffsets[count] != headers.length) {
-			throw new IOException(prefix + ".phr: " + headers.length + " bytes, the index says " + headerOffsets[count]);
-		}
-		return new Volume(title, count, totalLength, sequences, seqOffsets, headerOffsets, headers);
+		return new Volume(title, residues, headers, headerOffsets);
 	}
 
 	/** A length-prefixed string; makeblastdb pads some with zero bytes for alignment. */
@@ -228,7 +215,7 @@ public final class BlastDbReader {
 			int n = 0;
 			for (int v = 0; v < volumes.size(); v++) {
 				firstOid[v] = n;
-				n += volumes.get(v).count;
+				n += volumes.get(v).count();
 			}
 			size = n;
 		}
@@ -249,8 +236,9 @@ public final class BlastDbReader {
 			}
 			Volume vol = volumes.get(v);
 			int oid = i - firstOid[v];
-			ByteBuffer b = ByteBuffer.wrap(vol.headers, vol.headerOffsets[oid],
-					vol.headerOffsets[oid + 1] - vol.headerOffsets[oid]);
+			long from = Integer.toUnsignedLong(vol.headerOffsets.getAtIndex(SequenceDatabase.PIN_INT, oid));
+			long to = Integer.toUnsignedLong(vol.headerOffsets.getAtIndex(SequenceDatabase.PIN_INT, oid + 1));
+			ByteBuffer b = vol.headers.asSlice(from, to - from).asByteBuffer();
 			// Blast-def-line-set ::= SEQUENCE OF Blast-def-line; the first one is the one BLAST prints.
 			Asn1.Node first = Asn1.read(b).children().get(0);
 			// Blast-def-line ::= SEQUENCE { title [0], seqid [1] SEQUENCE OF Seq-id, taxid [2], ... }

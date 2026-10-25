@@ -116,15 +116,13 @@ public final class ExhaustiveSearch {
 	/** Takes chunks of subjects from {@code next} until none are left. */
 	private List<Hit> scan(Profile profile, AtomicInteger next) {
 		final Aligner aligner = new Aligner();
-		final byte[] residues = db.residues();
 		final byte[] subject = new byte[maxLength];
 		final int queryLength = profile.length();
 		final List<Hit> hits = new ArrayList<>();
 		for (int chunk; (chunk = next.getAndIncrement()) * CHUNK < db.size();) {
 			int end = Math.min(db.size(), (chunk + 1) * CHUNK);
 			for (int i = chunk * CHUNK; i < end; i++) {
-				int length = db.length(i);
-				System.arraycopy(residues, db.start(i), subject, 0, length);
+				int length = db.copy(i, subject, 0);
 				Alignment a = aligner.align(profile, subject, length, gapOpen, gapExtend, 0, 0, 0, 0);
 				if (a.score1() <= 0) {
 					continue;

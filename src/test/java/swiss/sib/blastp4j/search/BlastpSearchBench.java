@@ -50,6 +50,7 @@ public class BlastpSearchBench {
 	@Param({ "fasta", "blastdb" })
 	public String source;
 
+	private SequenceDatabase db;
 	private BlastpSearch search;
 	private byte[] sequence;
 	private ExecutorService pool;
@@ -57,7 +58,7 @@ public class BlastpSearchBench {
 	@Setup
 	public void setup() throws Exception {
 		Path dir = Path.of(System.getProperty("blastp4j.sprot", System.getProperty("user.home") + "/data/uniprot"));
-		SequenceDatabase db = source.equals("blastdb") ? BlastDbReader.read(dir.resolve("blastdb/sprot"))
+		db = source.equals("blastdb") ? BlastDbReader.read(dir.resolve("blastdb/sprot"))
 				: FastaReader.read(dir.resolve("uniprot_sprot.fasta"));
 		SequenceDatabase queries = FastaReader.read(Path.of("src/test/resources/queries/uniprot_human.fasta"));
 		for (int i = 0; i < queries.size(); i++) {
@@ -73,6 +74,7 @@ public class BlastpSearchBench {
 	@TearDown
 	public void tearDown() {
 		pool.shutdown();
+		db.close();
 	}
 
 	@Benchmark

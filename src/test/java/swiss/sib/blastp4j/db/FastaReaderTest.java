@@ -26,9 +26,10 @@ class FastaReaderTest {
 		assertEquals("MACDE", db.letters(0));
 		assertEquals("KW", db.letters(1));
 		// sentinel, M A C D E, sentinel, K W, sentinel (NCBIstdaa codes)
-		assertArrayEquals(new byte[] { 0, 12, 1, 3, 4, 5, 0, 10, 20, 0 }, db.residues());
-		assertEquals(1, db.start(0));
-		assertEquals(7, db.start(1));
+		assertArrayEquals(new byte[] { 0, 12, 1, 3, 4, 5, 0, 10, 20, 0 },
+				db.residues(0).toArray(java.lang.foreign.ValueLayout.JAVA_BYTE));
+		assertArrayEquals(new byte[] { 0, 12, 1, 3, 4, 5, 0 }, java.util.Arrays.copyOf(db.withSentinels(0, null), 7));
+		assertArrayEquals(new byte[] { 0, 10, 20, 0 }, java.util.Arrays.copyOf(db.withSentinels(1, null), 4));
 	}
 
 	@Test

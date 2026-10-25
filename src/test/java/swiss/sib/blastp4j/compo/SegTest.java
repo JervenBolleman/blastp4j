@@ -53,7 +53,7 @@ class SegTest {
 		int masked = 0;
 		for (int i = 0; i < db.size(); i++) {
 			BitSet ours = new BitSet();
-			for (int[] s : seg.segments(db.residues(), db.start(i), db.length(i))) {
+			for (int[] s : seg.segments(db.withSentinels(i, null), 1, db.length(i))) {
 				ours.set(s[0], s[1] + 1);
 			}
 			assertEquals(expected.get(i), ours, db.id(i));

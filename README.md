@@ -72,8 +72,9 @@ commit.
     bin/blastp4j -query queries.fasta -db uniprot_sprot.fasta -outfmt "6 std btop" -num_threads 8 -out hits.tsv
 
 * The database is a BLAST protein database (the name given to `makeblastdb -out`), or a FASTA file, plain or
-  gzip-compressed. Either is read into memory: Swiss-Prot (209 million residues) takes 1 s and 0.6 GB from the BLAST
-  database, 2.3 s and 0.9 GB from FASTA.
+  gzip-compressed. A BLAST database is memory-mapped, so it is not limited in size by the Java heap or arrays, and the
+  operating system pages it in. A FASTA file is read onto the heap: Swiss-Prot (209 million residues) takes 2.3 s and
+  0.9 GB, at most 2 GB of residues.
 * From a FASTA file the results are those of blastp against a database made from it with `makeblastdb -parse_seqids`.
 * Options, with blastp's names and defaults:
   * `-query`, `-db`, `-out`
@@ -130,13 +131,38 @@ the program, so they understated the difference. This is the next thing to work 
 
 * `.pin`, the index: title, number of sequences, total length, and the offsets of each sequence and header. All
   integers are big-endian except the total length, which is a little-endian 64-bit number.
-* `.psq`, the sequences: NCBIstdaa codes with a 0 byte between sequences. This is the layout blastp4j already used in
-  memory, so the file is loaded as is, with the offsets from `.pin` as sequence starts.
+* `.psq`, the sequences: NCBIstdaa codes with a 0 byte between sequences. This is the layout blastp4j uses, so the
+  file is used as is, with the offsets from `.pin` as sequence starts.
 * `.phr`, the headers: one `Blast-def-line-set` per sequence in binary ASN.1 (BER, with indefinite lengths).
   `db.Asn1` is a small BER reader for it. A header is decoded only when a hit is printed.
-* `.pal`, an alias file that lists the volumes of a large database (`DBLIST`). The volumes are concatenated into one
-  array, so a database is limited to 2 GB of residues. Alias files that restrict a database (`OIDLIST`, `GILIST`,
-  `SEQIDLIST`, `TAXIDLIST`, ...) are rejected. The LMDB, taxonomy and mask files are not used.
+* `.pal`, an alias file that lists the volumes of a large database (`DBLIST`). Alias files that restrict a database
+  (`OIDLIST`, `GILIST`, `SEQIDLIST`, `TAXIDLIST`, ...) are rejected. The LMDB, taxonomy and mask files are not used.
+
+The `.pin`, `.psq` and `.phr` files of every volume are memory-mapped with the foreign function and memory API
+(`FileChannel.map` into a shared `Arena`, closed with the database); nothing is copied onto the Java heap, and the
+sequence and header offsets are read in place from the mapped `.pin`. Opening a database therefore takes the same few
+milliseconds whatever its size, and the total size is limited only by the address space. `SequenceDatabase` holds one
+`MemorySegment` per volume (a FASTA file is one heap segment). The search copies each subject with its two sentinels
+into a small buffer of its own thread (`withSentinels`), so the seeding, extension and composition code still works
+on `byte[]` exactly as before.
+
+`DatabaseLoadBench` and `BlastpSearchBench` (`source` parameter) measure the change, single thread, ms:
+
+| | heap array (before) | mapped segments |
+|---|---:|---:|
+| open `blastdb/sprot` | 102 | 0.6 |
+| load `uniprot_sprot.fasta` | 1,264 | 1,324 |
+| HBA_HUMAN, cbs0, from FASTA / BLAST db | 2,225 / 2,068 | 2,162 / 2,072 |
+| CDK1_HUMAN, cbs0 | 4,033 / 4,279 | 3,927 / 4,116 |
+| BRCA1_HUMAN, cbs0 | 17,422 / 16,887 | 16,506 / 16,784 |
+| HBA_HUMAN, cbs2 | 2,422 / 2,458 | 2,240 / 2,210 |
+| CDK1_HUMAN, cbs2 | 4,529 / 4,446 | 4,285 / 4,334 |
+| BRCA1_HUMAN, cbs2 | 17,960 / 17,614 | 17,228 / 17,310 |
+
+Copying each subject costs nothing measurable: the differences are within the noise of the runs. The whole CLI run
+of the 24 queries against the BLAST database (8 threads) takes 34 s as before, with a peak resident size of 0.72 GB
+instead of 0.91 GB, most of it the mapped file in the page cache; a one-sequence query peaks at 0.28 GB instead of
+0.60 GB.
 
 The identifiers are printed as blastp prints them (`db.SeqId`, checked for every kind in `src/test/resources/blastdb`):
 

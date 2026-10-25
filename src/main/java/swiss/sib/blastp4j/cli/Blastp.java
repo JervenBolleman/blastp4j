@@ -221,7 +221,7 @@ public final class Blastp {
 		Statistics statistics = new Statistics(ScoringParameters.BLOSUM62_11_1, db.totalResidues());
 		BlastpSearch search = new BlastpSearch(db, statistics, o.evalue(), o.compositionBased(), o.maxTargetSeqs(),
 				o.maxHsps());
-		try (ExecutorService pool = Executors.newFixedThreadPool(o.threads());
+		try (db; ExecutorService pool = Executors.newFixedThreadPool(o.threads());
 				Writer out = o.out() != null ? Files.newBufferedWriter(o.out(), StandardCharsets.US_ASCII)
 						: new BufferedWriter(new OutputStreamWriter(stdout, StandardCharsets.US_ASCII))) {
 			for (int q = 0; q < queries.size(); q++) {
