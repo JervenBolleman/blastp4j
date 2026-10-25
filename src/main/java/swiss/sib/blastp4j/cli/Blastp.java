@@ -1,0 +1,246 @@
+package swiss.sib.blastp4j.cli;
+
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.io.PrintStream;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import swiss.sib.blastp4j.align.Hsp;
+import swiss.sib.blastp4j.db.FastaReader;
+import swiss.sib.blastp4j.db.SequenceDatabase;
+import swiss.sib.blastp4j.output.TabularFormat;
+import swiss.sib.blastp4j.search.BlastpSearch;
+import swiss.sib.blastp4j.stats.ScoringParameters;
+import swiss.sib.blastp4j.stats.Statistics;
+
+/**
+ * The {@code blastp4j} command: a protein search with the options and tabular output of BLAST+'s {@code blastp}.
+ *
+ * <pre>
+ * blastp4j -query queries.fasta -db uniprot_sprot.fasta -outfmt "6 std btop" -num_threads 8 -out hits.tsv
+ * </pre>
+ *
+ * The database is a FASTA file (plain or gzip-compressed). The results are those blastp gives for a database built from
+ * the same FASTA file with {@code makeblastdb -parse_seqids}. Options of blastp that are not implemented are accepted
+ * only with their default value.
+ */
+public final class Blastp {
+	static final String VERSION = "blastp4j 0.1.0 (BLAST+ 2.17.0 compatible)";
+
+	static final String USAGE = """
+			Usage: blastp4j -query FILE -db FILE [options]
+
+			Searches protein sequences against a protein database and writes the results as BLAST+ blastp's
+			tabular output (-outfmt 6). Results are identical to blastp's for the same parameters.
+
+			  -query FILE             query sequences, FASTA (plain or .gz)
+			  -db FILE                database sequences, FASTA (plain or .gz)
+			  -out FILE               output file (default: standard output)
+			  -outfmt "6 [FIELDS]"    tabular output; fields as in blastp: std qseqid sseqid qacc qaccver sacc
+			                          saccver qlen slen qstart
+			                          qend sstart send qseq sseq evalue bitscore score length pident nident
+			                          mismatch positive gapopen gaps ppos qcovhsp btop (default: 6, i.e. std)
+			  -evalue X               E-value cutoff (default 10)
+			  -max_target_seqs N      number of subjects to report per query (default 500)
+			  -max_hsps N             number of HSPs to report per subject (default: all)
+			  -comp_based_stats MODE  composition-based statistics: 2, T or D (default, conditional score matrix
+			                          adjustment) or 0 or F (none)
+			  -num_threads N          threads (default: number of processors)
+			  -version                print the version
+			  -h, -help               print this help
+
+			Accepted with their default value only: -task blastp, -matrix BLOSUM62, -gapopen 11, -gapextend 1,
+			-word_size 3, -threshold 11, -window_size 40, -seg no.
+			""";
+
+	/** Options that blastp4j implements only with blastp's default value. */
+	static final Map<String, String> FIXED = Map.of("task", "blastp", "matrix", "BLOSUM62", "gapopen", "11",
+			"gapextend", "1", "word_size", "3", "threshold", "11", "window_size", "40", "seg", "no");
+
+	/** A usage error. */
+	static final class UsageException extends Exception {
+		UsageException(String message) {
+			super(message);
+		}
+	}
+
+	/** The parsed command line. */
+	record Options(Path query, Path db, Path out, List<TabularFormat.Column> columns, double evalue,
+			int maxTargetSeqs, int maxHsps, boolean compositionBased, int threads) {
+	}
+
+	static Options parse(String[] args) throws UsageException {
+		Map<String, String> values = new HashMap<>();
+		for (int i = 0; i < args.length; i++) {
+			String a = args[i];
+			if (!a.startsWith("-") || a.length() < 2) {
+				throw new UsageException("unexpected argument '" + a + "'");
+			}
+			String name = a.substring(a.startsWith("--") ? 2 : 1);
+			if (i + 1 >= args.length) {
+				throw new UsageException("option -" + name + " needs a value");
+			}
+			if (values.put(name, args[++i]) != null) {
+				throw new UsageException("option -" + name + " is given twice");
+			}
+		}
+		for (String name : values.keySet()) {
+			switch (name) {
+			case "query", "db", "out", "outfmt", "evalue", "max_target_seqs", "max_hsps", "comp_based_stats",
+					"num_threads" -> {
+			}
+			default -> {
+				String fixed = FIXED.get(name);
+				if (fixed == null) {
+					throw new UsageException("unknown or unsupported option -" + name);
+				}
+				if (!fixed.equalsIgnoreCase(values.get(name))) {
+					throw new UsageException("-" + name + " " + values.get(name) + " is not supported; only "
+							+ fixed + " (the default) is");
+				}
+			}
+			}
+		}
+		if (!values.containsKey("query") || !values.containsKey("db")) {
+			throw new UsageException("-query and -db are required");
+		}
+		String outfmt = values.getOrDefault("outfmt", "6").trim();
+		String[] fmt = outfmt.split("\\s+", 2);
+		if (!fmt[0].equals("6")) {
+			throw new UsageException("only -outfmt 6 (tabular) is supported, not '" + fmt[0] + "'");
+		}
+		List<TabularFormat.Column> columns;
+		try {
+			columns = TabularFormat.parseColumns(fmt.length > 1 ? fmt[1] : "std");
+		} catch (IllegalArgumentException e) {
+			throw new UsageException(e.getMessage());
+		}
+		boolean cbs = switch (values.getOrDefault("comp_based_stats", "2")) {
+		case "2", "T", "t", "D", "d" -> true;
+		case "0", "F", "f" -> false;
+		default -> throw new UsageException("-comp_based_stats " + values.get("comp_based_stats")
+				+ " is not supported; use 2 (the default) or 0");
+		};
+		double evalue = number(values, "evalue", 10.0);
+		if (!(evalue > 0)) {
+			throw new UsageException("-evalue must be positive");
+		}
+		int maxTargetSeqs = (int) integer(values, "max_target_seqs", 500, 1);
+		int maxHsps = (int) integer(values, "max_hsps", 0, 1);
+		int threads = (int) integer(values, "num_threads", Runtime.getRuntime().availableProcessors(), 1);
+		return new Options(Path.of(values.get("query")), Path.of(values.get("db")),
+				values.containsKey("out") ? Path.of(values.get("out")) : null, columns, evalue, maxTargetSeqs, maxHsps,
+				cbs, threads);
+	}
+
+	private static double number(Map<String, String> values, String name, double dflt) throws UsageException {
+		String v = values.get(name);
+		if (v == null) {
+			return dflt;
+		}
+		try {
+			return Double.parseDouble(v);
+		} catch (NumberFormatException e) {
+			throw new UsageException("-" + name + " needs a number, not '" + v + "'");
+		}
+	}
+
+	private static long integer(Map<String, String> values, String name, long dflt, long min) throws UsageException {
+		String v = values.get(name);
+		if (v == null) {
+			return dflt;
+		}
+		try {
+			long n = Long.parseLong(v);
+			if (n < min || n > Integer.MAX_VALUE) {
+				throw new UsageException("-" + name + " must be at least " + min);
+			}
+			return n;
+		} catch (NumberFormatException e) {
+			throw new UsageException("-" + name + " needs a whole number, not '" + v + "'");
+		}
+	}
+
+	/** Runs the search; returns the exit status. */
+	static int run(String[] args, PrintStream stdout, PrintStream stderr) {
+		if (args.length == 0 || List.of(args).contains("-h") || List.of(args).contains("-help")
+				|| List.of(args).contains("--help")) {
+			stdout.print(USAGE);
+			return args.length == 0 ? 1 : 0;
+		}
+		if (List.of(args).contains("-version") || List.of(args).contains("--version")) {
+			stdout.println(VERSION);
+			return 0;
+		}
+		Options o;
+		try {
+			o = parse(args);
+		} catch (UsageException e) {
+			stderr.println("blastp4j: " + e.getMessage());
+			stderr.println("Try 'blastp4j -help'.");
+			return 1;
+		}
+		try {
+			search(o, stdout, stderr);
+			return 0;
+		} catch (IOException e) {
+			stderr.println("blastp4j: " + e.getMessage());
+			return 2;
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			return 3;
+		}
+	}
+
+	static void search(Options o, PrintStream stdout, PrintStream stderr) throws IOException, InterruptedException {
+		if (!Files.isReadable(o.query())) {
+			throw new IOException("cannot read query file " + o.query());
+		}
+		if (!Files.isReadable(o.db())) {
+			throw new IOException("cannot read database file " + o.db());
+		}
+		SequenceDatabase queries = FastaReader.read(o.query());
+		SequenceDatabase db = FastaReader.read(o.db());
+		Statistics statistics = new Statistics(ScoringParameters.BLOSUM62_11_1, db.totalResidues());
+		BlastpSearch search = new BlastpSearch(db, statistics, o.evalue(), o.compositionBased(), o.maxTargetSeqs(),
+				o.maxHsps());
+		try (ExecutorService pool = Executors.newFixedThreadPool(o.threads());
+				Writer out = o.out() != null ? Files.newBufferedWriter(o.out(), StandardCharsets.US_ASCII)
+						: new BufferedWriter(new OutputStreamWriter(stdout, StandardCharsets.US_ASCII))) {
+			for (int q = 0; q < queries.size(); q++) {
+				byte[] query = queries.sequence(q);
+				List<BlastpSearch.Hit> hits;
+				try {
+					hits = search.search(query, pool, o.threads());
+				} catch (IllegalArgumentException e) {
+					// As blastp, skip a query whose composition gives no Karlin-Altschul parameters.
+					stderr.println("blastp4j: warning: query " + queries.id(q) + " skipped: " + e.getMessage());
+					continue;
+				}
+				for (BlastpSearch.Hit h : hits) {
+					for (Hsp hsp : h.hsps()) {
+						out.write(TabularFormat.row(o.columns(), queries.id(q), db.id(h.subject()), query,
+								db.residues(), db.start(h.subject()), db.length(h.subject()), hsp, statistics));
+						out.write('\n');
+					}
+				}
+				out.flush();
+			}
+		}
+	}
+
+	public static void main(String[] args) {
+		Locale.setDefault(Locale.ROOT);
+		System.exit(run(args, System.out, System.err));
+	}
+}

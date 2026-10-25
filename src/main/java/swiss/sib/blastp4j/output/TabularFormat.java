@@ -3,10 +3,16 @@ package swiss.sib.blastp4j.output;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Locale;
+import java.util.stream.Collectors;
 
 import swiss.sib.blastp4j.align.EditScript;
 import swiss.sib.blastp4j.align.Hsp;
 import swiss.sib.blastp4j.db.Alphabet;
+import swiss.sib.blastp4j.stats.Blosum62;
 import swiss.sib.blastp4j.stats.Statistics;
 
 /**
@@ -64,70 +70,176 @@ public final class TabularFormat {
 		return fixed(bitScore, 1);
 	}
 
+	/** The columns of {@code -outfmt 6} that are supported, with BLAST's names. */
+	public enum Column {
+		QSEQID, SSEQID, QACC, QACCVER, SACC, SACCVER, QLEN, SLEN, QSTART, QEND, SSTART, SEND, QSEQ, SSEQ, EVALUE, BITSCORE, SCORE, LENGTH, PIDENT,
+		NIDENT, MISMATCH, POSITIVE, GAPOPEN, GAPS, PPOS, QCOVHSP, BTOP;
+
+		/** The column for a BLAST field name, or null. */
+		public static Column of(String name) {
+			for (Column c : values()) {
+				if (c.name().equalsIgnoreCase(name)) {
+					return c;
+				}
+			}
+			return null;
+		}
+	}
+
+	/** {@code -outfmt 6} without field names ("std"). */
+	public static final List<Column> STANDARD = List.of(Column.QACCVER, Column.SACCVER, Column.PIDENT, Column.LENGTH,
+			Column.MISMATCH, Column.GAPOPEN, Column.QSTART, Column.QEND, Column.SSTART, Column.SEND, Column.EVALUE,
+			Column.BITSCORE);
+
 	/**
-	 * The columns {@code qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore score
-	 * qlen slen btop} for one alignment.
+	 * Parses the field list of {@code -outfmt "6 ..."}; "std" stands for the standard columns.
+	 *
+	 * @throws IllegalArgumentException for an unknown or unsupported field
+	 */
+	public static List<Column> parseColumns(String fields) {
+		List<Column> columns = new ArrayList<>();
+		for (String f : fields.trim().split("\\s+")) {
+			if (f.isEmpty()) {
+				continue;
+			}
+			if (f.equals("std")) {
+				columns.addAll(STANDARD);
+				continue;
+			}
+			Column c = Column.of(f);
+			if (c == null) {
+				throw new IllegalArgumentException("unsupported output field '" + f + "'; supported: std, "
+						+ Arrays.stream(Column.values()).map(x -> x.name().toLowerCase(Locale.ROOT))
+								.collect(Collectors.joining(" ")));
+			}
+			columns.add(c);
+		}
+		return columns.isEmpty() ? STANDARD : columns;
+	}
+
+	/**
+	 * Query coverage in percent, as BLAST rounds it: to the nearest integer below 99%, truncated from there, so that
+	 * 100 means complete coverage.
+	 */
+	static int coverage(int covered, int length) {
+		double c = 100.0 * covered / length;
+		return (int) (c < 99 ? c + 0.5 : c);
+	}
+
+	/** Counts and strings of one alignment, computed from its edit script. */
+	private static final class Alignment {
+		int length, identities, mismatches, positives, gapOpens, gaps;
+		final StringBuilder btop = new StringBuilder(), qseq = new StringBuilder(), sseq = new StringBuilder();
+
+		Alignment(byte[] query, byte[] residues, int subjectBase, Hsp hsp, boolean sequences) {
+			EditScript e = hsp.editScript;
+			int q = hsp.queryStart, s = subjectBase + hsp.subjectStart, run = 0;
+			for (int i = 0; i < e.size(); i++) {
+				int n = e.num(i);
+				length += n;
+				if (e.op(i) == EditScript.SUB) {
+					for (int k = 0; k < n; k++, q++, s++) {
+						char a = Alphabet.decode(query[q]), b = Alphabet.decode(residues[s]);
+						if (sequences) {
+							qseq.append(a);
+							sseq.append(b);
+						}
+						if (Blosum62.score(query[q], residues[s]) > 0) {
+							positives++;
+						}
+						if (query[q] == residues[s]) {
+							identities++;
+							run++;
+						} else {
+							mismatches++;
+							if (run > 0) {
+								btop.append(run);
+								run = 0;
+							}
+							btop.append(a).append(b);
+						}
+					}
+				} else {
+					gapOpens++;
+					gaps += n;
+					if (run > 0) {
+						btop.append(run);
+						run = 0;
+					}
+					boolean inQuery = e.op(i) == EditScript.DEL;
+					for (int k = 0; k < n; k++) {
+						char a = inQuery ? '-' : Alphabet.decode(query[q++]);
+						char b = inQuery ? Alphabet.decode(residues[s++]) : '-';
+						btop.append(a).append(b);
+						if (sequences) {
+							qseq.append(a);
+							sseq.append(b);
+						}
+					}
+				}
+			}
+			if (run > 0) {
+				btop.append(run);
+			}
+		}
+	}
+
+	/**
+	 * One line of {@code -outfmt 6} for one alignment.
 	 *
 	 * @param query       the query (NCBIstdaa)
 	 * @param residues    the array holding the subject
 	 * @param subjectBase where the subject starts in {@code residues}
 	 */
+	public static String row(List<Column> columns, String qseqid, String sseqid, byte[] query, byte[] residues,
+			int subjectBase, int subjectLength, Hsp hsp, Statistics statistics) {
+		boolean sequences = columns.contains(Column.QSEQ) || columns.contains(Column.SSEQ);
+		Alignment a = new Alignment(query, residues, subjectBase, hsp, sequences);
+		StringBuilder line = new StringBuilder();
+		for (Column c : columns) {
+			if (!line.isEmpty()) {
+				line.append('\t');
+			}
+			line.append(switch (c) {
+			case QSEQID, QACC, QACCVER -> qseqid;
+			case SSEQID -> sseqid;
+			case SACC -> SeqId.accession(sseqid, false);
+			case SACCVER -> SeqId.accession(sseqid, true);
+			case QLEN -> Integer.toString(query.length);
+			case SLEN -> Integer.toString(subjectLength);
+			case QSTART -> Integer.toString(hsp.queryStart + 1);
+			case QEND -> Integer.toString(hsp.queryEnd);
+			case SSTART -> Integer.toString(hsp.subjectStart + 1);
+			case SEND -> Integer.toString(hsp.subjectEnd);
+			case QSEQ -> a.qseq;
+			case SSEQ -> a.sseq;
+			case EVALUE -> evalue(hsp.evalue);
+			case BITSCORE -> bitScore(statistics.bitScore(hsp.score));
+			case SCORE -> Integer.toString(hsp.score);
+			case LENGTH -> Integer.toString(a.length);
+			case PIDENT -> fixed(100.0 * a.identities / a.length, 3);
+			case NIDENT -> Integer.toString(a.identities);
+			case MISMATCH -> Integer.toString(a.mismatches);
+			case POSITIVE -> Integer.toString(a.positives);
+			case GAPOPEN -> Integer.toString(a.gapOpens);
+			case GAPS -> Integer.toString(a.gaps);
+			case PPOS -> fixed(100.0 * a.positives / a.length, 2);
+			case QCOVHSP -> Integer.toString(coverage(hsp.queryEnd - hsp.queryStart, query.length));
+			case BTOP -> a.btop;
+			});
+		}
+		return line.toString();
+	}
+
+	/** The columns of the reference files: {@code qseqid sseqid pident length mismatch gapopen qstart qend sstart send
+	 * evalue bitscore score qlen slen btop}. */
+	public static final List<Column> REFERENCE = List.of(Column.QSEQID, Column.SSEQID, Column.PIDENT, Column.LENGTH,
+			Column.MISMATCH, Column.GAPOPEN, Column.QSTART, Column.QEND, Column.SSTART, Column.SEND, Column.EVALUE,
+			Column.BITSCORE, Column.SCORE, Column.QLEN, Column.SLEN, Column.BTOP);
+
+	/** {@link #row(List, String, String, byte[], byte[], int, int, Hsp, Statistics)} with the reference columns. */
 	public static String row(String qseqid, String sseqid, byte[] query, byte[] residues, int subjectBase,
 			int subjectLength, Hsp hsp, Statistics statistics) {
-		EditScript e = hsp.editScript;
-		int q = hsp.queryStart, s = subjectBase + hsp.subjectStart;
-		int length = 0, identities = 0, mismatches = 0, gapOpens = 0, run = 0;
-		StringBuilder btop = new StringBuilder();
-		for (int i = 0; i < e.size(); i++) {
-			int n = e.num(i);
-			length += n;
-			switch (e.op(i)) {
-			case EditScript.SUB -> {
-				for (int k = 0; k < n; k++, q++, s++) {
-					if (query[q] == residues[s]) {
-						identities++;
-						run++;
-					} else {
-						mismatches++;
-						if (run > 0) {
-							btop.append(run);
-							run = 0;
-						}
-						btop.append(Alphabet.decode(query[q])).append(Alphabet.decode(residues[s]));
-					}
-				}
-			}
-			case EditScript.DEL -> { // gap in the query
-				gapOpens++;
-				if (run > 0) {
-					btop.append(run);
-					run = 0;
-				}
-				for (int k = 0; k < n; k++, s++) {
-					btop.append('-').append(Alphabet.decode(residues[s]));
-				}
-			}
-			default -> { // gap in the subject
-				gapOpens++;
-				if (run > 0) {
-					btop.append(run);
-					run = 0;
-				}
-				for (int k = 0; k < n; k++, q++) {
-					btop.append(Alphabet.decode(query[q])).append('-');
-				}
-			}
-			}
-		}
-		if (run > 0) {
-			btop.append(run);
-		}
-		return String.join("\t", qseqid, sseqid,
-				fixed(100.0 * identities / length, 3), Integer.toString(length),
-				Integer.toString(mismatches), Integer.toString(gapOpens), Integer.toString(hsp.queryStart + 1),
-				Integer.toString(hsp.queryEnd), Integer.toString(hsp.subjectStart + 1),
-				Integer.toString(hsp.subjectEnd), evalue(hsp.evalue), bitScore(statistics.bitScore(hsp.score)),
-				Integer.toString(hsp.score), Integer.toString(query.length), Integer.toString(subjectLength),
-				btop.toString());
+		return row(REFERENCE, qseqid, sseqid, query, residues, subjectBase, subjectLength, hsp, statistics);
 	}
 }

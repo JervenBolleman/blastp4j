@@ -8,7 +8,7 @@ scores, bit scores, E-values and alignments, for the same parameters. It builds 
 Status: the blastp search is implemented and reproduces blastp's tabular output exactly, with blastp's default
 composition-based statistics (mode 2) and without (`-comp_based_stats 0`). For the 24 reference queries against
 Swiss-Prot, all lines are identical (11,263 and 15,107), on every column including the alignment (BTOP), and in the
-same order. The command line is not implemented yet.
+same order. The `blastp4j` command takes blastp's options and writes its tabular output.
 
 ## Why this is more than "SSW plus statistics"
 
@@ -61,7 +61,60 @@ commit.
 4. **Seeding** (done): lookup table, two-hit trigger, ungapped X-drop extension; see [the results](#seeding).
 5. **Gapped X-drop extension and traceback** (done); see [the results](#gapped-extension-and-traceback).
 6. **Composition-based statistics** (done, mode 2); see [the results](#composition-based-statistics).
-7. **Command line, tabular output (`-outfmt 6`), threads and hit list rules**; speed against blastp.
+7. **Command line** (done): `blastp4j`, with blastp's options and `-outfmt 6`; see [usage](#usage).
+
+## Usage
+
+    mvn package -DskipTests
+    bin/blastp4j -query queries.fasta -db uniprot_sprot.fasta -outfmt "6 std btop" -num_threads 8 -out hits.tsv
+
+* The database is a FASTA file, plain or gzip-compressed. It is read into memory: Swiss-Prot (209 million residues)
+  takes 1 s and about 0.8 GB.
+* The results are those of blastp against a database made from the same file with `makeblastdb -parse_seqids`.
+* Options, with blastp's names and defaults:
+  * `-query`, `-db`, `-out`
+  * `-outfmt "6 [fields]"`: the fields are `std qseqid sseqid qacc qaccver sacc saccver qlen slen qstart qend sstart
+    send qseq sseq evalue bitscore score length pident nident mismatch positive gapopen gaps ppos qcovhsp btop`
+  * `-evalue` (10), `-max_target_seqs` (500), `-max_hsps`
+  * `-comp_based_stats` (2; or 0)
+  * `-num_threads`: the default is the number of processors. The output does not depend on it.
+* `-task blastp`, `-matrix BLOSUM62`, `-gapopen 11`, `-gapextend 1`, `-word_size 3`, `-threshold 11`,
+  `-window_size 40` and `-seg no` are accepted with these values only. Anything else is rejected with a message.
+* Use a HotSpot JDK. `bin/blastp4j` uses `$JAVA_HOME` and passes `$BLASTP4J_OPTS` to the JVM.
+
+Checked against blastp:
+
+| Run | Lines | Identical |
+|---|---:|---:|
+| 24 queries vs Swiss-Prot, defaults, the reference columns | 11,263 | all |
+| 24 queries vs Swiss-Prot, `-comp_based_stats 0` | 15,107 | all |
+| 4 queries, all supported columns (`qseq`, `sseq`, `positive`, `ppos`, `qcovhsp`, ...) | 3,007 | all |
+| 4 queries, default `-outfmt 6` (std: `qaccver saccver ...`) | 3,007 | all |
+| 4 queries, `-evalue 1e-5 -max_target_seqs 50` | 397 | all |
+| 4 queries, `-comp_based_stats 0 -evalue 100 -max_target_seqs 1000 -max_hsps 1` | 1,974 | all |
+| 24 queries vs a 400-sequence database, `6 std btop` (`BlastpTest`) | 196 | all |
+| same, `-comp_based_stats 0 -evalue 1000 -max_target_seqs 20`, other columns (`BlastpTest`) | 1,422 | all |
+
+Details that output depends on:
+
+* `std` is `qaccver saccver ...`, not `qseqid sseqid ...`. With a `-parse_seqids` database the subject is printed as
+  its accession (`P60052`). The query, read without `-parse_deflines`, keeps its whole identifier.
+* `qcovhsp` is rounded below 99% and truncated above, so 684 of 685 residues is 99, not 100.
+* The hit-list sizes follow `-max_target_seqs`: 2 times it plus 50 (at most 50 more without composition-based
+  statistics, at least 1,050 with).
+* An `-evalue` above 10 turns off the restricted alignment of the preliminary stage.
+
+End-to-end time for the 24 queries against Swiss-Prot (i7-6700HQ, Temurin 25; blastp against its BLAST database,
+blastp4j including reading the FASTA file):
+
+| | blastp4j | blastp |
+|---|---:|---:|
+| 1 thread | 143 s | 80 s |
+| 8 threads | 36 s | 19 s |
+
+blastp4j is about 1.8 times slower over a whole run. The single-query benchmarks above (`BlastpSearchBench`) showed a
+smaller gap, 10 to 30%. They repeat one warmed-up query, and the blastp times they are compared with include starting
+the program, so they understated the difference. This is the next thing to work on.
 
 ## Exhaustive baseline
 

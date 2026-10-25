@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+# Runs blastp4j from the jar built by "mvn package"; options as for BLAST+ blastp (see blastp4j -help).
+# Uses $JAVA_HOME/bin/java if set, otherwise java from PATH; extra JVM options can be given in $BLASTP4J_OPTS.
+# Use a HotSpot JDK (C2): the Graal JIT is much slower on this code (see README).
+HERE="$(cd "$(dirname "$0")/.." && pwd)"
+JAR="$(ls "$HERE"/target/blastp4j-*.jar 2>/dev/null | grep -v -e sources -e javadoc | head -1)"
+if [ -z "$JAR" ]; then
+	echo "blastp4j: no jar in $HERE/target; run 'mvn package' first" >&2
+	exit 1
+fi
+JAVA="${JAVA_HOME:+$JAVA_HOME/bin/}java"
+exec "$JAVA" $BLASTP4J_OPTS -jar "$JAR" "$@"

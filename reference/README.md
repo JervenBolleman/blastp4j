@@ -43,3 +43,12 @@ composition-based statistics:
 doubles), and `adjust_blast.txt.gz` the result of BLAST+'s `Blast_AdjustScores` for each: status, adjustment rule,
 lambda ratio and the adjusted 28 x 28 matrix. They were computed by `reference/compo/build_harness.sh`, which builds
 `reference/compo/harness.c` against the composition adjustment library downloaded from the NCBI C++ Toolkit sources.
+
+## Command line test data
+
+`src/test/resources/cli` holds blastp's output for the 24 queries against the 400 sequences of the SEG sample
+(`src/test/resources/seg/sprot_sample.fasta.gz`), after `makeblastdb -in sample.fa -dbtype prot -parse_seqids`:
+
+    blastp -query uniprot_human.fasta -db sample -outfmt "6 std btop" > sample_std_btop.tsv
+    blastp -query uniprot_human.fasta -db sample -comp_based_stats 0 -evalue 1000 -max_target_seqs 20 \
+        -outfmt "6 qseqid sseqid qcovhsp ppos positive gaps nident evalue bitscore score" > sample_cbs0_e1000.tsv
