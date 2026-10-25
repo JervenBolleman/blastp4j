@@ -1,0 +1,26 @@
+# BLAST+ reference results
+
+`src/test/resources/reference` holds the output of NCBI BLAST+ that blastp4j is checked against. Regenerate with
+`reference/make_reference.sh`.
+
+| File | blastp options | Hits |
+|---|---|---:|
+| `human_vs_sprot.cbs2.tsv.gz` | defaults (composition-based statistics mode 2) | 11,263 |
+| `human_vs_sprot.cbs0.tsv.gz` | `-comp_based_stats 0` | 15,107 |
+
+* Queries: the 24 human UniProtKB/Swiss-Prot proteins in `src/test/resources/queries/uniprot_human.fasta` (103 to
+  1,863 residues), the same set as the cssw4j test dataset.
+* Database: UniProtKB/Swiss-Prot release 2026_03 (02-Sep-2026), 575,748 sequences, built with
+  `makeblastdb -dbtype prot -parse_seqids`.
+* BLAST+ 2.17.0 (`blastp: 2.17.0+`, build Jul 1 2025), `-num_threads 1`.
+* Columns (`-outfmt`): `qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore score qlen
+  slen btop`.
+* Time on the development machine (i7-6700HQ, one thread): 80 s with composition-based statistics, 76 s without, for
+  the 24 queries.
+
+## blastp defaults these runs use
+
+From the exported search strategy (`-export_search_strategy`): word threshold 11, two-hit window 40,
+composition-based statistics 2, SEG off, e-value cutoff 10. From the BLAST+ documentation for task `blastp`: word size
+3, BLOSUM62, gap open 11, gap extend 1, X-drop 7 bits (ungapped), 15 bits (preliminary gapped), 25 bits (final
+gapped), max_target_seqs 500.
