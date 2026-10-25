@@ -33,3 +33,10 @@ for cbs in 2 0; do
 	gzip -9nc "$WORK/out.tsv" > "$OUT/human_vs_sprot.cbs$cbs.tsv.gz"
 	echo "human_vs_sprot.cbs$cbs.tsv.gz: $(wc -l < "$WORK/out.tsv") hits"
 done
+
+# Ungapped search: its alignments are the ungapped extensions of the seeding stage.
+/usr/bin/time -f "ungapped: %e s wall, %M KB max RSS" \
+	"$BLAST_BIN/blastp" -query "$QUERIES" -db "$DB" -num_threads 1 -comp_based_stats 0 -ungapped \
+	-outfmt "$FORMAT" -out "$WORK/out.tsv"
+gzip -9nc "$WORK/out.tsv" > "$OUT/human_vs_sprot.ungapped.tsv.gz"
+echo "human_vs_sprot.ungapped.tsv.gz: $(wc -l < "$WORK/out.tsv") hits"

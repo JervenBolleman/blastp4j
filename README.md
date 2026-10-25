@@ -7,7 +7,9 @@ scores, bit scores, E-values and alignments, for the same parameters. It builds 
 
 Status: the statistics (bit scores and E-values, reproduced exactly for all 15,107 hits of the reference without
 composition-based statistics) and the database and query reading (identical to BLAST's own database, byte for byte)
-are implemented, as is an exhaustive Smith-Waterman baseline search. The BLAST heuristic search is not implemented yet.
+are implemented, as are an exhaustive Smith-Waterman baseline search and BLAST's seeding stage (identical to blastp's
+ungapped alignments). The gapped extensions, composition-based statistics and the command line are not implemented
+yet.
 
 ## Why this is more than "SSW plus statistics"
 
@@ -57,7 +59,7 @@ commit.
    and length of the reference matches, and so do the 24 query ids and lengths. Loading Swiss-Prot takes about
    1.1 s from plain FASTA and 2.3 s from gzip. Reading BLAST database files directly is left for later.
 3. **Exhaustive baseline** (done) with cssw4j over all of Swiss-Prot; see [the results](#exhaustive-baseline).
-4. **Seeding**: lookup table, two-hit trigger, ungapped X-drop extension. Check: which subjects reach the gapped stage.
+4. **Seeding** (done): lookup table, two-hit trigger, ungapped X-drop extension; see [the results](#seeding).
 5. **Gapped X-drop extension and traceback.** Check: raw scores, coordinates and `btop` of the
    `-comp_based_stats 0` reference.
 6. **Composition-based statistics** (mode 2). Check: the default (`cbs2`) reference.
@@ -133,6 +135,56 @@ a single search takes over 500 s instead of 7.5 s:
 See the standalone reproducer in cssw4j's
 [graalvm/reproducers](../cssw4j/graalvm/reproducers/README.md). All numbers above are from Temurin 25.0.4.
 
+## Seeding
+
+`seed.LookupTable`, `seed.WordFinder` and `search.SeedSearch` follow BLAST+'s `blast_aalookup.c`, `aa_ungapped.c` and
+`blast_parameters.c`:
+
+* **Lookup table.** For every 3-letter word, the query positions whose word scores at least 11 against it. The
+  candidate words range over all 28 letters. The query's own words are always included, whatever their score.
+* **Two-hit trigger.** BLAST keeps an array of the last hit per diagonal and reproduces its quirks:
+  * The array length is the smallest power of two of at least query length + 40, indexed by `(q - s) & mask`.
+  * A diagonal extended to the right ignores hits until they lie past the extension.
+  * Instead of clearing the array for each subject, an offset is added to the stored positions.
+* **Ungapped extension.** The extension goes left from the end of the second word with X-drop, and goes right only if
+  it reached the first word.
+* **Query-specific parameters.** BLAST computes the X-drop and the cutoff with the query's own ungapped Karlin-Altschul
+  parameters. `stats.UngappedKarlin` ports that calculation: the score distribution of BLOSUM62 between the query
+  composition and the Robinson and Robinson background, Newton's method for lambda, and the series for K. For all 24
+  queries it gives blastp's printed lambda, K and H.
+  * X-drop: `ceil(7 ln2 / lambda)`, which is 15 or 16 here.
+  * Gap trigger: 22 bits, which is 40 to 42.
+  * Cutoff: the gap trigger, unless the E-value cutoff gives a lower score.
+
+`SeedingBaseline` (in the tests) runs the 24 queries and checks the result against blastp:
+
+| | |
+|---|---:|
+| BLAST subjects that reach our gapped stage | 9,110 of 9,110 |
+| BLAST alignments (`-comp_based_stats 0`) crossed by one of our ungapped alignments | 15,107 of 15,107 |
+| blastp `-ungapped` alignments that are exactly one of ours (start, length, score) | 27,246 of 27,246 |
+| Smith-Waterman hits that BLAST misses, below the 500-subject limit | 108 |
+| ... of which our seeding finds no seed for | 94 |
+
+* The second check is a requirement, not just a coincidence: a gapped extension starts at a point inside an ungapped
+  alignment, so the final alignment passes through it.
+* blastp `-ungapped` reports the ungapped extensions themselves. Every one of them is reproduced with the same
+  coordinates and score.
+* The comparison is sensitive: with the X-drop one higher, 355 of the 27,246 no longer match.
+* 94 of the 108 hits BLAST misses have no seed at all. The other 14 are lost in later stages.
+
+Speed of the seeding stage on one thread (`SeedSearchBench`, Temurin 25), against blastp on one thread:
+
+| Query | Length | Subjects seeded | blastp4j seeding | blastp `-ungapped` | blastp (gapped) |
+|---|---:|---:|---:|---:|---:|
+| HBA_HUMAN | 142 | 6,339 | 1.89 s | 1.83 s | 1.96 s |
+| CDK1_HUMAN | 297 | 15,883 | 3.16 s | 3.03 s | 3.65 s |
+| BRCA1_HUMAN | 1,863 | 65,541 | 11.29 s | 10.52 s | 13.83 s |
+
+The blastp times include starting the program and opening the database. Seeding takes most of blastp's time: its
+whole gapped search takes only 0.1 to 3.3 s more than its ungapped one. blastp4j's seeding runs at about the speed of
+BLAST's. On 8 threads, the 24 queries are seeded in 20 s.
+
 ## Reference results
 
 See [reference/README.md](reference/README.md): BLAST+ 2.17.0 on UniProtKB/Swiss-Prot 2026_03 for 24 human proteins,
@@ -144,9 +196,13 @@ Requires JDK 25 and cssw4j installed in the local Maven repository (`mvn install
 
     mvn test
 
-The step 4 baseline and its benchmark need Swiss-Prot in `~/data/uniprot` (see `reference/make_reference.sh`):
+The baselines and their benchmarks need Swiss-Prot in `~/data/uniprot` (see `reference/make_reference.sh`):
 
     mvn test-compile dependency:build-classpath -Dmdep.outputFile=target/cp.txt
     CP=target/classes:target/test-classes:$(cat target/cp.txt)
     java --add-modules jdk.incubator.vector -Xmx3g -cp $CP swiss.sib.blastp4j.search.ExhaustiveBaseline 8
-    java -cp $CP org.openjdk.jmh.Main ExhaustiveSearchBench
+    java -Xmx3g -cp $CP swiss.sib.blastp4j.search.SeedingBaseline 8
+    java -cp $CP org.openjdk.jmh.Main 'ExhaustiveSearchBench|SeedSearchBench'
+
+`SeedingBaseline` also counts the Smith-Waterman hits without a seed when `target/exhaustive.tsv` from
+`ExhaustiveBaseline` is present.
