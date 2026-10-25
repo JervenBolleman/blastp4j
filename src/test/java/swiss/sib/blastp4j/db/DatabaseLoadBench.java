@@ -16,8 +16,8 @@ import org.openjdk.jmh.annotations.Warmup;
 
 /**
  * Step 3: time to read UniProtKB/Swiss-Prot (575,748 sequences, 209 million residues) into memory, from the plain and
- * the gzip-compressed FASTA. Single-shot time per load; needs the data in {@code ~/data/uniprot} (or
- * {@code -Dblastp4j.sprot}).
+ * the gzip-compressed FASTA, and from the BLAST database made by makeblastdb. Single-shot time per load; needs the
+ * data in {@code ~/data/uniprot} (or {@code -Dblastp4j.sprot}).
  */
 @BenchmarkMode(Mode.SingleShotTime)
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
@@ -26,12 +26,13 @@ import org.openjdk.jmh.annotations.Warmup;
 @Fork(value = 2, jvmArgs = "-Xmx2g")
 @State(Scope.Benchmark)
 public class DatabaseLoadBench {
-	@Param({ "uniprot_sprot.fasta", "uniprot_sprot.fasta.gz" })
+	@Param({ "uniprot_sprot.fasta", "uniprot_sprot.fasta.gz", "blastdb/sprot" })
 	public String file;
 
 	@Benchmark
 	public SequenceDatabase load() throws Exception {
 		Path dir = Path.of(System.getProperty("blastp4j.sprot", System.getProperty("user.home") + "/data/uniprot"));
-		return FastaReader.read(dir.resolve(file));
+		Path path = dir.resolve(file);
+		return BlastDbReader.exists(path) ? BlastDbReader.read(path) : FastaReader.read(path);
 	}
 }

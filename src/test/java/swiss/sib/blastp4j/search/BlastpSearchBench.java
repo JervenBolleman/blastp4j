@@ -19,6 +19,7 @@ import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Warmup;
 
+import swiss.sib.blastp4j.db.BlastDbReader;
 import swiss.sib.blastp4j.db.FastaReader;
 import swiss.sib.blastp4j.db.SequenceDatabase;
 
@@ -29,7 +30,7 @@ import swiss.sib.blastp4j.stats.Statistics;
  * Steps 6 and 7: the complete search (seeding, preliminary gapped extensions, traceback, hit list) of one query
  * against all of Swiss-Prot, on one thread, without composition-based statistics (cbs0) and with blastp's default
  * mode 2 (cbs2). The queries are HBA_HUMAN (142 residues),
- * CDK1_HUMAN (297) and BRCA1_HUMAN (1,863). Needs the data in {@code ~/data/uniprot} (or {@code -Dblastp4j.sprot}).
+ * CDK1_HUMAN (297) and BRCA1_HUMAN (1,863). The database is read from FASTA or from the BLAST database. Needs the data in {@code ~/data/uniprot} (or {@code -Dblastp4j.sprot}).
  */
 @BenchmarkMode(Mode.SingleShotTime)
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
@@ -45,6 +46,10 @@ public class BlastpSearchBench {
 	@Param({ "cbs0", "cbs2" })
 	public String mode;
 
+	/** fasta: Swiss-Prot read from uniprot_sprot.fasta; blastdb: from the BLAST database blastdb/sprot. */
+	@Param({ "fasta", "blastdb" })
+	public String source;
+
 	private BlastpSearch search;
 	private byte[] sequence;
 	private ExecutorService pool;
@@ -52,7 +57,8 @@ public class BlastpSearchBench {
 	@Setup
 	public void setup() throws Exception {
 		Path dir = Path.of(System.getProperty("blastp4j.sprot", System.getProperty("user.home") + "/data/uniprot"));
-		SequenceDatabase db = FastaReader.read(dir.resolve("uniprot_sprot.fasta"));
+		SequenceDatabase db = source.equals("blastdb") ? BlastDbReader.read(dir.resolve("blastdb/sprot"))
+				: FastaReader.read(dir.resolve("uniprot_sprot.fasta"));
 		SequenceDatabase queries = FastaReader.read(Path.of("src/test/resources/queries/uniprot_human.fasta"));
 		for (int i = 0; i < queries.size(); i++) {
 			if (queries.id(i).endsWith("|" + query)) {
