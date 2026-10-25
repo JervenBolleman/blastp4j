@@ -12,6 +12,7 @@ import java.util.stream.Collectors;
 import swiss.sib.blastp4j.align.EditScript;
 import swiss.sib.blastp4j.align.Hsp;
 import swiss.sib.blastp4j.db.Alphabet;
+import swiss.sib.blastp4j.db.SequenceDatabase;
 import swiss.sib.blastp4j.stats.Blosum62;
 import swiss.sib.blastp4j.stats.Statistics;
 
@@ -73,7 +74,7 @@ public final class TabularFormat {
 	/** The columns of {@code -outfmt 6} that are supported, with BLAST's names. */
 	public enum Column {
 		QSEQID, SSEQID, QACC, QACCVER, SACC, SACCVER, QLEN, SLEN, QSTART, QEND, SSTART, SEND, QSEQ, SSEQ, EVALUE, BITSCORE, SCORE, LENGTH, PIDENT,
-		NIDENT, MISMATCH, POSITIVE, GAPOPEN, GAPS, PPOS, QCOVHSP, BTOP;
+		NIDENT, MISMATCH, POSITIVE, GAPOPEN, GAPS, PPOS, QCOVHSP, BTOP, STITLE;
 
 		/** The column for a BLAST field name, or null. */
 		public static Column of(String name) {
@@ -185,14 +186,15 @@ public final class TabularFormat {
 	}
 
 	/**
-	 * One line of {@code -outfmt 6} for one alignment.
+	 * One line of {@code -outfmt 6} for one alignment of the query with subject {@code subject} of {@code db}.
 	 *
-	 * @param query       the query (NCBIstdaa)
-	 * @param residues    the array holding the subject
-	 * @param subjectBase where the subject starts in {@code residues}
+	 * @param qseqid the query's id (the first word of its header)
+	 * @param query  the query (NCBIstdaa)
 	 */
-	public static String row(List<Column> columns, String qseqid, String sseqid, byte[] query, byte[] residues,
-			int subjectBase, int subjectLength, Hsp hsp, Statistics statistics) {
+	public static String row(List<Column> columns, String qseqid, byte[] query, SequenceDatabase db, int subject,
+			Hsp hsp, Statistics statistics) {
+		final byte[] residues = db.residues();
+		final int subjectBase = db.start(subject), subjectLength = db.length(subject);
 		boolean sequences = columns.contains(Column.QSEQ) || columns.contains(Column.SSEQ);
 		Alignment a = new Alignment(query, residues, subjectBase, hsp, sequences);
 		StringBuilder line = new StringBuilder();
@@ -202,9 +204,10 @@ public final class TabularFormat {
 			}
 			line.append(switch (c) {
 			case QSEQID, QACC, QACCVER -> qseqid;
-			case SSEQID -> sseqid;
-			case SACC -> SeqId.accession(sseqid, false);
-			case SACCVER -> SeqId.accession(sseqid, true);
+			case SSEQID -> db.id(subject);
+			case SACC -> db.accession(subject, false);
+			case SACCVER -> db.accession(subject, true);
+			case STITLE -> db.title(subject);
 			case QLEN -> Integer.toString(query.length);
 			case SLEN -> Integer.toString(subjectLength);
 			case QSTART -> Integer.toString(hsp.queryStart + 1);
@@ -237,9 +240,10 @@ public final class TabularFormat {
 			Column.MISMATCH, Column.GAPOPEN, Column.QSTART, Column.QEND, Column.SSTART, Column.SEND, Column.EVALUE,
 			Column.BITSCORE, Column.SCORE, Column.QLEN, Column.SLEN, Column.BTOP);
 
-	/** {@link #row(List, String, String, byte[], byte[], int, int, Hsp, Statistics)} with the reference columns. */
-	public static String row(String qseqid, String sseqid, byte[] query, byte[] residues, int subjectBase,
-			int subjectLength, Hsp hsp, Statistics statistics) {
-		return row(REFERENCE, qseqid, sseqid, query, residues, subjectBase, subjectLength, hsp, statistics);
+	/** {@link #row(List, String, byte[], SequenceDatabase, int, Hsp, Statistics)} with the reference columns. */
+	public static String row(String qseqid, byte[] query, SequenceDatabase db, int subject, Hsp hsp,
+			Statistics statistics) {
+		return row(REFERENCE, qseqid, query, db, subject, hsp, statistics);
 	}
+
 }

@@ -16,6 +16,7 @@ import java.util.zip.GZIPInputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import swiss.sib.blastp4j.db.SeqId;
 import swiss.sib.blastp4j.output.TabularFormat;
 
 /**
@@ -63,6 +64,20 @@ class BlastpTest {
 	}
 
 	@Test
+	void blastDatabase() throws IOException {
+		// The sample as a BLAST database of six volumes gives the same result as the FASTA file.
+		assertEquals(expected("sample_std_btop.tsv.gz"), run("-query", QUERIES, "-db", "src/test/resources/blastdb/multi",
+				"-outfmt", "6 std btop", "-num_threads", "2"));
+		// Identifiers of every kind, with and without makeblastdb -parse_seqids.
+		for (String db : new String[] { "ids_p", "ids_n" }) {
+			Path dir = Path.of("src/test/resources/blastdb");
+			assertEquals(Files.readString(dir.resolve(db + ".tsv")),
+					run("-query", dir.resolve("q.fa").toString(), "-db", dir.resolve(db).toString(), "-evalue", "1000",
+							"-outfmt", "6 qseqid sseqid sacc saccver stitle slen evalue bitscore"), db);
+		}
+	}
+
+	@Test
 	void parsesOptions() throws Blastp.UsageException {
 		Blastp.Options o = Blastp.parse(new String[] { "-query", "q.fa", "-db", "d.fa", "-evalue", "1e-5",
 				"-max_target_seqs", "50", "-max_hsps", "2", "-comp_based_stats", "F", "-num_threads", "3", "-task",
@@ -103,10 +118,21 @@ class BlastpTest {
 
 	@Test
 	void accessions() {
-		assertEquals("P69905", swiss.sib.blastp4j.output.SeqId.accession("sp|P69905|HBA_HUMAN", true));
-		assertEquals("NP_000509.1", swiss.sib.blastp4j.output.SeqId.accession("ref|NP_000509.1|", true));
-		assertEquals("NP_000509", swiss.sib.blastp4j.output.SeqId.accession("ref|NP_000509.1|", false));
-		assertEquals("1ABC_A", swiss.sib.blastp4j.output.SeqId.accession("pdb|1ABC|A", true));
-		assertEquals("seq1", swiss.sib.blastp4j.output.SeqId.accession("seq1", true));
+		assertEquals("P69905", acc("sp|P69905|HBA_HUMAN", true));
+		assertEquals("NP_000509.1", acc("ref|NP_000509.1|", true));
+		assertEquals("NP_000509", acc("ref|NP_000509.1|", false));
+		assertEquals("NP_222222", acc("gi|123456|ref|NP_222222.2|", false));
+		assertEquals("1ABC_A", acc("pdb|1ABC|A", true));
+		assertEquals("mydb:xyz", acc("gnl|mydb|xyz", true));
+		assertEquals("myseq", acc("lcl|myseq", true));
+		assertEquals("seq1", acc("seq1", true));
+		assertEquals("myseq", SeqId.seqid(SeqId.parseFasta("lcl|myseq")));
+		assertEquals("gi|123456|ref|NP_222222.2|", SeqId.seqid(SeqId.parseFasta("gi|123456|ref|NP_222222.2|")));
+		assertEquals("tr|A0A011|A0A011_HUMAN", SeqId.seqid(SeqId.parseFasta("tr|A0A011|A0A011_HUMAN")));
 	}
+
+	static String acc(String id, boolean version) {
+		return SeqId.accession(SeqId.parseFasta(id), version);
+	}
+
 }

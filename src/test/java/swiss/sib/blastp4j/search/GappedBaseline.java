@@ -59,8 +59,7 @@ public final class GappedBaseline {
 				List<String> ours = new ArrayList<>();
 				for (BlastpSearch.Hit h : hits) {
 					for (Hsp hsp : h.hsps()) {
-						ours.add(TabularFormat.row(qid, db.id(h.subject()), query, db.residues(),
-								db.start(h.subject()), db.length(h.subject()), hsp, statistics));
+						ours.add(TabularFormat.row(qid, query, db, h.subject(), hsp, statistics));
 					}
 				}
 				ours.forEach(out::println);

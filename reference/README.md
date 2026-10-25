@@ -52,3 +52,9 @@ lambda ratio and the adjusted 28 x 28 matrix. They were computed by `reference/c
     blastp -query uniprot_human.fasta -db sample -outfmt "6 std btop" > sample_std_btop.tsv
     blastp -query uniprot_human.fasta -db sample -comp_based_stats 0 -evalue 1000 -max_target_seqs 20 \
         -outfmt "6 qseqid sseqid qcovhsp ppos positive gaps nident evalue bitscore score" > sample_cbs0_e1000.tsv
+
+## BLAST database test data
+
+`src/test/resources/blastdb` holds small databases made by makeblastdb 2.17.0, for reading `.pin`, `.psq`, `.phr`
+and `.pal` files and for printing identifiers of every kind; its README gives the commands and the blastp runs that
+made the expected outputs.

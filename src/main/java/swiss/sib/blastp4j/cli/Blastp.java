@@ -16,6 +16,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import swiss.sib.blastp4j.align.Hsp;
+import swiss.sib.blastp4j.db.BlastDbReader;
 import swiss.sib.blastp4j.db.FastaReader;
 import swiss.sib.blastp4j.db.SequenceDatabase;
 import swiss.sib.blastp4j.output.TabularFormat;
@@ -30,21 +31,23 @@ import swiss.sib.blastp4j.stats.Statistics;
  * blastp4j -query queries.fasta -db uniprot_sprot.fasta -outfmt "6 std btop" -num_threads 8 -out hits.tsv
  * </pre>
  *
- * The database is a FASTA file (plain or gzip-compressed). The results are those blastp gives for a database built from
- * the same FASTA file with {@code makeblastdb -parse_seqids}. Options of blastp that are not implemented are accepted
+ * The database is a BLAST protein database made by {@code makeblastdb}, or a FASTA file (plain or gzip-compressed).
+ * For a FASTA file the results are those blastp gives for a database built from it with
+ * {@code makeblastdb -parse_seqids}. Options of blastp that are not implemented are accepted
  * only with their default value.
  */
 public final class Blastp {
 	static final String VERSION = "blastp4j 0.1.0 (BLAST+ 2.17.0 compatible)";
 
 	static final String USAGE = """
-			Usage: blastp4j -query FILE -db FILE [options]
+			Usage: blastp4j -query FILE -db DB [options]
 
 			Searches protein sequences against a protein database and writes the results as BLAST+ blastp's
 			tabular output (-outfmt 6). Results are identical to blastp's for the same parameters.
 
 			  -query FILE             query sequences, FASTA (plain or .gz)
-			  -db FILE                database sequences, FASTA (plain or .gz)
+			  -db DB                  database: a BLAST protein database (the makeblastdb -out name), or
+			                          a FASTA file (plain or .gz)
 			  -out FILE               output file (default: standard output)
 			  -outfmt "6 [FIELDS]"    tabular output; fields as in blastp: std qseqid sseqid qacc qaccver sacc
 			                          saccver qlen slen qstart
@@ -206,11 +209,15 @@ public final class Blastp {
 		if (!Files.isReadable(o.query())) {
 			throw new IOException("cannot read query file " + o.query());
 		}
-		if (!Files.isReadable(o.db())) {
-			throw new IOException("cannot read database file " + o.db());
-		}
 		SequenceDatabase queries = FastaReader.read(o.query());
-		SequenceDatabase db = FastaReader.read(o.db());
+		SequenceDatabase db;
+		if (BlastDbReader.exists(o.db())) {
+			db = BlastDbReader.read(o.db());
+		} else if (Files.isReadable(o.db())) {
+			db = FastaReader.read(o.db());
+		} else {
+			throw new IOException("cannot read database " + o.db() + " (neither a FASTA file nor a BLAST database)");
+		}
 		Statistics statistics = new Statistics(ScoringParameters.BLOSUM62_11_1, db.totalResidues());
 		BlastpSearch search = new BlastpSearch(db, statistics, o.evalue(), o.compositionBased(), o.maxTargetSeqs(),
 				o.maxHsps());
@@ -229,8 +236,8 @@ public final class Blastp {
 				}
 				for (BlastpSearch.Hit h : hits) {
 					for (Hsp hsp : h.hsps()) {
-						out.write(TabularFormat.row(o.columns(), queries.id(q), db.id(h.subject()), query,
-								db.residues(), db.start(h.subject()), db.length(h.subject()), hsp, statistics));
+						out.write(TabularFormat.row(o.columns(), queries.name(q), query, db, h.subject(), hsp,
+								statistics));
 						out.write('\n');
 					}
 				}

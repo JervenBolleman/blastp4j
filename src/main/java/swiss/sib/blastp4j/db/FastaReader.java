@@ -5,9 +5,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
 import java.util.zip.GZIPInputStream;
 
 /**
@@ -37,7 +35,7 @@ public final class FastaReader {
 		residues[n++] = Alphabet.GAP; // leading sentinel
 		int[] starts = new int[1024];
 		int count = 0;
-		List<String> ids = new ArrayList<>();
+		FastaHeaders.Builder headers = new FastaHeaders.Builder();
 		byte[] header = new byte[256];
 		byte[] buf = new byte[BUFFER];
 		boolean lineStart = true, inHeader = false, inSequence = false;
@@ -47,10 +45,13 @@ public final class FastaReader {
 				byte b = buf[k];
 				if (inHeader) {
 					if (b == '\n') {
-						ids.add(firstWord(header, headerLength));
+						headers.add(header, 0, headerLength);
 						inHeader = false;
 						lineStart = true;
-					} else if (headerLength < header.length) {
+					} else {
+						if (headerLength == header.length) {
+							header = Arrays.copyOf(header, header.length * 2);
+						}
 						header[headerLength++] = b;
 					}
 					continue;
@@ -86,7 +87,7 @@ public final class FastaReader {
 			}
 		}
 		if (inHeader) {
-			ids.add(firstWord(header, headerLength)); // header without a final newline
+			headers.add(header, 0, headerLength); // header without a final newline
 		}
 		if (inSequence) {
 			residues = ensure(residues, n + 1);
@@ -94,15 +95,7 @@ public final class FastaReader {
 		}
 		starts[count] = n;
 		return new SequenceDatabase(n == residues.length ? residues : Arrays.copyOf(residues, n),
-				Arrays.copyOf(starts, count + 1), ids);
-	}
-
-	private static String firstWord(byte[] header, int length) {
-		int end = 0;
-		while (end < length && header[end] > ' ') {
-			end++;
-		}
-		return new String(header, 0, end, java.nio.charset.StandardCharsets.US_ASCII);
+				Arrays.copyOf(starts, count + 1), headers.build());
 	}
 
 	private static byte[] ensure(byte[] array, int size) {

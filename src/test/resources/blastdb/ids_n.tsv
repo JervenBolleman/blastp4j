@@ -1,0 +1,10 @@
+q	emb|CAA11111.2|NAME1	emb|CAA11111.2|NAME1	emb|CAA11111.2|NAME1	emb|CAA11111.2|NAME1 EMBL with name	154	3.03e-114	310
+q	gb|AAA12345.1|	gb|AAA12345.1|	gb|AAA12345.1|	gb|AAA12345.1| GenBank	154	3.03e-114	310
+q	plainid	plainid	plainid	plainid no bars	154	3.03e-114	310
+q	gnl|mydb|xyz	gnl|mydb|xyz	gnl|mydb|xyz	gnl|mydb|xyz general id	154	3.03e-114	310
+q	lcl|myseq	lcl|myseq	lcl|myseq	lcl|myseq local id	154	3.03e-114	310
+q	pdb|1ABC|A	pdb|1ABC|A	pdb|1ABC|A	pdb|1ABC|A PDB chain	154	3.03e-114	310
+q	gi|123456|ref|NP_222222.2|	gi|123456|ref|NP_222222.2|	gi|123456|ref|NP_222222.2|	gi|123456|ref|NP_222222.2| gi and refseq	154	3.03e-114	310
+q	ref|NP_000509.1|	ref|NP_000509.1|	ref|NP_000509.1|	ref|NP_000509.1| RefSeq entry	154	3.03e-114	310
+q	tr|A0A011|A0A011_HUMAN	tr|A0A011|A0A011_HUMAN	tr|A0A011|A0A011_HUMAN	tr|A0A011|A0A011_HUMAN TrEMBL entry	154	3.03e-114	310
+q	sp|P11111|N1_HUMAN	sp|P11111|N1_HUMAN	sp|P11111|N1_HUMAN	sp|P11111|N1_HUMAN Swiss entry	154	3.03e-114	310

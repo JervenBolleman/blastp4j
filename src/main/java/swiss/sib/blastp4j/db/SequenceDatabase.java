@@ -1,7 +1,5 @@
 package swiss.sib.blastp4j.db;
 
-import java.util.List;
-
 /**
  * Protein sequences in memory, laid out as in a BLAST {@code .psq} file: one array of NCBIstdaa codes that starts with
  * a sentinel and has a sentinel ({@link Alphabet#GAP}) after every sequence. The sentinels bound extensions without
@@ -12,27 +10,27 @@ import java.util.List;
 public final class SequenceDatabase {
 	private final byte[] residues;
 	private final int[] starts;
-	private final List<String> ids;
+	private final Headers headers;
 	private final long totalResidues;
 
 	/**
 	 * @param residues the {@code .psq} layout: sentinel, sequence 0, sentinel, sequence 1, sentinel, ...
 	 * @param starts   index in {@code residues} of the first residue of every sequence, plus one past the last sentinel
-	 * @param ids      sequence ids as BLAST prints them (the first word of the FASTA header)
+	 * @param headers  identifiers and titles
 	 */
-	SequenceDatabase(byte[] residues, int[] starts, List<String> ids) {
-		if (starts.length != ids.size() + 1) {
+	SequenceDatabase(byte[] residues, int[] starts, Headers headers) {
+		if (starts.length != headers.size() + 1) {
 			throw new IllegalArgumentException("need one start per sequence plus the end");
 		}
 		this.residues = residues;
 		this.starts = starts;
-		this.ids = List.copyOf(ids);
-		this.totalResidues = (long) starts[starts.length - 1] - 1 - ids.size();
+		this.headers = headers;
+		this.totalResidues = (long) starts[starts.length - 1] - 1 - headers.size();
 	}
 
 	/** Number of sequences. */
 	public int size() {
-		return ids.size();
+		return headers.size();
 	}
 
 	/** Total number of residues, without sentinels (the database length of the statistics). */
@@ -40,9 +38,24 @@ public final class SequenceDatabase {
 		return totalResidues;
 	}
 
-	/** The id of sequence {@code i}, as BLAST prints it as {@code sseqid}. */
+	/** The identifiers of sequence {@code i} as BLAST prints them as {@code sseqid}. */
 	public String id(int i) {
-		return ids.get(i);
+		return headers.seqid(i);
+	}
+
+	/** The first word of the header of sequence {@code i} (for a query: its {@code qseqid}). */
+	public String name(int i) {
+		return headers.name(i);
+	}
+
+	/** {@code sacc} or {@code saccver} of sequence {@code i}. */
+	public String accession(int i, boolean withVersion) {
+		return headers.accession(i, withVersion);
+	}
+
+	/** {@code stitle}: the title of sequence {@code i}. */
+	public String title(int i) {
+		return headers.title(i);
 	}
 
 	/** Index in {@link #residues()} of the first residue of sequence {@code i}. */

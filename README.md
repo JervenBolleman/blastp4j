@@ -56,25 +56,30 @@ commit.
    codes with a sentinel between sequences; ids are the first word of the header, as BLAST prints them. Check:
    Swiss-Prot reads as 575,748 sequences and 209,017,843 residues, byte-identical to `sprot.psq`; every subject id
    and length of the reference matches, and so do the 24 query ids and lengths. Loading Swiss-Prot takes about
-   1.1 s from plain FASTA and 2.3 s from gzip. Reading BLAST database files directly is left for later.
+   1.1 s from plain FASTA and 2.3 s from gzip.
 3. **Exhaustive baseline** (done) with cssw4j over all of Swiss-Prot; see [the results](#exhaustive-baseline).
 4. **Seeding** (done): lookup table, two-hit trigger, ungapped X-drop extension; see [the results](#seeding).
 5. **Gapped X-drop extension and traceback** (done); see [the results](#gapped-extension-and-traceback).
 6. **Composition-based statistics** (done, mode 2); see [the results](#composition-based-statistics).
 7. **Command line** (done): `blastp4j`, with blastp's options and `-outfmt 6`; see [usage](#usage).
+8. **BLAST databases** (done): `-db` also takes a database made by `makeblastdb`; see
+   [BLAST databases](#blast-databases).
 
 ## Usage
 
     mvn package -DskipTests
+    bin/blastp4j -query queries.fasta -db blastdb/sprot -outfmt "6 std btop" -num_threads 8 -out hits.tsv
     bin/blastp4j -query queries.fasta -db uniprot_sprot.fasta -outfmt "6 std btop" -num_threads 8 -out hits.tsv
 
-* The database is a FASTA file, plain or gzip-compressed. It is read into memory: Swiss-Prot (209 million residues)
-  takes 1 s and about 0.8 GB.
-* The results are those of blastp against a database made from the same file with `makeblastdb -parse_seqids`.
+* The database is a BLAST protein database (the name given to `makeblastdb -out`), or a FASTA file, plain or
+  gzip-compressed. Either is read into memory: Swiss-Prot (209 million residues) takes 1 s and 0.6 GB from the BLAST
+  database, 2.3 s and 0.9 GB from FASTA.
+* From a FASTA file the results are those of blastp against a database made from it with `makeblastdb -parse_seqids`.
 * Options, with blastp's names and defaults:
   * `-query`, `-db`, `-out`
   * `-outfmt "6 [fields]"`: the fields are `std qseqid sseqid qacc qaccver sacc saccver qlen slen qstart qend sstart
-    send qseq sseq evalue bitscore score length pident nident mismatch positive gapopen gaps ppos qcovhsp btop`
+    send qseq sseq evalue bitscore score length pident nident mismatch positive gapopen gaps ppos qcovhsp btop
+    stitle`
   * `-evalue` (10), `-max_target_seqs` (500), `-max_hsps`
   * `-comp_based_stats` (2; or 0)
   * `-num_threads`: the default is the number of processors. The output does not depend on it.
@@ -88,12 +93,15 @@ Checked against blastp:
 |---|---:|---:|
 | 24 queries vs Swiss-Prot, defaults, the reference columns | 11,263 | all |
 | 24 queries vs Swiss-Prot, `-comp_based_stats 0` | 15,107 | all |
+| same two runs with `-db` the Swiss-Prot BLAST database instead of the FASTA file | 26,370 | all |
 | 4 queries, all supported columns (`qseq`, `sseq`, `positive`, `ppos`, `qcovhsp`, ...) | 3,007 | all |
 | 4 queries, default `-outfmt 6` (std: `qaccver saccver ...`) | 3,007 | all |
 | 4 queries, `-evalue 1e-5 -max_target_seqs 50` | 397 | all |
 | 4 queries, `-comp_based_stats 0 -evalue 100 -max_target_seqs 1000 -max_hsps 1` | 1,974 | all |
 | 24 queries vs a 400-sequence database, `6 std btop` (`BlastpTest`) | 196 | all |
 | same, `-comp_based_stats 0 -evalue 1000 -max_target_seqs 20`, other columns (`BlastpTest`) | 1,422 | all |
+| same database in six volumes (`.pal`), `6 std btop` (`BlastpTest`) | 196 | all |
+| 10 identifier kinds, `sseqid sacc saccver stitle`, with and without `-parse_seqids` (`BlastpTest`) | 20 | all |
 
 Details that output depends on:
 
@@ -115,6 +123,37 @@ blastp4j including reading the FASTA file):
 blastp4j is about 1.8 times slower over a whole run. The single-query benchmarks above (`BlastpSearchBench`) showed a
 smaller gap, 10 to 30%. They repeat one warmed-up query, and the blastp times they are compared with include starting
 the program, so they understated the difference. This is the next thing to work on.
+
+## BLAST databases
+
+`db.BlastDbReader` reads the protein databases `makeblastdb` makes, format version 4 or 5:
+
+* `.pin`, the index: title, number of sequences, total length, and the offsets of each sequence and header. All
+  integers are big-endian except the total length, which is a little-endian 64-bit number.
+* `.psq`, the sequences: NCBIstdaa codes with a 0 byte between sequences. This is the layout blastp4j already used in
+  memory, so the file is loaded as is, with the offsets from `.pin` as sequence starts.
+* `.phr`, the headers: one `Blast-def-line-set` per sequence in binary ASN.1 (BER, with indefinite lengths).
+  `db.Asn1` is a small BER reader for it. A header is decoded only when a hit is printed.
+* `.pal`, an alias file that lists the volumes of a large database (`DBLIST`). The volumes are concatenated into one
+  array, so a database is limited to 2 GB of residues. Alias files that restrict a database (`OIDLIST`, `GILIST`,
+  `SEQIDLIST`, `TAXIDLIST`, ...) are rejected. The LMDB, taxonomy and mask files are not used.
+
+The identifiers are printed as blastp prints them (`db.SeqId`, checked for every kind in `src/test/resources/blastdb`):
+
+| Header in the FASTA file | `sseqid` | `sacc` | `saccver` |
+|---|---|---|---|
+| `sp\|P11111\|N1_HUMAN` | `sp\|P11111\|N1_HUMAN` | `P11111` | `P11111` |
+| `ref\|NP_000509.1\|` | `ref\|NP_000509.1\|` | `NP_000509` | `NP_000509.1` |
+| `gi\|123456\|ref\|NP_222222.2\|` | `gi\|123456\|ref\|NP_222222.2\|` | `NP_222222` | `NP_222222.2` |
+| `pdb\|1ABC\|A` | `pdb\|1ABC\|A` | `1ABC_A` | `1ABC_A` |
+| `gnl\|mydb\|xyz` | `gnl\|mydb\|xyz` | `mydb:xyz` | `mydb:xyz` |
+| `lcl\|myseq` | `myseq` | `myseq` | `myseq` |
+| `plainid` | `plainid` | `plainid` | `plainid` |
+
+`stitle` is the rest of the header. A database made without `-parse_seqids` stores only the identifier
+`gnl|BL_ORD_ID|n`; blastp then prints the first word of the header for all three columns, and the whole header as
+`stitle`. The FASTA reader parses headers as `makeblastdb -parse_seqids` does, so a FASTA file and a database made
+from it with `-parse_seqids` give the same output.
 
 ## Exhaustive baseline
 

@@ -64,8 +64,7 @@ class BlastpSearchReferenceTest {
 			BlastpSearch search = new BlastpSearch(db, statistics, 10, mode.equals("cbs2"));
 			for (BlastpSearch.Hit h : search.search(query, pool, threads)) {
 				for (Hsp hsp : h.hsps()) {
-					ours.add(TabularFormat.row(qid, db.id(h.subject()), query, db.residues(), db.start(h.subject()),
-							db.length(h.subject()), hsp, statistics));
+					ours.add(TabularFormat.row(qid, query, db, h.subject(), hsp, statistics));
 				}
 			}
 		}
