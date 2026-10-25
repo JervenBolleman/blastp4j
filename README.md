@@ -5,8 +5,9 @@ scores, bit scores, E-values and alignments, for the same parameters. It builds 
 [cssw4j](../cssw4j) (a Java Vector API port of the SSW Smith-Waterman library) and takes ideas from
 [BLVector](https://pmc.ncbi.nlm.nih.gov/articles/PMC7884812/).
 
-Status: the statistics are implemented (bit scores and E-values, reproduced exactly for all 15,107 hits of the
-reference without composition-based statistics). The search itself is not implemented yet.
+Status: the statistics (bit scores and E-values, reproduced exactly for all 15,107 hits of the reference without
+composition-based statistics) and the database and query reading (identical to BLAST's own database, byte for byte)
+are implemented. The search itself is not implemented yet.
 
 ## Why this is more than "SSW plus statistics"
 
@@ -50,7 +51,11 @@ commit.
 1. **Statistics** (done). Bit score and Spouge E-value for BLOSUM62 11/1, and BLAST's tabular number formatting.
    Check: the `bitscore` and `evalue` columns of all 15,107 hits of the `-comp_based_stats 0` reference are recomputed
    exactly from the raw `score`, `qlen` and `slen` columns. Cost: 0.3 us per alignment (0.7 us with formatting).
-2. **Database and queries.** Read FASTA (Swiss-Prot); later the BLAST database files (`.pin`/`.psq`).
+2. **Database and queries** (done). FASTA (plain or gzip) into memory in the layout of BLAST's `.psq` file: NCBIstdaa
+   codes with a sentinel between sequences; ids are the first word of the header, as BLAST prints them. Check:
+   Swiss-Prot reads as 575,748 sequences and 209,017,843 residues, byte-identical to `sprot.psq`; every subject id
+   and length of the reference matches, and so do the 24 query ids and lengths. Loading Swiss-Prot takes about
+   1.1 s from plain FASTA and 2.3 s from gzip. Reading BLAST database files directly is left for later.
 3. **Exhaustive baseline** with cssw4j over all of Swiss-Prot: which reference hits it finds, how its scores compare,
    and how fast it is.
 4. **Seeding**: lookup table, two-hit trigger, ungapped X-drop extension. Check: which subjects reach the gapped stage.
