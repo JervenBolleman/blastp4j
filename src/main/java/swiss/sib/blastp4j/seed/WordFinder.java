@@ -54,16 +54,12 @@ public final class WordFinder {
 	 * {@code out}, in the order BLAST finds them (BLAST later sorts them by score).
 	 */
 	public void find(byte[] residues, int start, int length, List<UngappedHsp> out) {
-		final int[] cellStart = table.start, offsets = table.offsets;
-		final int wordSize = LookupTable.WORD_SIZE;
-		final int mask = LookupTable.WORDS - 1;
-		if (length >= wordSize) {
-			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
-			for (int s = 0; s <= length - wordSize; s++) {
-				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
-				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
-					hit(residues, start, length, offsets[k], s, out);
-				}
+		if (length >= LookupTable.WORD_SIZE) {
+			neighbourHits(residues, start, length);
+			// Pass 2: the same hits, in the same order.
+			final int[] pq = pairQuery, ps = pairSubject;
+			for (int h = 0, n = pairCount; h < n; h++) {
+				hit(residues, start, length, pq[h], ps[h], out);
 			}
 		}
 		// The next subject's positions start beyond everything stored so far.
@@ -74,6 +70,44 @@ public final class WordFinder {
 		} else {
 			diagOffset += length + window;
 		}
+	}
+
+	/** Neighbour hits stored unconditionally per position in the flat list. */
+	private static final int FLAT = 1;
+	private int[] pairQuery = new int[1024], pairSubject = new int[1024];
+	private int pairCount;
+
+	/**
+	 * Pass 1: the neighbour hits of every position of the subject, in order, as a flat list. Each position stores FLAT of
+	 * its neighbours unconditionally, so the loop has no branch on how many it has; only a word with more than FLAT
+	 * neighbours takes a branch.
+	 */
+	private void neighbourHits(byte[] residues, int start, int length) {
+		final int[] cellStart = table.start, offsets = table.offsets;
+		final int mask = LookupTable.WORDS - 1;
+		final int last = length - LookupTable.WORD_SIZE;
+		final int maxOffset = offsets.length - 1;
+		int n = 0;
+		int[] pq = pairQuery, ps = pairSubject;
+		int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
+		for (int s = 0; s <= last; s++) {
+			word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
+			final int k0 = cellStart[word], count = cellStart[word + 1] - k0;
+			if (n + FLAT + count > pq.length) {
+				pq = pairQuery = java.util.Arrays.copyOf(pq, Math.max(n + FLAT + count, 2 * pq.length));
+				ps = pairSubject = java.util.Arrays.copyOf(ps, pq.length);
+			}
+			for (int j = 0; j < FLAT; j++) {
+				pq[n + j] = offsets[Math.min(k0 + j, maxOffset)];
+				ps[n + j] = s;
+			}
+			n += Math.min(count, FLAT);
+			for (int k = k0 + FLAT, end = k0 + count; k < end; k++) {
+				pq[n] = offsets[k];
+				ps[n++] = s;
+			}
+		}
+		pairCount = n;
 	}
 
 	private void hit(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
