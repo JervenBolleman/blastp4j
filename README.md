@@ -5,8 +5,8 @@ scores, bit scores, E-values and alignments, for the same parameters. It builds 
 [cssw4j](../cssw4j) (a Java Vector API port of the SSW Smith-Waterman library) and takes ideas from
 [BLVector](https://pmc.ncbi.nlm.nih.gov/articles/PMC7884812/).
 
-Status: nothing is implemented yet. This repository holds the plan, the BLAST+ reference results the implementation
-will be checked against, and the build.
+Status: the statistics are implemented (bit scores and E-values, reproduced exactly for all 15,107 hits of the
+reference without composition-based statistics). The search itself is not implemented yet.
 
 ## Why this is more than "SSW plus statistics"
 
@@ -24,8 +24,10 @@ statistics. The pipeline to reproduce (task `blastp`, defaults):
 5. **Composition-based statistics** (mode 2, Yu and Altschul 2005): per subject, decide whether to adjust the matrix
    to the query and subject composition, and redo the alignments with the adjusted matrix.
 6. **Final gapped extension with traceback** (X-drop 25 bits).
-7. **Statistics and hit list.** Karlin-Altschul E-values for gapped BLOSUM62 11/1 with BLAST's length adjustment of
-   the search space; E-value cutoff 10, at most 500 subjects, BLAST's ordering.
+7. **Statistics and hit list.** Bit scores from the Karlin-Altschul parameters of gapped BLOSUM62 11/1; E-values with
+   Spouge's finite-size correction (per subject, from both sequence lengths and the Gumbel parameters, scaled to the
+   database), which BLAST+ uses for BLOSUM62 instead of the classic length-adjusted `K m' n' e^(-lambda S)`; E-value
+   cutoff 10, at most 500 subjects, BLAST's ordering.
 
 The algorithms are described in the BLAST papers (Altschul et al. 1990, 1997; Altschul et al. 2005; Yu and Altschul
 2005) and implemented in the BLAST+ source code, which is a US government work in the public domain, so it can be
@@ -45,8 +47,9 @@ followed closely.
 Each milestone is checked against the BLAST+ reference results, and each experiment gets its own JMH benchmark and
 commit.
 
-1. **Statistics.** Karlin-Altschul parameters for BLOSUM62 11/1, length adjustment, bit score and E-value. Check:
-   recompute the `bitscore` and `evalue` columns of the `-comp_based_stats 0` reference from its raw `score` column.
+1. **Statistics** (done). Bit score and Spouge E-value for BLOSUM62 11/1, and BLAST's tabular number formatting.
+   Check: the `bitscore` and `evalue` columns of all 15,107 hits of the `-comp_based_stats 0` reference are recomputed
+   exactly from the raw `score`, `qlen` and `slen` columns. Cost: 0.3 us per alignment (0.7 us with formatting).
 2. **Database and queries.** Read FASTA (Swiss-Prot); later the BLAST database files (`.pin`/`.psq`).
 3. **Exhaustive baseline** with cssw4j over all of Swiss-Prot: which reference hits it finds, how its scores compare,
    and how fast it is.
