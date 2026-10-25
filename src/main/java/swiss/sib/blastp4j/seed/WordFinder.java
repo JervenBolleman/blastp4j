@@ -25,11 +25,8 @@ public final class WordFinder {
 	private final byte[] matrix = Blosum62.matrix();
 	private final LookupTable table;
 	private final int window, xDrop, cutoff;
-	/**
-	 * Per diagonal: the last hit position in the bits above the lowest, and in the lowest bit whether the last hit has
-	 * been extended. One array, so that a diagonal is one memory access.
-	 */
-	private final int[] diagonals;
+	private final int[] lastHit;
+	private final boolean[] extended;
 	private final int diagMask;
 	private int diagOffset;
 	// Output of the last extension.
@@ -46,7 +43,8 @@ public final class WordFinder {
 		while (length < query.length + window) {
 			length <<= 1;
 		}
-		diagonals = new int[length];
+		lastHit = new int[length];
+		extended = new boolean[length];
 		diagMask = length - 1;
 		diagOffset = window;
 	}
@@ -71,7 +69,8 @@ public final class WordFinder {
 		// The next subject's positions start beyond everything stored so far.
 		if (diagOffset >= Integer.MAX_VALUE / 4) {
 			diagOffset = window;
-			java.util.Arrays.fill(diagonals, -window << 1);
+			java.util.Arrays.fill(lastHit, -window);
+			java.util.Arrays.fill(extended, false);
 		} else {
 			diagOffset += length + window;
 		}
@@ -79,18 +78,18 @@ public final class WordFinder {
 
 	private void hit(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
 		final int diag = (q - s) & diagMask;
-		final int state = diagonals[diag];
-		if ((state & 1) != 0) {
+		if (extended[diag]) {
 			// Already extended past this hit: skip it; otherwise it starts a new pair.
-			if (s + diagOffset >= state >> 1) {
-				diagonals[diag] = (s + diagOffset) << 1;
+			if (s + diagOffset >= lastHit[diag]) {
+				lastHit[diag] = s + diagOffset;
+				extended[diag] = false;
 			}
 			return;
 		}
-		final int last = (state >> 1) - diagOffset;
+		final int last = lastHit[diag] - diagOffset;
 		final int diff = s - last;
 		if (diff >= window) {
-			diagonals[diag] = (s + diagOffset) << 1;
+			lastHit[diag] = s + diagOffset;
 			return;
 		}
 		if (diff < LookupTable.WORD_SIZE) {
@@ -101,9 +100,10 @@ public final class WordFinder {
 			out.add(new UngappedHsp(hspQuery, hspSubject, hspLength, score, q, s));
 		}
 		if (rightExtended) {
-			diagonals[diag] = ((lastSubjectOffset - (LookupTable.WORD_SIZE - 1) + diagOffset) << 1) | 1;
+			extended[diag] = true;
+			lastHit[diag] = lastSubjectOffset - (LookupTable.WORD_SIZE - 1) + diagOffset;
 		} else {
-			diagonals[diag] = (s + diagOffset) << 1;
+			lastHit[diag] = s + diagOffset;
 		}
 	}
 
