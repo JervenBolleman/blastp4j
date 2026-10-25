@@ -54,17 +54,8 @@ public final class WordFinder {
 	 * {@code out}, in the order BLAST finds them (BLAST later sorts them by score).
 	 */
 	public void find(byte[] residues, int start, int length, List<UngappedHsp> out) {
-		final int[] cellStart = table.start, offsets = table.offsets;
-		final int wordSize = LookupTable.WORD_SIZE;
-		final int mask = LookupTable.WORDS - 1;
-		if (length >= wordSize) {
-			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
-			for (int s = 0; s <= length - wordSize; s++) {
-				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
-				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
-					hit(residues, start, length, offsets[k], s, out);
-				}
-			}
+		if (length >= LookupTable.WORD_SIZE) {
+			scan(residues, start, length, out);
 		}
 		// The next subject's positions start beyond everything stored so far.
 		if (diagOffset >= Integer.MAX_VALUE / 4) {
@@ -73,6 +64,23 @@ public final class WordFinder {
 			java.util.Arrays.fill(extended, false);
 		} else {
 			diagOffset += length + window;
+		}
+	}
+
+	/**
+	 * The scan: every word of the subject, and the neighbourhood hits of each. Kept to a few live values, so that the
+	 * loop stays in registers; the rare work of a hit is in {@link #extend}.
+	 */
+	private void scan(byte[] residues, int start, int length, List<UngappedHsp> out) {
+		final int[] cellStart = table.start, offsets = table.offsets;
+		final int mask = LookupTable.WORDS - 1;
+		final int last = length - LookupTable.WORD_SIZE;
+		int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
+		for (int s = 0; s <= last; s++) {
+			word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
+			for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
+				hit(residues, start, length, offsets[k], s, out);
+			}
 		}
 	}
 
@@ -95,6 +103,11 @@ public final class WordFinder {
 		if (diff < LookupTable.WORD_SIZE) {
 			return; // overlaps the previous hit
 		}
+		extend(residues, start, length, q, s, diag, last, out);
+	}
+
+	/** The two-hit extension of a hit that follows an earlier hit on its diagonal, {@code last}, within the window. */
+	private void extend(byte[] residues, int start, int length, int q, int s, int diag, int last, List<UngappedHsp> out) {
 		int score = extendTwoHit(residues, start, length, last + LookupTable.WORD_SIZE, s, q);
 		if (score >= cutoff) {
 			out.add(new UngappedHsp(hspQuery, hspSubject, hspLength, score, q, s));
