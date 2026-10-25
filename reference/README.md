@@ -28,3 +28,11 @@ From the exported search strategy (`-export_search_strategy`): word threshold 11
 composition-based statistics 2, SEG off, e-value cutoff 10. From the BLAST+ documentation for task `blastp`: word size
 3, BLOSUM62, gap open 11, gap extend 1, X-drop 7 bits (ungapped), 15 bits (preliminary gapped), 25 bits (final
 gapped), max_target_seqs 500.
+
+## SEG test data
+
+`src/test/resources/seg/sprot_sample.fasta.gz` holds 400 Swiss-Prot 2026_03 sequences (every 50th of the first
+20,000) and `sprot_sample.segmasker.txt.gz` the intervals BLAST+ 2.17.0 masks in them with the parameters of
+composition-based statistics:
+
+    segmasker -in sprot_sample.fasta -infmt fasta -window 10 -locut 1.8 -hicut 2.1 -outfmt interval
