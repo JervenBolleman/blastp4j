@@ -13,7 +13,7 @@ import java.util.concurrent.Executors;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import swiss.sib.blastp4j.ReferenceData;
 import swiss.sib.blastp4j.align.Hsp;
@@ -24,9 +24,9 @@ import swiss.sib.blastp4j.stats.ScoringParameters;
 import swiss.sib.blastp4j.stats.Statistics;
 
 /**
- * The complete search without composition-based statistics reproduces blastp's tabular output line for line, in the
- * same order, for three of the reference queries (all 24 are compared by {@link GappedBaseline}). Skipped when
- * Swiss-Prot is not in {@code ~/data/uniprot} (or {@code -Dblastp4j.sprot}).
+ * The complete search reproduces blastp's tabular output line for line, in the same order, for three of the reference
+ * queries, without composition-based statistics and with blastp's default mode 2 (all 24 are compared by
+ * {@link GappedBaseline}). Skipped when Swiss-Prot is not in {@code ~/data/uniprot} (or {@code -Dblastp4j.sprot}).
  * <p>
  * CRYAA has subjects that need the restricted alignment and its exact redo; UBC (four ubiquitin repeats) has many
  * HSPs per subject, where the containment rules matter.
@@ -43,10 +43,11 @@ class BlastpSearchReferenceTest {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = { "sp|P00441|SODC_HUMAN", "sp|P02489|CRYAA_HUMAN", "sp|P0CG48|UBC_HUMAN" })
-	void sameLinesAsBlastp(String qid) throws Exception {
+	@CsvSource({ "sp|P00441|SODC_HUMAN,cbs0", "sp|P02489|CRYAA_HUMAN,cbs0", "sp|P0CG48|UBC_HUMAN,cbs0",
+			"sp|P00441|SODC_HUMAN,cbs2", "sp|P02489|CRYAA_HUMAN,cbs2", "sp|P0CG48|UBC_HUMAN,cbs2" })
+	void sameLinesAsBlastp(String qid, String mode) throws Exception {
 		List<String> expected = new ArrayList<>();
-		for (String[] r : ReferenceData.load("human_vs_sprot.cbs0.tsv.gz")) {
+		for (String[] r : ReferenceData.load("human_vs_sprot." + mode + ".tsv.gz")) {
 			if (r[0].equals(qid)) {
 				expected.add(String.join("\t", r));
 			}
@@ -60,7 +61,8 @@ class BlastpSearchReferenceTest {
 		List<String> ours = new ArrayList<>();
 		int threads = Runtime.getRuntime().availableProcessors();
 		try (ExecutorService pool = Executors.newFixedThreadPool(threads)) {
-			for (BlastpSearch.Hit h : new BlastpSearch(db, statistics, 10).search(query, pool, threads)) {
+			BlastpSearch search = new BlastpSearch(db, statistics, 10, mode.equals("cbs2"));
+			for (BlastpSearch.Hit h : search.search(query, pool, threads)) {
 				for (Hsp hsp : h.hsps()) {
 					ours.add(TabularFormat.row(qid, db.id(h.subject()), query, db.residues(), db.start(h.subject()),
 							db.length(h.subject()), hsp, statistics));

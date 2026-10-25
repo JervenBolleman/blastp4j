@@ -30,8 +30,9 @@ public final class GappedAligner {
 	/** Window for the best start point of a gapped extension ({@code HSP_MAX_WINDOW}). */
 	static final int HSP_MAX_WINDOW = 11;
 
-	private final byte[] matrix = Blosum62.matrix();
 	private static final int N = Blosum62.SIZE;
+	/** The scores, {@code matrix[query * N + subject]}; BLOSUM62 unless set otherwise. */
+	private final int[] matrix = new int[N * N];
 	private final int gapOpen, gapExtend;
 
 	private int[] best = new int[256], bestGap = new int[256];
@@ -55,6 +56,18 @@ public final class GappedAligner {
 	public GappedAligner(int gapOpen, int gapExtend) {
 		this.gapOpen = gapOpen;
 		this.gapExtend = gapExtend;
+		for (int a = 0; a < N; a++) {
+			for (int b = 0; b < N; b++) {
+				matrix[a * N + b] = Blosum62.score(a, b);
+			}
+		}
+	}
+
+	/** Uses {@code m[query][subject]} (28 x 28) as the score matrix from now on. */
+	public void setMatrix(int[][] m) {
+		for (int a = 0; a < N; a++) {
+			System.arraycopy(m[a], 0, matrix, a * N, N);
+		}
 	}
 
 	private void ensureDp(int n) {
@@ -85,7 +98,7 @@ public final class GappedAligner {
 		}
 		ensureDp(n + 2);
 		final int[] best = this.best, bestGap = this.bestGap;
-		final byte[] mat = matrix;
+		final int[] mat = matrix;
 		int score = -goe;
 		best[0] = 0;
 		bestGap[0] = -goe;
@@ -169,7 +182,7 @@ public final class GappedAligner {
 		}
 		ensureDp(n + 2);
 		final int[] best = this.best, bestGap = this.bestGap;
-		final byte[] mat = matrix;
+		final int[] mat = matrix;
 		int score = -goe;
 		best[0] = 0;
 		bestGap[0] = -goe;
@@ -341,7 +354,7 @@ public final class GappedAligner {
 			rowStart = new int[Math.max(m + 1, rowStart.length * 2)];
 		}
 		final int[] best = this.best, bestGap = this.bestGap;
-		final byte[] mat = matrix;
+		final int[] mat = matrix;
 		final int numExtraCells = gapExtend > 0 ? xDrop / gapExtend + 3 : n + 3;
 
 		ensureTrace(n + 3);
@@ -566,7 +579,7 @@ public final class GappedAligner {
 		if (qLength <= HSP_MAX_WINDOW) {
 			return qStart + qLength / 2;
 		}
-		final byte[] mat = matrix;
+		final int[] mat = matrix;
 		int hspEnd = qStart + HSP_MAX_WINDOW;
 		int q = qStart, s = subjectBase + sStart;
 		int score = 0;
@@ -596,7 +609,7 @@ public final class GappedAligner {
 	 */
 	public int[] offsetsForGapped(byte[] query, byte[] residues, int subjectBase, int qOffset, int qEnd, int sOffset,
 			int sEnd) {
-		final byte[] mat = matrix;
+		final int[] mat = matrix;
 		int qLength = qEnd - qOffset, sLength = sEnd - sOffset;
 		if (qLength <= HSP_MAX_WINDOW) {
 			return new int[] { qOffset + qLength / 2, sOffset + qLength / 2 };

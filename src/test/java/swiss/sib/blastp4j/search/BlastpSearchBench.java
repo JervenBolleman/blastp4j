@@ -26,8 +26,9 @@ import swiss.sib.blastp4j.stats.ScoringParameters;
 import swiss.sib.blastp4j.stats.Statistics;
 
 /**
- * Step 6: the complete search without composition-based statistics (seeding, preliminary gapped extensions, traceback,
- * hit list) of one query against all of Swiss-Prot, on one thread. The queries are HBA_HUMAN (142 residues),
+ * Steps 6 and 7: the complete search (seeding, preliminary gapped extensions, traceback, hit list) of one query
+ * against all of Swiss-Prot, on one thread, without composition-based statistics (cbs0) and with blastp's default
+ * mode 2 (cbs2). The queries are HBA_HUMAN (142 residues),
  * CDK1_HUMAN (297) and BRCA1_HUMAN (1,863). Needs the data in {@code ~/data/uniprot} (or {@code -Dblastp4j.sprot}).
  */
 @BenchmarkMode(Mode.SingleShotTime)
@@ -39,6 +40,10 @@ import swiss.sib.blastp4j.stats.Statistics;
 public class BlastpSearchBench {
 	@Param({ "HBA_HUMAN", "CDK1_HUMAN", "BRCA1_HUMAN" })
 	public String query;
+
+	/** cbs0: without composition-based statistics; cbs2: blastp's default mode 2. */
+	@Param({ "cbs0", "cbs2" })
+	public String mode;
 
 	private BlastpSearch search;
 	private byte[] sequence;
@@ -54,7 +59,8 @@ public class BlastpSearchBench {
 				sequence = queries.sequence(i);
 			}
 		}
-		search = new BlastpSearch(db, new Statistics(ScoringParameters.BLOSUM62_11_1, db.totalResidues()), 10);
+		search = new BlastpSearch(db, new Statistics(ScoringParameters.BLOSUM62_11_1, db.totalResidues()), 10,
+				mode.equals("cbs2"));
 		pool = Executors.newSingleThreadExecutor();
 	}
 

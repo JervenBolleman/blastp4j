@@ -19,9 +19,10 @@ import swiss.sib.blastp4j.stats.ScoringParameters;
 import swiss.sib.blastp4j.stats.Statistics;
 
 /**
- * Step 6: the full blastp search without composition-based statistics for the 24 reference queries against
- * Swiss-Prot, compared line by line with the blastp {@code -comp_based_stats 0} reference (all 16 columns, including
- * the alignment as BTOP). Writes our output to {@code target/blastp4j.cbs0.tsv}.
+ * Steps 6 and 7: the full blastp search for the 24 reference queries against Swiss-Prot, compared line by line with
+ * the blastp reference (all 16 columns, including the alignment as BTOP): without composition-based statistics
+ * ({@code cbs0}, the default) or with blastp's default mode 2 ({@code cbs2}). Writes our output to
+ * {@code target/blastp4j.<mode>.tsv}. Arguments: [threads] [cbs0|cbs2].
  * <p>
  * Per query: lines in both, lines only in BLAST's output, lines only in ours, and whether the lines in both are in the
  * same order. Run from the project directory with the test classpath; the optional argument is the number of threads.
@@ -29,15 +30,17 @@ import swiss.sib.blastp4j.stats.Statistics;
 public final class GappedBaseline {
 	public static void main(String[] args) throws Exception {
 		int threads = args.length > 0 ? Integer.parseInt(args[0]) : Runtime.getRuntime().availableProcessors();
+		String mode = args.length > 1 ? args[1] : "cbs0";
+		boolean compositionBased = mode.equals("cbs2");
 		Path dir = Path.of(System.getProperty("blastp4j.sprot", System.getProperty("user.home") + "/data/uniprot"));
 		SequenceDatabase db = FastaReader.read(dir.resolve("uniprot_sprot.fasta"));
 		SequenceDatabase queries = FastaReader.read(Path.of("src/test/resources/queries/uniprot_human.fasta"));
 		Map<String, List<String>> reference = new HashMap<>();
-		for (String[] r : ReferenceData.load("human_vs_sprot.cbs0.tsv.gz")) {
+		for (String[] r : ReferenceData.load("human_vs_sprot." + mode + ".tsv.gz")) {
 			reference.computeIfAbsent(r[0], q -> new ArrayList<>()).add(String.join("\t", r));
 		}
 		Statistics statistics = new Statistics(ScoringParameters.BLOSUM62_11_1, db.totalResidues());
-		BlastpSearch search = new BlastpSearch(db, statistics, 10);
+		BlastpSearch search = new BlastpSearch(db, statistics, 10, compositionBased);
 
 		System.out.printf("%-22s %6s %6s %6s %6s %6s %6s%n", "query", "blast", "ours", "same", "blOnly", "ourOnly",
 				"sec");
@@ -45,7 +48,7 @@ public final class GappedBaseline {
 		long totalNanos = 0;
 		List<String> examples = new ArrayList<>();
 		try (ExecutorService pool = Executors.newFixedThreadPool(threads);
-				PrintWriter out = new PrintWriter(Files.newBufferedWriter(Path.of("target/blastp4j.cbs0.tsv")))) {
+				PrintWriter out = new PrintWriter(Files.newBufferedWriter(Path.of("target/blastp4j." + mode + ".tsv")))) {
 			for (int q = 0; q < queries.size(); q++) {
 				String qid = queries.id(q);
 				byte[] query = queries.sequence(q);

@@ -5,10 +5,10 @@ scores, bit scores, E-values and alignments, for the same parameters. It builds 
 [cssw4j](../cssw4j) (a Java Vector API port of the SSW Smith-Waterman library) and takes ideas from
 [BLVector](https://pmc.ncbi.nlm.nih.gov/articles/PMC7884812/).
 
-Status: a blastp search without composition-based statistics (`-comp_based_stats 0`) is implemented and reproduces
-blastp's tabular output exactly: all 15,107 lines of the reference (24 queries against Swiss-Prot), every column
-including the alignment (BTOP), in the same order. Composition-based statistics (blastp's default) and the command line
-are not implemented yet.
+Status: the blastp search is implemented and reproduces blastp's tabular output exactly, with blastp's default
+composition-based statistics (mode 2) and without (`-comp_based_stats 0`). For the 24 reference queries against
+Swiss-Prot, all lines are identical (11,263 and 15,107), on every column including the alignment (BTOP), and in the
+same order. The command line is not implemented yet.
 
 ## Why this is more than "SSW plus statistics"
 
@@ -60,7 +60,7 @@ commit.
 3. **Exhaustive baseline** (done) with cssw4j over all of Swiss-Prot; see [the results](#exhaustive-baseline).
 4. **Seeding** (done): lookup table, two-hit trigger, ungapped X-drop extension; see [the results](#seeding).
 5. **Gapped X-drop extension and traceback** (done); see [the results](#gapped-extension-and-traceback).
-6. **Composition-based statistics** (mode 2). Check: the default (`cbs2`) reference.
+6. **Composition-based statistics** (done, mode 2); see [the results](#composition-based-statistics).
 7. **Command line, tabular output (`-outfmt 6`), threads and hit list rules**; speed against blastp.
 
 ## Exhaustive baseline
@@ -247,6 +247,66 @@ The blastp times include starting the program and opening the database. blastp4j
 is in the gapped stage: for BRCA1 it takes 6.0 s here, against about 3.3 s in blastp (its gapped search minus its
 ungapped one). On 8 threads, the 24 queries take 29 s; blastp on one thread takes 76 s.
 
+## Composition-based statistics
+
+blastp's default, mode 2 ("conditional compositional score matrix adjustment", Altschul et al. 2005; Yu and
+Altschul 2005), changes the search in three places:
+
+* **Preliminary stage.** The cutoffs use 5 times the E-value cutoff (50), and 1,050 subjects are kept instead of 550.
+* **Traceback stage.** It is replaced. For each subject (`Blast_RedoAlignmentCore` and `Blast_RedoOneMatch` in
+  `blast_kappa.c` and `redo_alignment.c`):
+  * The subject is masked with SEG (window 10, locut 1.8, hicut 2.1), unless its first alignment shows it to be nearly
+    identical to the query.
+  * The amino-acid compositions of query and subject decide how BLOSUM62 is adjusted. Usually its target frequencies
+    are re-optimized for the two compositions at a relative entropy of 0.44 (Newton's method on a constrained
+    Kullback-Leibler problem). When the compositions differ a lot and the lengths differ more than threefold, the
+    matrix is instead only rescaled ("old" composition-based statistics).
+  * The preliminary alignments are aligned again with that matrix. All scores are scaled by 32 for precision.
+* **Result list.** BLAST reads the subjects in database order and keeps them in a heap that holds every subject
+  below E = 0.002 and otherwise the best 500. Once the heap is full of such subjects, a subject whose preliminary
+  E-value is above 0.01 is skipped.
+
+The port, in `swiss.sib.blastp4j.compo`:
+
+* `Seg` is BLAST's SEG with its tabulated logarithms. It masks exactly what BLAST's `segmasker` does, on the first
+  20,000 Swiss-Prot sequences (`SegTest` uses a sample of 400).
+* `CompositionAdjustment` and `OptimizeTargetFreq` compute the adjusted matrices. `Blosum62Data` holds BLAST's
+  BLOSUM62 joint probabilities and frequency ratios.
+  * BLAST's own C code was compiled into a test harness: `reference/compo/build_harness.sh` downloads the library and
+    builds `harness.c`.
+  * Of 6,006 query/subject compositions, every adjusted matrix is identical to the C code's. One λ ratio differs in
+    its last bit, which no output depends on. `CompositionAdjustmentTest` checks 306 of them.
+* `CompoRedo` redoes the alignments of one subject: the near-identity tests, SEG, the adjustment, the realignment,
+  BLAST's rules for distinct and contained alignments, and the scaled E-values.
+* `CompoHeap` is BLAST's result heap.
+
+The realignment runs in parallel. Early termination and the heap are then replayed in BLAST's order, which gives the
+same result because one subject's realignment does not depend on another's. There is one exception, and it is
+reproduced. When SEG leaves a subject with no true amino acids, the adjustment fails, and BLAST realigns that
+subject's later alignments with the matrix of the previous subject it processed. The replay then redoes such a
+subject with that matrix.
+
+Two details were needed for an identical order of the output lines:
+
+* E-values are computed as BLAST does, from the scaled score with λ / 32 and the Gumbel parameters a, α and σ scaled
+  by the same ratio. Dividing the score by 32 gives the same value mathematically, but not to the last bit.
+* BLAST's C++ layer sorts the HSPs of each subject by E-value when it converts the results to alignments
+  (`blast_seqalign.cpp`). Because E-values below 1e-180 count as equal, HSPs with the same final score are then
+  ordered by position, not by their scaled score.
+
+`GappedBaseline` with the argument `cbs2` compares all 24 queries: 11,263 of 11,263 lines are identical, in the same
+order. `BlastpSearchReferenceTest` checks three of them in both modes.
+
+Speed of the complete search on one thread (`BlastpSearchBench`, Temurin 25), against blastp on one thread:
+
+| Query | blastp4j, mode 2 | blastp, default | blastp4j, cbs0 | blastp, cbs0 |
+|---|---:|---:|---:|---:|
+| HBA_HUMAN | 2.43 s | 2.23 s | 2.10 s | 1.96 s |
+| CDK1_HUMAN | 4.45 s | 3.89 s | 4.13 s | 3.65 s |
+| BRCA1_HUMAN | 18.16 s | 14.07 s | 17.28 s | 13.83 s |
+
+On 8 threads, the 24 queries take 32 s with composition-based statistics; blastp on one thread takes 80 s.
+
 ## Reference results
 
 See [reference/README.md](reference/README.md): BLAST+ 2.17.0 on UniProtKB/Swiss-Prot 2026_03 for 24 human proteins,
@@ -264,7 +324,8 @@ The baselines and their benchmarks need Swiss-Prot in `~/data/uniprot` (see `ref
     CP=target/classes:target/test-classes:$(cat target/cp.txt)
     java --add-modules jdk.incubator.vector -Xmx3g -cp $CP swiss.sib.blastp4j.search.ExhaustiveBaseline 8
     java -Xmx3g -cp $CP swiss.sib.blastp4j.search.SeedingBaseline 8
-    java -Xmx3g -cp $CP swiss.sib.blastp4j.search.GappedBaseline 8
+    java -Xmx3g -cp $CP swiss.sib.blastp4j.search.GappedBaseline 8 cbs0
+    java -Xmx3g -cp $CP swiss.sib.blastp4j.search.GappedBaseline 8 cbs2
     java -cp $CP org.openjdk.jmh.Main 'ExhaustiveSearchBench|SeedSearchBench|BlastpSearchBench'
 
 `SeedingBaseline` also counts the Smith-Waterman hits without a seed when `target/exhaustive.tsv` from

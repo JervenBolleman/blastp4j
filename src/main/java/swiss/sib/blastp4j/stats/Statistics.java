@@ -47,11 +47,23 @@ public final class Statistics {
 	 * residues, in a database of {@code databaseLength} residues.
 	 */
 	public double evalue(int rawScore, int queryLength, int subjectLength) {
-		final double lambda = p.lambda();
-		final double y = rawScore;
-		final double a = p.alpha();
-		final double alphaV = p.alphaV();
-		final double sigma = p.sigma();
+		return evalue(rawScore, p.lambda(), 1.0, queryLength, subjectLength);
+	}
+
+	/**
+	 * E-value of a score computed with all scores multiplied by {@code scale}, as composition-based statistics does
+	 * (scale 32). BLAST then divides lambda by the scale and multiplies a, alpha and sigma by the ratio of the scaled
+	 * to the original lambda ({@code BLAST_SpougeStoE}); this follows the same arithmetic.
+	 */
+	public double evalueScaled(int scaledScore, double scale, int queryLength, int subjectLength) {
+		double lambda = p.lambda() / scale;
+		return evalue(scaledScore, lambda, lambda / p.lambda(), queryLength, subjectLength);
+	}
+
+	private double evalue(double y, double lambda, double scaleFactor, int queryLength, int subjectLength) {
+		final double a = p.alpha() * scaleFactor;
+		final double alphaV = p.alphaV() * scaleFactor;
+		final double sigma = p.sigma() * scaleFactor;
 		// Both sides use the same (symmetric) parameters.
 		final double variance = Math.max(2.0 * alphaV / lambda, alphaV * y + gumbelBeta);
 		final double sqrtVariance = Math.sqrt(variance);

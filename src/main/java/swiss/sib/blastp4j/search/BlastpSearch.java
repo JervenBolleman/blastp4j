@@ -12,6 +12,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import swiss.sib.blastp4j.align.GappedAligner;
 import swiss.sib.blastp4j.align.Hsp;
 import swiss.sib.blastp4j.align.HspTree;
+import swiss.sib.blastp4j.compo.CompoHeap;
+import swiss.sib.blastp4j.compo.CompoRedo;
 import swiss.sib.blastp4j.db.SequenceDatabase;
 import swiss.sib.blastp4j.seed.LookupTable;
 import swiss.sib.blastp4j.seed.SeedParameters;
@@ -20,7 +22,8 @@ import swiss.sib.blastp4j.seed.WordFinder;
 import swiss.sib.blastp4j.stats.Statistics;
 
 /**
- * A blastp search without composition-based statistics ({@code -comp_based_stats 0}), following BLAST+'s engine:
+ * A blastp search, without composition-based statistics ({@code -comp_based_stats 0}) or with mode 2 (blastp's
+ * default), following BLAST+'s engine:
  * <ol>
  * <li>seeding ({@link WordFinder}) and, per subject with seeds, the preliminary gapped extensions
  * ({@code BLAST_GetGappedScore}): score only, X-drop 15 bits, from the best window of each ungapped alignment not
@@ -40,6 +43,10 @@ public final class BlastpSearch {
 
 	/** Preliminary hit list size for 500 subjects without composition-based statistics. */
 	static final int PRELIM_HITLIST = 550;
+	/** Preliminary hit list size for 500 subjects with composition-based statistics. */
+	static final int PRELIM_HITLIST_CBS = 1050;
+	/** E-value under which composition-based statistics keeps all subjects ({@code PSI_INCLUSION_ETHRESH}). */
+	static final double INCLUSION_ETHRESH = 0.002;
 	static final int HITLIST = 500;
 	/** Fraction of the cutoff below which the restricted alignment is used. */
 	static final double RESTRICTED_MULT = 0.68;
@@ -54,16 +61,30 @@ public final class BlastpSearch {
 	private final SequenceDatabase db;
 	private final Statistics statistics;
 	private final int minLength;
-	private final double evalue;
+	private final double evalue, prelimEvalue;
+	private final boolean compositionBased;
 	private final int gapOpen, gapExtend, xDrop, xDropFinal;
 
 	/**
+	 * A search without composition-based statistics.
+	 *
 	 * @param evalue the E-value cutoff (10)
 	 */
 	public BlastpSearch(SequenceDatabase db, Statistics statistics, double evalue) {
+		this(db, statistics, evalue, false);
+	}
+
+	/**
+	 * @param evalue           the E-value cutoff (10)
+	 * @param compositionBased with composition-based statistics mode 2 (blastp's default)
+	 */
+	public BlastpSearch(SequenceDatabase db, Statistics statistics, double evalue, boolean compositionBased) {
 		this.db = db;
 		this.statistics = statistics;
 		this.evalue = evalue;
+		this.compositionBased = compositionBased;
+		// With composition-based statistics mode 2, the preliminary stage uses 5 times the E-value cutoff.
+		this.prelimEvalue = compositionBased ? 5 * evalue : evalue;
 		this.minLength = MIN_SUBJECT_LENGTH;
 		double lambda = statistics.parameters().lambda();
 		this.gapOpen = statistics.parameters().gapOpen();
@@ -74,12 +95,12 @@ public final class BlastpSearch {
 
 	/** The seeding parameters this search uses for a query. */
 	public SeedParameters seedParameters(byte[] query) {
-		return SeedParameters.blastp(query, statistics, evalue, minLength);
+		return SeedParameters.blastp(query, statistics, prelimEvalue, minLength);
 	}
 
 	/** The raw score an HSP needs to be kept ({@code cutoff_score} of BLAST's hit saving parameters). */
 	public int cutoff(byte[] query) {
-		return statistics.score(evalue, query.length, minLength);
+		return statistics.score(prelimEvalue, query.length, minLength);
 	}
 
 	/** BLAST's ordering of subjects ({@code s_EvalueCompareHSPLists}). */
@@ -93,6 +114,27 @@ public final class BlastpSearch {
 		}
 		return r;
 	};
+
+	/** BLAST's order of the HSPs of a subject in a full hit list ({@code s_EvalueCompareHSPs}). */
+	static final Comparator<Hsp> HSP_BY_EVALUE = (h1, h2) -> {
+		int r = compareEvalues(h1.evalue, h2.evalue);
+		return r != 0 ? r : Hsp.BY_SCORE.compare(h1, h2);
+	};
+
+	/**
+	 * The final hit list: the best 500 subjects in BLAST's order ({@code Blast_HSPResultsSortByEvalue} and pruning).
+	 * Then, as BLAST's C++ layer does when it converts the results to alignments ({@code Blast_HSPListSortByEvalue} in
+	 * {@code blast_seqalign.cpp}), the HSPs of each subject are sorted by E-value and score; with E-values below
+	 * 1e-180 counted as equal, HSPs of equal (final) score are then ordered by position.
+	 */
+	static List<Hit> finalHitList(List<Hit> hits) {
+		hits.sort(BY_EVALUE);
+		List<Hit> kept = new ArrayList<>(hits.subList(0, Math.min(HITLIST, hits.size())));
+		for (Hit h : kept) {
+			h.hsps().sort(HSP_BY_EVALUE);
+		}
+		return kept;
+	}
 
 	/** {@code s_EvalueComp}: E-values below 1e-180 are equal. */
 	static int compareEvalues(double e1, double e2) {
@@ -119,7 +161,11 @@ public final class BlastpSearch {
 			prelim.addAll(part);
 		}
 		prelim.sort(BY_EVALUE);
-		List<Hit> kept = prelim.subList(0, Math.min(PRELIM_HITLIST, prelim.size()));
+		List<Hit> kept = prelim.subList(0,
+				Math.min(compositionBased ? PRELIM_HITLIST_CBS : PRELIM_HITLIST, prelim.size()));
+		if (compositionBased) {
+			return compositionBasedStage(query, kept, pool, tasks);
+		}
 
 		// Traceback stage.
 		AtomicInteger nextHit = new AtomicInteger();
@@ -141,8 +187,76 @@ public final class BlastpSearch {
 		for (List<Hit> part : runAll(pool, tracebackTasks)) {
 			hits.addAll(part);
 		}
-		hits.sort(BY_EVALUE);
-		return new ArrayList<>(hits.subList(0, Math.min(HITLIST, hits.size())));
+		return finalHitList(hits);
+	}
+
+	/**
+	 * The traceback stage with composition-based statistics ({@code Blast_RedoAlignmentCore_MT}). BLAST reads the
+	 * preliminary subjects in increasing order and skips a subject when its result heap is already full of subjects
+	 * below the inclusion E-value and the subject's preliminary E-value is more than 5 times that. The redoing is done
+	 * in parallel here; the skipping and the heap are then replayed in BLAST's order, which gives the same result
+	 * because redoing one subject does not depend on another.
+	 */
+	private List<Hit> compositionBasedStage(byte[] query, List<Hit> prelim, ExecutorService pool, int tasks)
+			throws InterruptedException {
+		CompoRedo.Query q = new CompoRedo.Query(query);
+		List<Hit> ordered = new ArrayList<>(prelim);
+		ordered.sort(Comparator.comparingInt(Hit::subject));
+		CompoRedo.Result[] results = new CompoRedo.Result[ordered.size()];
+		AtomicInteger next = new AtomicInteger();
+		List<Callable<Void>> work = new ArrayList<>();
+		for (int t = 0; t < tasks; t++) {
+			work.add(() -> {
+				CompoRedo redo = new CompoRedo(q, statistics);
+				for (int i; (i = next.getAndIncrement()) < ordered.size();) {
+					Hit h = ordered.get(i);
+					results[i] = redo.redo(h.hsps(), db.residues(), db.start(h.subject()), db.length(h.subject()),
+							evalue, null);
+				}
+				return null;
+			});
+		}
+		runAll(pool, work);
+
+		CompoHeap<Hit> heap = new CompoHeap<>(HITLIST, INCLUSION_ETHRESH);
+		// BLAST's thread-local matrix: unscaled BLOSUM62 until the first successful adjustment.
+		int[][] current = new int[swiss.sib.blastp4j.stats.Blosum62.SIZE][swiss.sib.blastp4j.stats.Blosum62.SIZE];
+		for (int a = 0; a < current.length; a++) {
+			for (int b = 0; b < current.length; b++) {
+				current[a][b] = swiss.sib.blastp4j.stats.Blosum62.score(a, b);
+			}
+		}
+		CompoRedo sequential = null;
+		for (int i = 0; i < ordered.size(); i++) {
+			Hit h = ordered.get(i);
+			if (heap.earlyTermination(h.bestEvalue())) {
+				continue;
+			}
+			CompoRedo.Result r = results[i];
+			if (r.usedInheritedMatrix()) {
+				// Rare: redo this subject with the matrix BLAST would have at this point.
+				if (sequential == null) {
+					sequential = new CompoRedo(q, statistics);
+				}
+				r = sequential.redo(h.hsps(), db.residues(), db.start(h.subject()), db.length(h.subject()), evalue,
+						current);
+			}
+			if (r.finalMatrix() != null) {
+				current = r.finalMatrix();
+			}
+			if (r.hsps().isEmpty() || !(r.bestEvalue() <= evalue)) {
+				continue;
+			}
+			if (heap.wouldInsert(r.bestEvalue(), r.bestScaledScore(), h.subject())) {
+				heap.insert(new Hit(h.subject(), r.hsps(), r.bestEvalue()), r.bestEvalue(), r.bestScaledScore(),
+						h.subject());
+			}
+		}
+		List<Hit> hits = new ArrayList<>();
+		for (Hit h; (h = heap.pop()) != null;) {
+			hits.add(h);
+		}
+		return finalHitList(hits);
 	}
 
 	private static <T> List<T> runAll(ExecutorService pool, List<Callable<T>> tasks) throws InterruptedException {
@@ -199,7 +313,7 @@ public final class BlastpSearch {
 				List<Hsp> kept = new ArrayList<>();
 				for (Hsp h : hsps) {
 					h.evalue = statistics.evalue(h.score, query.length, db.length(i));
-					if (h.evalue <= evalue) {
+					if (h.evalue <= prelimEvalue) {
 						kept.add(h);
 						best = Math.min(best, h.evalue);
 					}
