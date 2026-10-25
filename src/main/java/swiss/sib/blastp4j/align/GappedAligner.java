@@ -387,15 +387,11 @@ public final class GappedAligner {
 				bp += bStep;
 				int gapCol = bestGap[bi];
 				int next = best[bi] + mat[row + b[bp]];
-				int script = EditScript.SUB;
-				if (score < gapCol) {
-					script = EditScript.INS;
-					score = gapCol;
-				}
-				if (score < gapRow) {
-					script = EditScript.DEL;
-					score = gapRow;
-				}
+				// The best of the three moves, and which one (ties keep the earlier one), without branches on the scores.
+				int script = gapCol > score ? EditScript.INS : EditScript.SUB;
+				final int afterCol = Math.max(score, gapCol);
+				script = gapRow > afterCol ? EditScript.DEL : script;
+				score = Math.max(afterCol, gapRow);
 				if (bestScore - score > xDrop) {
 					if (first == bi) {
 						first++;
