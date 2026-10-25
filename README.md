@@ -5,11 +5,10 @@ scores, bit scores, E-values and alignments, for the same parameters. It builds 
 [cssw4j](../cssw4j) (a Java Vector API port of the SSW Smith-Waterman library) and takes ideas from
 [BLVector](https://pmc.ncbi.nlm.nih.gov/articles/PMC7884812/).
 
-Status: the statistics (bit scores and E-values, reproduced exactly for all 15,107 hits of the reference without
-composition-based statistics) and the database and query reading (identical to BLAST's own database, byte for byte)
-are implemented, as are an exhaustive Smith-Waterman baseline search and BLAST's seeding stage (identical to blastp's
-ungapped alignments). The gapped extensions, composition-based statistics and the command line are not implemented
-yet.
+Status: a blastp search without composition-based statistics (`-comp_based_stats 0`) is implemented and reproduces
+blastp's tabular output exactly: all 15,107 lines of the reference (24 queries against Swiss-Prot), every column
+including the alignment (BTOP), in the same order. Composition-based statistics (blastp's default) and the command line
+are not implemented yet.
 
 ## Why this is more than "SSW plus statistics"
 
@@ -60,8 +59,7 @@ commit.
    1.1 s from plain FASTA and 2.3 s from gzip. Reading BLAST database files directly is left for later.
 3. **Exhaustive baseline** (done) with cssw4j over all of Swiss-Prot; see [the results](#exhaustive-baseline).
 4. **Seeding** (done): lookup table, two-hit trigger, ungapped X-drop extension; see [the results](#seeding).
-5. **Gapped X-drop extension and traceback.** Check: raw scores, coordinates and `btop` of the
-   `-comp_based_stats 0` reference.
+5. **Gapped X-drop extension and traceback** (done); see [the results](#gapped-extension-and-traceback).
 6. **Composition-based statistics** (mode 2). Check: the default (`cbs2`) reference.
 7. **Command line, tabular output (`-outfmt 6`), threads and hit list rules**; speed against blastp.
 
@@ -185,6 +183,70 @@ The blastp times include starting the program and opening the database. Seeding 
 whole gapped search takes only 0.1 to 3.3 s more than its ungapped one. blastp4j's seeding runs at about the speed of
 BLAST's. On 8 threads, the 24 queries are seeded in 20 s.
 
+## Gapped extension and traceback
+
+`align.GappedAligner`, `align.HspTree` and `search.BlastpSearch` follow BLAST+'s `blast_gapalign.c`, `blast_itree.c`,
+`blast_hits.c`, `blast_traceback.c` and `blast_engine.c`. Per subject:
+
+1. **Preliminary gapped extension.** For each ungapped alignment, best first, that is not inside a gapped one already
+   found:
+   * The start point is the middle of the alignment's best-scoring 11-letter window.
+   * The extension is score only, with X-drop 15 bits (38 raw).
+   * If the subject's best ungapped score is below 0.68 times the cutoff, the restricted, approximate alignment is used
+     (gaps may only start every 10 positions). When its result is inconclusive, everything for that subject is redone
+     exactly.
+2. **Preliminary hit list.** HSPs sharing a start or end point are purged, E-values are computed, and the best 550
+   subjects are kept.
+3. **Traceback.** Each HSP not inside an already traced one is aligned again from its start point, with traceback and
+   X-drop 25 bits (64 raw). Leading and trailing gaps are trimmed, then purging, containment and the E-value cutoff
+   follow. The final list is the best 500 subjects.
+
+`GappedBaseline` (in the tests) runs the 24 queries and compares every output line with the `-comp_based_stats 0`
+reference:
+
+| | Lines identical to blastp's (of 15,107) |
+|---|---:|
+| first complete version | 14,926 |
+| + BLAST's interval-tree endpoint rule | 15,093 |
+| + BLAST's minimum subject length | **15,107**, in the same order |
+
+Three details took the result from 98.8% to exact. All three are visible only in BLAST's source or behaviour:
+
+* **The containment tree is not just a set.** Before a gapped alignment is computed, BLAST checks whether the ungapped
+  alignment lies inside an HSP already found. When an HSP is added to that tree, any HSP already there with the same
+  start (or end) point is removed if it scores lower. If the one already there is better, the new one is not added.
+  So a lower-scoring HSP that was replaced no longer hides the alignments inside it. `HspTree` reproduces this.
+* **The minimum subject length is 10.** The score an HSP needs to be kept is derived from the E-value cutoff at the
+  shortest subject length. BLAST databases do not store that length, so SeqDB reports 0 and BLAST uses its default
+  `BLAST_SEQSRC_MINLENGTH` of 10. This cutoff also decides when the restricted alignment is used, so the real
+  minimum (2 in Swiss-Prot) changed weak hits near the cutoff.
+* **Numbers are rounded as C's printf does.** printf rounds the exact binary value with ties to even, so 25/64 =
+  39.0625 prints as `39.062`. Java's `String.format` rounds ties up.
+
+Some BLAST quirks are kept on purpose, because the output depends on them:
+
+* When both extensions end in a gap of the same kind at the start point, the edit script merges the two gaps into one,
+  but the score still counts both gap openings.
+* An HSP whose traceback start is exactly (0, 0) gets a new start point.
+* The score-only and the traceback extension disagree by one letter about the end of an alignment that starts at the
+  last letter of a sequence.
+
+`BlastpSearchReferenceTest` checks three of the queries line by line in `mvn test`, when Swiss-Prot is present.
+`GappedAlignerTest` checks on random sequences that the traceback agrees with the score-only extension and with its
+own edit script, and that the restricted alignment never scores higher than the exact one.
+
+Speed of the complete search on one thread (`BlastpSearchBench`, Temurin 25), against blastp on one thread:
+
+| Query | Length | blastp4j | blastp | blastp4j seeding only |
+|---|---:|---:|---:|---:|
+| HBA_HUMAN | 142 | 2.10 s | 1.96 s | 1.89 s |
+| CDK1_HUMAN | 297 | 4.13 s | 3.65 s | 3.16 s |
+| BRCA1_HUMAN | 1,863 | 17.28 s | 13.83 s | 11.29 s |
+
+The blastp times include starting the program and opening the database. blastp4j is 7 to 25% slower. The difference
+is in the gapped stage: for BRCA1 it takes 6.0 s here, against about 3.3 s in blastp (its gapped search minus its
+ungapped one). On 8 threads, the 24 queries take 29 s; blastp on one thread takes 76 s.
+
 ## Reference results
 
 See [reference/README.md](reference/README.md): BLAST+ 2.17.0 on UniProtKB/Swiss-Prot 2026_03 for 24 human proteins,
@@ -202,7 +264,8 @@ The baselines and their benchmarks need Swiss-Prot in `~/data/uniprot` (see `ref
     CP=target/classes:target/test-classes:$(cat target/cp.txt)
     java --add-modules jdk.incubator.vector -Xmx3g -cp $CP swiss.sib.blastp4j.search.ExhaustiveBaseline 8
     java -Xmx3g -cp $CP swiss.sib.blastp4j.search.SeedingBaseline 8
-    java -cp $CP org.openjdk.jmh.Main 'ExhaustiveSearchBench|SeedSearchBench'
+    java -Xmx3g -cp $CP swiss.sib.blastp4j.search.GappedBaseline 8
+    java -cp $CP org.openjdk.jmh.Main 'ExhaustiveSearchBench|SeedSearchBench|BlastpSearchBench'
 
 `SeedingBaseline` also counts the Smith-Waterman hits without a seed when `target/exhaustive.tsv` from
 `ExhaustiveBaseline` is present.

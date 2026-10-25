@@ -1,0 +1,356 @@
+package swiss.sib.blastp4j.search;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import swiss.sib.blastp4j.align.GappedAligner;
+import swiss.sib.blastp4j.align.Hsp;
+import swiss.sib.blastp4j.align.HspTree;
+import swiss.sib.blastp4j.db.SequenceDatabase;
+import swiss.sib.blastp4j.seed.LookupTable;
+import swiss.sib.blastp4j.seed.SeedParameters;
+import swiss.sib.blastp4j.seed.UngappedHsp;
+import swiss.sib.blastp4j.seed.WordFinder;
+import swiss.sib.blastp4j.stats.Statistics;
+
+/**
+ * A blastp search without composition-based statistics ({@code -comp_based_stats 0}), following BLAST+'s engine:
+ * <ol>
+ * <li>seeding ({@link WordFinder}) and, per subject with seeds, the preliminary gapped extensions
+ * ({@code BLAST_GetGappedScore}): score only, X-drop 15 bits, from the best window of each ungapped alignment not
+ * already inside a gapped one; the restricted (approximate) alignment when the best ungapped score is below 0.68 times
+ * the cutoff, redone exactly when its result is inconclusive;</li>
+ * <li>HSPs with common start or end points purged, E-values, the E-value cutoff; the best 550 subjects kept;</li>
+ * <li>for those, the traceback ({@code Blast_TracebackFromHSPList}): each HSP not inside an already traced one is
+ * aligned again from its start point with X-drop 25 bits and traceback; purging, containment, E-values again;</li>
+ * <li>the best 500 subjects, ordered by E-value.</li>
+ * </ol>
+ * Instances are immutable; {@link #search} may be called from several threads.
+ */
+public final class BlastpSearch {
+	/** A subject with its alignments, best first. */
+	public record Hit(int subject, List<Hsp> hsps, double bestEvalue) {
+	}
+
+	/** Preliminary hit list size for 500 subjects without composition-based statistics. */
+	static final int PRELIM_HITLIST = 550;
+	static final int HITLIST = 500;
+	/** Fraction of the cutoff below which the restricted alignment is used. */
+	static final double RESTRICTED_MULT = 0.68;
+	/**
+	 * The "shortest subject length" BLAST uses for its cutoff scores. A BLAST database does not record it, so SeqDB
+	 * reports 0 and BLAST falls back to {@code BLAST_SEQSRC_MINLENGTH}, 10, whatever the real shortest sequence is.
+	 */
+	public static final int MIN_SUBJECT_LENGTH = 10;
+	private static final int CHUNK = 2048;
+	private static final double LN2 = 0.69314718055994530941723212145818;
+
+	private final SequenceDatabase db;
+	private final Statistics statistics;
+	private final int minLength;
+	private final double evalue;
+	private final int gapOpen, gapExtend, xDrop, xDropFinal;
+
+	/**
+	 * @param evalue the E-value cutoff (10)
+	 */
+	public BlastpSearch(SequenceDatabase db, Statistics statistics, double evalue) {
+		this.db = db;
+		this.statistics = statistics;
+		this.evalue = evalue;
+		this.minLength = MIN_SUBJECT_LENGTH;
+		double lambda = statistics.parameters().lambda();
+		this.gapOpen = statistics.parameters().gapOpen();
+		this.gapExtend = statistics.parameters().gapExtend();
+		this.xDrop = (int) (15 * LN2 / lambda);
+		this.xDropFinal = (int) Math.max(25 * LN2 / lambda, xDrop);
+	}
+
+	/** The seeding parameters this search uses for a query. */
+	public SeedParameters seedParameters(byte[] query) {
+		return SeedParameters.blastp(query, statistics, evalue, minLength);
+	}
+
+	/** The raw score an HSP needs to be kept ({@code cutoff_score} of BLAST's hit saving parameters). */
+	public int cutoff(byte[] query) {
+		return statistics.score(evalue, query.length, minLength);
+	}
+
+	/** BLAST's ordering of subjects ({@code s_EvalueCompareHSPLists}). */
+	static final Comparator<Hit> BY_EVALUE = (h1, h2) -> {
+		int r = compareEvalues(h1.bestEvalue, h2.bestEvalue);
+		if (r == 0) {
+			r = Integer.compare(h2.hsps.get(0).score, h1.hsps.get(0).score);
+		}
+		if (r == 0) {
+			r = Integer.compare(h2.subject, h1.subject);
+		}
+		return r;
+	};
+
+	/** {@code s_EvalueComp}: E-values below 1e-180 are equal. */
+	static int compareEvalues(double e1, double e2) {
+		if (e1 < 1.0e-180 && e2 < 1.0e-180) {
+			return 0;
+		}
+		return Double.compare(e1, e2) < 0 ? -1 : e1 > e2 ? 1 : 0;
+	}
+
+	/** Searches a query (NCBIstdaa codes) with {@code tasks} tasks of the pool. */
+	public List<Hit> search(byte[] query, ExecutorService pool, int tasks) throws InterruptedException {
+		SeedParameters seeds = seedParameters(query);
+		LookupTable table = LookupTable.of(query, seeds.threshold());
+		int cutoff = cutoff(query);
+
+		// Preliminary stage.
+		AtomicInteger next = new AtomicInteger();
+		List<Callable<List<Hit>>> prelimTasks = new ArrayList<>();
+		for (int t = 0; t < tasks; t++) {
+			prelimTasks.add(() -> prelim(query, new WordFinder(query, table, seeds), cutoff, next));
+		}
+		List<Hit> prelim = new ArrayList<>();
+		for (List<Hit> part : runAll(pool, prelimTasks)) {
+			prelim.addAll(part);
+		}
+		prelim.sort(BY_EVALUE);
+		List<Hit> kept = prelim.subList(0, Math.min(PRELIM_HITLIST, prelim.size()));
+
+		// Traceback stage.
+		AtomicInteger nextHit = new AtomicInteger();
+		List<Callable<List<Hit>>> tracebackTasks = new ArrayList<>();
+		for (int t = 0; t < tasks; t++) {
+			tracebackTasks.add(() -> {
+				GappedAligner aligner = new GappedAligner(gapOpen, gapExtend);
+				List<Hit> out = new ArrayList<>();
+				for (int i; (i = nextHit.getAndIncrement()) < kept.size();) {
+					Hit h = traceback(query, aligner, kept.get(i));
+					if (h != null) {
+						out.add(h);
+					}
+				}
+				return out;
+			});
+		}
+		List<Hit> hits = new ArrayList<>();
+		for (List<Hit> part : runAll(pool, tracebackTasks)) {
+			hits.addAll(part);
+		}
+		hits.sort(BY_EVALUE);
+		return new ArrayList<>(hits.subList(0, Math.min(HITLIST, hits.size())));
+	}
+
+	private static <T> List<T> runAll(ExecutorService pool, List<Callable<T>> tasks) throws InterruptedException {
+		List<Future<T>> futures = new ArrayList<>();
+		for (Callable<T> t : tasks) {
+			futures.add(pool.submit(t));
+		}
+		List<T> out = new ArrayList<>();
+		try {
+			for (Future<T> f : futures) {
+				out.add(f.get());
+			}
+		} catch (ExecutionException e) {
+			throw new IllegalStateException(e.getCause());
+		}
+		return out;
+	}
+
+	/** BLAST's order of the ungapped alignments ({@code score_compare_match}). */
+	static final Comparator<UngappedHsp> SEED_ORDER = (h1, h2) -> {
+		int r = Integer.compare(h2.score(), h1.score());
+		if (r == 0) {
+			r = Integer.compare(h1.subjectStart(), h2.subjectStart());
+		}
+		if (r == 0) {
+			r = Integer.compare(h2.length(), h1.length());
+		}
+		if (r == 0) {
+			r = Integer.compare(h1.queryStart(), h2.queryStart());
+		}
+		return r;
+	};
+
+	private List<Hit> prelim(byte[] query, WordFinder finder, int cutoff, AtomicInteger next) {
+		final byte[] residues = db.residues();
+		final GappedAligner aligner = new GappedAligner(gapOpen, gapExtend);
+		final List<Hit> found = new ArrayList<>();
+		final List<UngappedHsp> seeds = new ArrayList<>();
+		for (int chunk; (chunk = next.getAndIncrement()) * CHUNK < db.size();) {
+			int end = Math.min(db.size(), (chunk + 1) * CHUNK);
+			for (int i = chunk * CHUNK; i < end; i++) {
+				finder.find(residues, db.start(i), db.length(i), seeds);
+				if (seeds.isEmpty()) {
+					continue;
+				}
+				List<Hsp> hsps = gappedScores(query, aligner, db.start(i), db.length(i), seeds, cutoff);
+				seeds.clear();
+				if (hsps.isEmpty()) {
+					continue;
+				}
+				purgeCommonEndpoints(hsps);
+				hsps.sort(Hsp.BY_SCORE);
+				double best = Double.MAX_VALUE;
+				List<Hsp> kept = new ArrayList<>();
+				for (Hsp h : hsps) {
+					h.evalue = statistics.evalue(h.score, query.length, db.length(i));
+					if (h.evalue <= evalue) {
+						kept.add(h);
+						best = Math.min(best, h.evalue);
+					}
+				}
+				if (!kept.isEmpty()) {
+					found.add(new Hit(i, kept, best));
+				}
+			}
+		}
+		return found;
+	}
+
+	/** {@code BLAST_GetGappedScore} for one subject. */
+	List<Hsp> gappedScores(byte[] query, GappedAligner aligner, int base, int length, List<UngappedHsp> seeds,
+			int cutoff) {
+		seeds.sort(SEED_ORDER);
+		final int restrictedCutoff = (int) (RESTRICTED_MULT * cutoff);
+		boolean restricted = seeds.get(0).score() < restrictedCutoff;
+		final byte[] residues = db.residues();
+		List<Hsp> hsps = new ArrayList<>();
+		HspTree tree = new HspTree();
+		for (int index = 0; index < seeds.size(); index++) {
+			UngappedHsp seed = seeds.get(index);
+			int qStart = seed.queryStart(), sStart = seed.subjectStart();
+			int qEnd = qStart + seed.length(), sEnd = sStart + seed.length();
+			if (tree.contains(seed.score(), qStart, qEnd, sStart, sEnd)) {
+				continue;
+			}
+			int qOff = aligner.startForGapped(query, residues, base, qStart, seed.length(), sStart, seed.length());
+			int sOff = seed.subjectSeed() + qOff - seed.querySeed();
+			aligner.extendScoreOnly(query, residues, base, length, qOff, sOff, restricted, xDrop);
+			if (restricted && aligner.score < cutoff && aligner.score >= restrictedCutoff) {
+				// Inconclusive: start again with exact alignments for this subject.
+				restricted = false;
+				hsps.clear();
+				tree.clear();
+				index = -1;
+				continue;
+			}
+			if (aligner.score >= cutoff) {
+				Hsp h = new Hsp(aligner.score, aligner.queryStart, aligner.queryStop, aligner.subjectStart,
+						aligner.subjectStop, qOff, sOff);
+				hsps.add(h);
+				tree.add(h);
+			}
+		}
+		return hsps;
+	}
+
+	/** {@code Blast_TracebackFromHSPList} for one subject; null when no HSP is left. */
+	Hit traceback(byte[] query, GappedAligner aligner, Hit prelim) {
+		final byte[] residues = db.residues();
+		final int base = db.start(prelim.subject()), length = db.length(prelim.subject());
+		List<Hsp> done = new ArrayList<>();
+		HspTree tree = new HspTree();
+		for (Hsp p : prelim.hsps()) {
+			if (tree.contains(p.score, p.queryStart, p.queryEnd, p.subjectStart, p.subjectEnd)) {
+				continue;
+			}
+			int qStart = p.queryGappedStart, sStart = p.subjectGappedStart;
+			if (qStart == 0 && sStart == 0) {
+				int[] start = aligner.offsetsForGapped(query, residues, base, p.queryStart, p.queryEnd, p.subjectStart,
+						p.subjectEnd);
+				if (start == null) {
+					continue;
+				}
+				qStart = start[0];
+				sStart = start[1];
+			}
+			aligner.extendWithTraceback(query, residues, base, length, qStart, sStart, xDropFinal);
+			Hsp h = new Hsp(aligner.score, aligner.queryStart, aligner.queryStop, aligner.subjectStart,
+					aligner.subjectStop, qStart, sStart);
+			h.editScript = aligner.editScript;
+			done.add(h);
+			tree.add(h);
+		}
+		purgeCommonEndpoints(done);
+		done.sort(Hsp.BY_SCORE);
+		tree.clear();
+		List<Hsp> kept = new ArrayList<>();
+		for (Hsp h : done) {
+			if (!tree.contains(h.score, h.queryStart, h.queryEnd, h.subjectStart, h.subjectEnd)) {
+				kept.add(h);
+				tree.add(h);
+			}
+		}
+		List<Hsp> out = new ArrayList<>();
+		double best = Double.MAX_VALUE;
+		for (Hsp h : kept) {
+			h.evalue = statistics.evalue(h.score, query.length, length);
+			if (h.evalue <= evalue) {
+				out.add(h);
+				best = Math.min(best, h.evalue);
+			}
+		}
+		return out.isEmpty() ? null : new Hit(prelim.subject(), out, best);
+	}
+
+	/**
+	 * {@code Blast_HSPListPurgeHSPsWithCommonEndpoints} with purging (as for blastp): of the HSPs with the same start
+	 * (query and subject), only the first in BLAST's start order is kept, then likewise for the same end.
+	 */
+	static void purgeCommonEndpoints(List<Hsp> hsps) {
+		if (hsps.size() < 2) {
+			return;
+		}
+		hsps.sort((h1, h2) -> {
+			int r = Integer.compare(h1.queryStart, h2.queryStart);
+			if (r == 0) {
+				r = Integer.compare(h1.subjectStart, h2.subjectStart);
+			}
+			if (r == 0) {
+				r = Integer.compare(h2.score, h1.score);
+			}
+			if (r == 0) {
+				r = Integer.compare(h2.queryEnd, h1.queryEnd);
+			}
+			if (r == 0) {
+				r = Integer.compare(h2.subjectEnd, h1.subjectEnd);
+			}
+			return r;
+		});
+		for (int i = 0; i < hsps.size(); i++) {
+			Hsp a = hsps.get(i);
+			while (i + 1 < hsps.size() && hsps.get(i + 1).queryStart == a.queryStart
+					&& hsps.get(i + 1).subjectStart == a.subjectStart) {
+				hsps.remove(i + 1);
+			}
+		}
+		hsps.sort((h1, h2) -> {
+			int r = Integer.compare(h1.queryEnd, h2.queryEnd);
+			if (r == 0) {
+				r = Integer.compare(h1.subjectEnd, h2.subjectEnd);
+			}
+			if (r == 0) {
+				r = Integer.compare(h2.score, h1.score);
+			}
+			if (r == 0) {
+				r = Integer.compare(h2.queryStart, h1.queryStart);
+			}
+			if (r == 0) {
+				r = Integer.compare(h2.subjectStart, h1.subjectStart);
+			}
+			return r;
+		});
+		for (int i = 0; i < hsps.size(); i++) {
+			Hsp a = hsps.get(i);
+			while (i + 1 < hsps.size() && hsps.get(i + 1).queryEnd == a.queryEnd
+					&& hsps.get(i + 1).subjectEnd == a.subjectEnd) {
+				hsps.remove(i + 1);
+			}
+		}
+	}
+}

@@ -49,10 +49,6 @@ public class SeedSearchBench {
 	public void setup() throws Exception {
 		Path dir = Path.of(System.getProperty("blastp4j.sprot", System.getProperty("user.home") + "/data/uniprot"));
 		SequenceDatabase db = FastaReader.read(dir.resolve("uniprot_sprot.fasta"));
-		int minLength = Integer.MAX_VALUE;
-		for (int i = 0; i < db.size(); i++) {
-			minLength = Math.min(minLength, db.length(i));
-		}
 		SequenceDatabase queries = FastaReader.read(Path.of("src/test/resources/queries/uniprot_human.fasta"));
 		for (int i = 0; i < queries.size(); i++) {
 			if (queries.id(i).endsWith("|" + query)) {
@@ -61,7 +57,7 @@ public class SeedSearchBench {
 		}
 		search = new SeedSearch(db);
 		parameters = SeedParameters.blastp(sequence,
-				new Statistics(ScoringParameters.BLOSUM62_11_1, db.totalResidues()), 10, minLength);
+				new Statistics(ScoringParameters.BLOSUM62_11_1, db.totalResidues()), 10, BlastpSearch.MIN_SUBJECT_LENGTH);
 		pool = Executors.newSingleThreadExecutor();
 	}
 

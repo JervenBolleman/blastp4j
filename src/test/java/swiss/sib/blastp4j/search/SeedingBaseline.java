@@ -44,10 +44,8 @@ public final class SeedingBaseline {
 		Path dir = Path.of(System.getProperty("blastp4j.sprot", System.getProperty("user.home") + "/data/uniprot"));
 		SequenceDatabase db = FastaReader.read(dir.resolve("uniprot_sprot.fasta"));
 		SequenceDatabase queries = FastaReader.read(Path.of("src/test/resources/queries/uniprot_human.fasta"));
-		int minLength = Integer.MAX_VALUE;
 		Map<String, Integer> subjectIndex = new HashMap<>();
 		for (int i = 0; i < db.size(); i++) {
-			minLength = Math.min(minLength, db.length(i));
 			subjectIndex.put(db.id(i), i);
 		}
 
@@ -85,7 +83,7 @@ public final class SeedingBaseline {
 			for (int q = 0; q < queries.size(); q++) {
 				String qid = queries.id(q);
 				byte[] query = queries.sequence(q);
-				SeedParameters p = SeedParameters.blastp(query, statistics, 10, minLength);
+				SeedParameters p = SeedParameters.blastp(query, statistics, 10, BlastpSearch.MIN_SUBJECT_LENGTH);
 				long t0 = System.nanoTime();
 				List<SeedSearch.Seeds> seeds = search.search(query, p, pool, threads);
 				long nanos = System.nanoTime() - t0;

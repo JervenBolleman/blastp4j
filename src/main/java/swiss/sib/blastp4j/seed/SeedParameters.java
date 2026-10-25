@@ -26,7 +26,8 @@ public record SeedParameters(int threshold, int window, int xDrop, int gapTrigge
 	 * @param statistics       the gapped statistics of the search
 	 * @param evalue           the E-value cutoff (10); with composition-based statistics mode 2 or 3 BLAST uses 5
 	 *                         times this value in the preliminary stage, so pass that
-	 * @param minSubjectLength the length of the shortest database sequence (BLAST uses it for the E-value cutoff score)
+	 * @param minSubjectLength the shortest subject length for the E-value cutoff score; BLAST uses 10
+	 *                         ({@link swiss.sib.blastp4j.search.BlastpSearch#MIN_SUBJECT_LENGTH})
 	 */
 	public static SeedParameters blastp(byte[] query, Statistics statistics, double evalue, int minSubjectLength) {
 		UngappedKarlin k = UngappedKarlin.of(query);
