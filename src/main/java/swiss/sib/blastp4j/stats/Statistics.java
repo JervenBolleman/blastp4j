@@ -70,4 +70,29 @@ public final class Statistics {
 		final double area = p1 * p2 + cY * pM * pN;
 		return area * p.k() * Math.exp(-lambda * y) * ((double) databaseLength / subjectLength);
 	}
+
+	/**
+	 * The largest raw score whose E-value is still above {@code evalue}, found by bisection as BLAST does
+	 * ({@code BLAST_SpougeEtoS}); BLAST uses it as the score a hit needs to be saved.
+	 */
+	public int score(double evalue, int queryLength, int subjectLength) {
+		int a = 0, b = Math.max((int) (Math.log(databaseLength / evalue) / p.lambda()), 2);
+		double e = evalue(b, queryLength, subjectLength);
+		if (e > evalue) {
+			while (e > evalue) {
+				a = b;
+				b *= 2;
+				e = evalue(b, queryLength, subjectLength);
+			}
+		}
+		while (b - a > 1) {
+			int c = (a + b) / 2;
+			if (evalue(c, queryLength, subjectLength) > evalue) {
+				a = c;
+			} else {
+				b = c;
+			}
+		}
+		return a;
+	}
 }
