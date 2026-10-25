@@ -122,12 +122,7 @@ public final class GappedAligner {
 				bp += bStep;
 				int gapCol = bestGap[bi];
 				int next = best[bi] + mat[row + b[bp]];
-				if (score < gapCol) {
-					score = gapCol;
-				}
-				if (score < gapRow) {
-					score = gapRow;
-				}
+				score = Math.max(score, Math.max(gapCol, gapRow));
 				if (bestScore - score > xDrop) {
 					if (bi == first) {
 						first++;
