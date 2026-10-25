@@ -88,12 +88,12 @@ public final class WordFinder {
 		}
 		final int last = lastHit[diag] - diagOffset;
 		final int diff = s - last;
-		// A hit a window or more after the last one starts afresh; without a select, the branch on this would be
-		// mispredicted often. The write is harmless for the other hits: the extension below sets lastHit again.
-		final int far = (window - 1 - diff) >> 31; // -1 when diff >= window, else 0
-		lastHit[diag] = (lastHit[diag] & ~far) | ((s + diagOffset) & far);
-		if (diff < LookupTable.WORD_SIZE || diff >= window) {
-			return; // overlaps the previous hit, or starts afresh
+		if (diff >= window) {
+			lastHit[diag] = s + diagOffset;
+			return;
+		}
+		if (diff < LookupTable.WORD_SIZE) {
+			return; // overlaps the previous hit
 		}
 		int score = extendTwoHit(residues, start, length, last + LookupTable.WORD_SIZE, s, q);
 		if (score >= cutoff) {
