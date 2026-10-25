@@ -36,3 +36,10 @@ gapped), max_target_seqs 500.
 composition-based statistics:
 
     segmasker -in sprot_sample.fasta -infmt fasta -window 10 -locut 1.8 -hicut 2.1 -outfmt interval
+
+## Composition adjustment test data
+
+`src/test/resources/compo/adjust_cases.txt.gz` holds 306 pairs of query and subject compositions (as hexadecimal
+doubles), and `adjust_blast.txt.gz` the result of BLAST+'s `Blast_AdjustScores` for each: status, adjustment rule,
+lambda ratio and the adjusted 28 x 28 matrix. They were computed by `reference/compo/build_harness.sh`, which builds
+`reference/compo/harness.c` against the composition adjustment library downloaded from the NCBI C++ Toolkit sources.

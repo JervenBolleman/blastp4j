@@ -27,6 +27,19 @@ public record UngappedKarlin(double lambda, double k, double h) {
 	private static final double K_SUM_LIMIT = 0.0001;
 	private static final int K_ITERATIONS = 100;
 
+	/**
+	 * The parameters of BLOSUM62 with the Robinson and Robinson composition on both sides ({@code kbp_ideal} of
+	 * BLAST).
+	 */
+	public static UngappedKarlin ideal() {
+		double[] background = new double[Blosum62.SIZE];
+		for (int i = 0; i < ROBINSON.length; i++) {
+			background[Alphabet.encode(ROBINSON_LETTERS.charAt(i))] = ROBINSON[i];
+		}
+		normalize(background);
+		return of(new ScoreDistribution(background, background));
+	}
+
 	public double logK() {
 		return Math.log(k);
 	}
@@ -140,16 +153,26 @@ public record UngappedKarlin(double lambda, double k, double h) {
 
 	/** {@code Blast_KarlinLambdaNR}: the positive root of sum_s p(s) e^(lambda s) = 1, by safeguarded Newton. */
 	static double lambda(ScoreDistribution d) {
-		int low = d.min, high = d.max;
+		return lambda(d.prob, d.lo, d.min, d.max, d.average, LAMBDA_START);
+	}
+
+	/**
+	 * {@code Blast_KarlinLambdaNR} for score probabilities {@code prob[s - offset]} between {@code low} and {@code high}
+	 * with average score {@code average}, starting from {@code lambda0}; -1 when lambda does not exist.
+	 */
+	public static double lambda(double[] prob, int offset, int low, int high, double average, double lambda0) {
+		if (average >= 0 || low >= 0 || high <= 0) {
+			return -1;
+		}
 		int g = -low;
 		for (int i = 1; i <= high - low && g > 1; i++) {
-			if (d.p(i + low) != 0) {
+			if (prob[i + low - offset] != 0) {
 				g = gcd(g, i);
 			}
 		}
 		final int itmax = 20, maxNewton = 20 + LAMBDA_ITERATIONS;
 		double a = 0, b = 1, f = 4;
-		double x0 = Math.exp(-LAMBDA_START);
+		double x0 = Math.exp(-lambda0);
 		double x = 0 < x0 && x0 < 1 ? x0 : 0.5;
 		boolean isNewton = false;
 		for (int k = 0; k < itmax; k++) {
@@ -158,16 +181,16 @@ public record UngappedKarlin(double lambda, double k, double h) {
 			isNewton = false;
 			// Horner's rule for the polynomial and its derivative
 			double gd = 0;
-			f = d.p(low);
+			f = prob[low - offset];
 			for (int i = low + g; i < 0; i += g) {
 				gd = x * gd + f;
-				f = f * x + d.p(i);
+				f = f * x + prob[i - offset];
 			}
 			gd = x * gd + f;
-			f = f * x + d.p(0) - 1;
+			f = f * x + prob[-offset] - 1;
 			for (int i = g; i <= high; i += g) {
 				gd = x * gd + f;
-				f = f * x + d.p(i);
+				f = f * x + prob[i - offset];
 			}
 			if (f > 0) {
 				a = x;
