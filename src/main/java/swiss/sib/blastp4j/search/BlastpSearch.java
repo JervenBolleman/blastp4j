@@ -41,13 +41,10 @@ public final class BlastpSearch {
 	public record Hit(int subject, List<Hsp> hsps, double bestEvalue) {
 	}
 
-	/** Preliminary hit list size for 500 subjects without composition-based statistics. */
-	static final int PRELIM_HITLIST = 550;
-	/** Preliminary hit list size for 500 subjects with composition-based statistics. */
-	static final int PRELIM_HITLIST_CBS = 1050;
 	/** E-value under which composition-based statistics keeps all subjects ({@code PSI_INCLUSION_ETHRESH}). */
 	static final double INCLUSION_ETHRESH = 0.002;
-	static final int HITLIST = 500;
+	/** Largest E-value cutoff for which the restricted alignment may be used. */
+	static final double RESTRICTED_ALIGNMENT_WORST_EVALUE = 10.0;
 	/** Fraction of the cutoff below which the restricted alignment is used. */
 	static final double RESTRICTED_MULT = 0.68;
 	/**
@@ -62,7 +59,8 @@ public final class BlastpSearch {
 	private final Statistics statistics;
 	private final int minLength;
 	private final double evalue, prelimEvalue;
-	private final boolean compositionBased;
+	private final boolean compositionBased, restrictedAlign;
+	private final int hitlistSize, prelimHitlistSize, maxHsps;
 	private final int gapOpen, gapExtend, xDrop, xDropFinal;
 
 	/**
@@ -79,6 +77,24 @@ public final class BlastpSearch {
 	 * @param compositionBased with composition-based statistics mode 2 (blastp's default)
 	 */
 	public BlastpSearch(SequenceDatabase db, Statistics statistics, double evalue, boolean compositionBased) {
+		this(db, statistics, evalue, compositionBased, 500, 0);
+	}
+
+	/**
+	 * @param evalue           the E-value cutoff ({@code -evalue}, 10)
+	 * @param compositionBased with composition-based statistics mode 2 ({@code -comp_based_stats 2}, the default)
+	 * @param maxTargetSeqs    number of subjects to report ({@code -max_target_seqs}, 500)
+	 * @param maxHsps          HSPs to report per subject ({@code -max_hsps}); 0 for all
+	 */
+	public BlastpSearch(SequenceDatabase db, Statistics statistics, double evalue, boolean compositionBased,
+			int maxTargetSeqs, int maxHsps) {
+		if (maxTargetSeqs < 1 || maxHsps < 0) {
+			throw new IllegalArgumentException("max_target_seqs must be at least 1 and max_hsps at least 0");
+		}
+		this.hitlistSize = maxTargetSeqs;
+		this.maxHsps = maxHsps;
+		this.prelimHitlistSize = prelimHitlistSize(maxTargetSeqs, compositionBased);
+		this.restrictedAlign = evalue <= RESTRICTED_ALIGNMENT_WORST_EVALUE;
 		this.db = db;
 		this.statistics = statistics;
 		this.evalue = evalue;
@@ -91,6 +107,14 @@ public final class BlastpSearch {
 		this.gapExtend = statistics.parameters().gapExtend();
 		this.xDrop = (int) (15 * LN2 / lambda);
 		this.xDropFinal = (int) Math.max(25 * LN2 / lambda, xDrop);
+	}
+
+	/** {@code GetPrelimHitlistSize}: how many subjects the preliminary stage keeps. */
+	static int prelimHitlistSize(int hitlistSize, boolean compositionBased) {
+		if (compositionBased) {
+			return hitlistSize <= 500 ? 1050 : hitlistSize * 2 + 50;
+		}
+		return Math.min(Math.max(2 * hitlistSize, 10), hitlistSize + 50);
 	}
 
 	/** The seeding parameters this search uses for a query. */
@@ -122,14 +146,22 @@ public final class BlastpSearch {
 	};
 
 	/**
-	 * The final hit list: the best 500 subjects in BLAST's order ({@code Blast_HSPResultsSortByEvalue} and pruning).
+	 * The final hit list: with {@code -max_hsps}, the first HSPs of each subject ({@code Blast_TrimHSPListByMaxHsps});
+	 * the best {@code max_target_seqs} subjects in BLAST's order ({@code Blast_HSPResultsSortByEvalue} and pruning).
 	 * Then, as BLAST's C++ layer does when it converts the results to alignments ({@code Blast_HSPListSortByEvalue} in
 	 * {@code blast_seqalign.cpp}), the HSPs of each subject are sorted by E-value and score; with E-values below
 	 * 1e-180 counted as equal, HSPs of equal (final) score are then ordered by position.
 	 */
-	static List<Hit> finalHitList(List<Hit> hits) {
+	List<Hit> finalHitList(List<Hit> hits) {
+		if (maxHsps > 0) {
+			for (Hit h : hits) {
+				if (h.hsps().size() > maxHsps) {
+					h.hsps().subList(maxHsps, h.hsps().size()).clear();
+				}
+			}
+		}
 		hits.sort(BY_EVALUE);
-		List<Hit> kept = new ArrayList<>(hits.subList(0, Math.min(HITLIST, hits.size())));
+		List<Hit> kept = new ArrayList<>(hits.subList(0, Math.min(hitlistSize, hits.size())));
 		for (Hit h : kept) {
 			h.hsps().sort(HSP_BY_EVALUE);
 		}
@@ -162,7 +194,7 @@ public final class BlastpSearch {
 		}
 		prelim.sort(BY_EVALUE);
 		List<Hit> kept = prelim.subList(0,
-				Math.min(compositionBased ? PRELIM_HITLIST_CBS : PRELIM_HITLIST, prelim.size()));
+				Math.min(prelimHitlistSize, prelim.size()));
 		if (compositionBased) {
 			return compositionBasedStage(query, kept, pool, tasks);
 		}
@@ -218,7 +250,7 @@ public final class BlastpSearch {
 		}
 		runAll(pool, work);
 
-		CompoHeap<Hit> heap = new CompoHeap<>(HITLIST, INCLUSION_ETHRESH);
+		CompoHeap<Hit> heap = new CompoHeap<>(hitlistSize, INCLUSION_ETHRESH);
 		// BLAST's thread-local matrix: unscaled BLOSUM62 until the first successful adjustment.
 		int[][] current = new int[swiss.sib.blastp4j.stats.Blosum62.SIZE][swiss.sib.blastp4j.stats.Blosum62.SIZE];
 		for (int a = 0; a < current.length; a++) {
@@ -331,7 +363,7 @@ public final class BlastpSearch {
 			int cutoff) {
 		seeds.sort(SEED_ORDER);
 		final int restrictedCutoff = (int) (RESTRICTED_MULT * cutoff);
-		boolean restricted = seeds.get(0).score() < restrictedCutoff;
+		boolean restricted = restrictedAlign && seeds.get(0).score() < restrictedCutoff;
 		final byte[] residues = db.residues();
 		List<Hsp> hsps = new ArrayList<>();
 		HspTree tree = new HspTree();
