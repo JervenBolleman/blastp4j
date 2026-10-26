@@ -168,44 +168,41 @@ public final class WordFinder {
 	/** {@code s_BlastAaExtendLeft} with a start score of 0. */
 	private int extendLeft(byte[] residues, int start, int sOff, int qOff) {
 		final int n = Math.min(sOff, qOff);
-		final int sBase = start + sOff - n;
-		// Both indices move together, so each step needs no add: best is the subject index of the maximum.
-		int bestS = sBase + n + 1, score = 0, maxScore = 0, floor = -xDrop;
-		for (int si = start + sOff, qi = qOff; si >= sBase; si--, qi--) {
-			score += PADDED[(rowOfQuery[qi] + residues[si]) & 1023];
+		int best = n + 1, score = 0, maxScore = 0, floor = -xDrop;
+		final int sBase = start + sOff - n, qBase = qOff - n;
+		for (int i = n; i >= 0; i--) {
+			score += PADDED[(rowOfQuery[qBase + i] + residues[sBase + i]) & 1023];
 			if (score > maxScore) {
 				maxScore = score;
-				bestS = si;
+				best = i;
 				floor = maxScore - xDrop;
 			}
 			if (score <= floor) {
 				break;
 			}
 		}
-		extensionLength = n - (bestS - sBase) + 1;
+		extensionLength = n - best + 1;
 		return maxScore;
 	}
 
 	/** {@code s_BlastAaExtendRight}, continuing from {@code maxScore}. */
 	private int extendRight(byte[] residues, int start, int length, int sOff, int qOff, int maxScore) {
 		final int n = Math.min(length - sOff, query.length - qOff);
-		final int sStart = start + sOff, sEnd = sStart + n;
-		int bestS = sStart - 1, score = maxScore, si;
+		int best = -1, score = maxScore, i;
 		int floor = Math.max(0, maxScore - xDrop);
-		int qi = qOff;
-		for (si = sStart; si < sEnd; si++, qi++) {
-			score += PADDED[(rowOfQuery[qi] + residues[si]) & 1023];
+		for (i = 0; i < n; i++) {
+			score += PADDED[(rowOfQuery[qOff + i] + residues[start + sOff + i]) & 1023];
 			if (score > maxScore) {
 				maxScore = score;
-				bestS = si;
+				best = i;
 				floor = Math.max(0, maxScore - xDrop);
 			}
 			if (score <= floor) {
 				break;
 			}
 		}
-		extensionLength = bestS - sStart + 1;
-		lastSubjectOffset = si - start;
+		extensionLength = best + 1;
+		lastSubjectOffset = sOff + i;
 		return maxScore;
 	}
 }
