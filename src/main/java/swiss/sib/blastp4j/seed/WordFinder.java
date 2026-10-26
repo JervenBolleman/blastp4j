@@ -77,8 +77,7 @@ public final class WordFinder {
 	 * {@code out}, in the order BLAST finds them (BLAST later sorts them by score).
 	 */
 	public void find(byte[] residues, int start, int length, List<UngappedHsp> out) {
-		final int[] cellStart = table.start;
-		final char[] offsets = table.offsets;
+		final int[] cellStart = table.start, offsets = table.offsets;
 		final int wordSize = LookupTable.WORD_SIZE;
 		final int mask = LookupTable.WORDS - 1;
 		// The diagonal fields as locals, for the usual hit below.
