@@ -78,6 +78,7 @@ public final class WordFinder {
 	 */
 	public void find(byte[] residues, int start, int length, List<UngappedHsp> out) {
 		final int[] cellStart = table.start, offsets = table.offsets;
+		final long[] present = table.present;
 		final int wordSize = LookupTable.WORD_SIZE;
 		final int mask = LookupTable.WORDS - 1;
 		// The diagonal fields as locals, for the usual hit below.
@@ -87,6 +88,9 @@ public final class WordFinder {
 			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
 			for (int s = 0; s <= length - wordSize; s++) {
 				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
+				if ((present[word >>> 6] & (1L << word)) == 0) {
+					continue; // no neighbours: the table's range is empty
+				}
 				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
 					final int q = offsets[k];
 					final int diag = (q - s) & diagMaskL;
