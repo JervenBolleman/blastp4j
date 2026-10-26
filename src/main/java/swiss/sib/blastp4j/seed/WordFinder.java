@@ -80,12 +80,22 @@ public final class WordFinder {
 		final int[] cellStart = table.start, offsets = table.offsets;
 		final int wordSize = LookupTable.WORD_SIZE;
 		final int mask = LookupTable.WORDS - 1;
+		// The diagonal fields as locals, for the usual hit below.
+		final int[] diags = diagState;
+		final int diagMaskL = diagMask, diagOffsetL = diagOffset, windowL = window;
 		if (length >= wordSize) {
 			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
 			for (int s = 0; s <= length - wordSize; s++) {
 				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
 				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
-					hit(residues, start, length, offsets[k], s, out);
+					final int q = offsets[k];
+					final int diag = (q - s) & diagMaskL;
+					final int state = diags[diag];
+					if ((state & EXTENDED) == 0 && s - (state - diagOffsetL) >= windowL) {
+						diags[diag] = s + diagOffsetL;
+					} else {
+						hit(residues, start, length, q, s, out);
+					}
 				}
 			}
 		}
