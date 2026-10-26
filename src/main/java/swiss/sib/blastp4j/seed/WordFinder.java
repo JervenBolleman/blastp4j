@@ -101,21 +101,6 @@ public final class WordFinder {
 	private void hit(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
 		final int diag = (q - s) & diagMask;
 		final int state = diagState[diag];
-		if ((state & EXTENDED) == 0 && s - (state - diagOffset) >= window) {
-			// The usual hit: the last hit on its diagonal is a window or more back, so it starts nothing.
-			diagState[diag] = s + diagOffset;
-			return;
-		}
-		pairHit(residues, start, length, q, s, out);
-	}
-
-	/**
-	 * The hits {@link #hit} does not dismiss at once: those on a diagonal extended to the right, and those within a window
-	 * of the last hit. Kept apart so that the usual hit has no call, and so no spills.
-	 */
-	private void pairHit(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
-		final int diag = (q - s) & diagMask;
-		final int state = diagState[diag];
 		if ((state & EXTENDED) != 0) {
 			// Already extended past this hit: skip it; otherwise it starts a new pair.
 			if (s + diagOffset >= (state & ~EXTENDED)) {
@@ -125,6 +110,10 @@ public final class WordFinder {
 		}
 		final int last = state - diagOffset;
 		final int diff = s - last;
+		if (diff >= window) {
+			diagState[diag] = s + diagOffset;
+			return;
+		}
 		if (diff < LookupTable.WORD_SIZE) {
 			return; // overlaps the previous hit
 		}
