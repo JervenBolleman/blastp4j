@@ -18,6 +18,9 @@ import swiss.sib.blastp4j.stats.Blosum62;
  * query minus subject offset), so diagonals that share an entry behave as in BLAST. Instead of clearing it for each
  * subject, an offset is added to the stored positions, as BLAST does.
  * <p>
+ * The scan makes no calls: the extensions are written out in it, and the alignments it finds go to a buffer that
+ * {@link #find} turns into {@link UngappedHsp}s afterwards, in the order found.
+ * <p>
  * Not thread safe: use one per thread.
  */
 public final class WordFinder {
@@ -35,23 +38,27 @@ public final class WordFinder {
 		}
 	}
 
+	/** The ints per alignment in the buffer: query start, subject start, length, score, hit query and subject offsets. */
+	private static final int FIELDS = 6;
+	/** Set in a diagonal's state while hits on it are ignored, as they lie within the extension. */
+	private static final int EXTENDED = 1 << 30;
+
 	private final byte[] query;
 	/** The start of each query residue's row of the padded matrix. */
 	private final int[] rowOfQuery;
 	private final LookupTable table;
 	private final int window, xDrop, cutoff;
+	/** The most hits one word can have, which bounds the alignments found in a subject. */
+	private final int maxNeighbours;
 	/**
 	 * Per diagonal the subject offset of the last hit, with {@link #EXTENDED} set when the diagonal was extended to the
 	 * right. One array, so that a hit reads and writes a single element.
 	 */
 	private final int[] diagState;
-	/** Set in a diagonal's state while hits on it are ignored, as they lie within the extension. */
-	private static final int EXTENDED = 1 << 30;
 	private final int diagMask;
 	private int diagOffset;
-	// Output of the last extension.
-	private int hspQuery, hspSubject, hspLength, lastSubjectOffset;
-	private boolean rightExtended;
+	/** The alignments found by the last scan, {@link #FIELDS} ints each. */
+	private int[] found = new int[0];
 
 	public WordFinder(byte[] query, LookupTable table, SeedParameters p) {
 		this.query = query;
@@ -67,6 +74,11 @@ public final class WordFinder {
 		for (int q = 0; q < query.length; q++) {
 			rowOfQuery[q] = query[q] << 5;
 		}
+		int most = 0;
+		for (int w = 0; w < LookupTable.WORDS; w++) {
+			most = Math.max(most, table.start[w + 1] - table.start[w]);
+		}
+		maxNeighbours = most;
 		diagState = new int[length];
 		diagMask = length - 1;
 		diagOffset = window;
@@ -80,9 +92,18 @@ public final class WordFinder {
 		final int[] cellStart = table.start, offsets = table.offsets;
 		final int wordSize = LookupTable.WORD_SIZE;
 		final int mask = LookupTable.WORDS - 1;
-		// The diagonal fields as locals, for the usual hit below.
 		final int[] diags = diagState;
 		final int diagMaskL = diagMask, diagOffsetL = diagOffset, windowL = window;
+		final int xDropL = xDrop, cutoffL = cutoff, queryLength = query.length;
+		final int[] row = rowOfQuery;
+		final byte[] matrix = PADDED;
+		// Every hit of the subject can give one alignment at most.
+		final int needed = FIELDS * length * maxNeighbours;
+		if (found.length < needed) {
+			found = new int[needed];
+		}
+		final int[] result = found;
+		int n = 0;
 		if (length >= wordSize) {
 			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
 			for (int s = 0; s <= length - wordSize; s++) {
@@ -91,13 +112,101 @@ public final class WordFinder {
 					final int q = offsets[k];
 					final int diag = (q - s) & diagMaskL;
 					final int state = diags[diag];
-					if ((state & EXTENDED) == 0 && s - (state - diagOffsetL) >= windowL) {
-						diags[diag] = s + diagOffsetL;
+					if ((state & EXTENDED) == 0) {
+						if (s - (state - diagOffsetL) >= windowL) {
+							// The usual hit: the last hit on its diagonal is a window or more back.
+							diags[diag] = s + diagOffsetL;
+							continue;
+						}
 					} else {
-						hit(residues, start, length, q, s, out);
+						// Already extended past this hit: skip it; otherwise it starts a new pair.
+						if (s + diagOffsetL >= (state & ~EXTENDED)) {
+							diags[diag] = s + diagOffsetL;
+						}
+						continue;
+					}
+					final int last = state - diagOffsetL;
+					if (s - last < wordSize) {
+						continue; // overlaps the previous hit
+					}
+
+					// s_BlastAaExtendTwoHit: the second word ends the left extension's start; the right extension
+					// runs only if the left one reached the first word (which ends at sLeft).
+					final int sLeft = last + wordSize;
+					int score = 0, bestWord = 0, rightD = 0;
+					for (int i = 0; i < wordSize; i++) {
+						score += matrix[(row[q + i] + residues[start + s + i]) & 1023];
+						if (score > bestWord) {
+							bestWord = score;
+							rightD = i + 1;
+						}
+					}
+					final int sRight = s + rightD, qRight = q + rightD;
+
+					// s_BlastAaExtendLeft from just before (qRight, sRight), with a start score of 0.
+					final int sOffL = sRight - 1, qOffL = qRight - 1;
+					final int nL = Math.min(sOffL, qOffL);
+					final int sBaseL = start + sOffL - nL, qBaseL = qOffL - nL;
+					score = 0;
+					int leftScore = 0, bestI = nL + 1, floorL = -xDropL;
+					for (int i = nL; i >= 0; i--) {
+						score += matrix[(row[qBaseL + i] + residues[sBaseL + i]) & 1023];
+						if (score > leftScore) {
+							leftScore = score;
+							bestI = i;
+							floorL = leftScore - xDropL;
+						}
+						if (score <= floorL) {
+							break;
+						}
+					}
+					final int leftD = nL - bestI + 1;
+
+					// s_BlastAaExtendRight, when the left extension reached the first word.
+					int rightScore = 0, rightLen = 0, lastSubjectOffset = sRight;
+					final boolean rightExtended = leftD >= sRight - sLeft;
+					if (rightExtended) {
+						final int nR = Math.min(length - sRight, queryLength - qRight);
+						int sc = leftScore, maxR = leftScore, bestJ = -1, floorR = Math.max(0, leftScore - xDropL);
+						int i = 0;
+						for (; i < nR; i++) {
+							sc += matrix[(row[qRight + i] + residues[start + sRight + i]) & 1023];
+							if (sc > maxR) {
+								maxR = sc;
+								bestJ = i;
+								floorR = Math.max(0, maxR - xDropL);
+							}
+							if (sc <= floorR) {
+								break;
+							}
+						}
+						rightScore = maxR;
+						rightLen = bestJ + 1;
+						lastSubjectOffset = sRight + i;
+					}
+
+					final int best = Math.max(leftScore, rightScore);
+					if (best >= cutoffL) {
+						final int at = FIELDS * n++;
+						result[at] = qRight - leftD;
+						result[at + 1] = sRight - leftD;
+						result[at + 2] = leftD + rightLen;
+						result[at + 3] = best;
+						result[at + 4] = q;
+						result[at + 5] = s;
+					}
+					if (rightExtended) {
+						diags[diag] = (lastSubjectOffset - (wordSize - 1) + diagOffsetL) | EXTENDED;
+					} else {
+						diags[diag] = s + diagOffsetL;
 					}
 				}
 			}
+		}
+		for (int e = 0; e < n; e++) {
+			final int at = FIELDS * e;
+			out.add(new UngappedHsp(result[at], result[at + 1], result[at + 2], result[at + 3], result[at + 4],
+					result[at + 5]));
 		}
 		// The next subject's positions start beyond everything stored so far.
 		if (diagOffset >= Integer.MAX_VALUE / 4) {
@@ -106,113 +215,5 @@ public final class WordFinder {
 		} else {
 			diagOffset += length + window;
 		}
-	}
-
-	private void hit(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
-		final int diag = (q - s) & diagMask;
-		final int state = diagState[diag];
-		if ((state & EXTENDED) != 0) {
-			// Already extended past this hit: skip it; otherwise it starts a new pair.
-			if (s + diagOffset >= (state & ~EXTENDED)) {
-				diagState[diag] = s + diagOffset;
-			}
-			return;
-		}
-		final int last = state - diagOffset;
-		final int diff = s - last;
-		if (diff >= window) {
-			diagState[diag] = s + diagOffset;
-			return;
-		}
-		if (diff < LookupTable.WORD_SIZE) {
-			return; // overlaps the previous hit
-		}
-		int score = extendTwoHit(residues, start, length, last + LookupTable.WORD_SIZE, s, q);
-		if (score >= cutoff) {
-			out.add(new UngappedHsp(hspQuery, hspSubject, hspLength, score, q, s));
-		}
-		if (rightExtended) {
-			diagState[diag] = (lastSubjectOffset - (LookupTable.WORD_SIZE - 1) + diagOffset) | EXTENDED;
-		} else {
-			diagState[diag] = s + diagOffset;
-		}
-	}
-
-	/**
-	 * {@code s_BlastAaExtendTwoHit}: the second word ends the left extension's start; the right extension runs only
-	 * if the left one reached the first word (which ends at {@code sLeft}).
-	 */
-	private int extendTwoHit(byte[] residues, int start, int length, int sLeft, int sRight, int qRight) {
-		// One beyond the position within the word that gives the best starting score.
-		int score = 0, leftScore = 0, rightD = 0;
-		for (int i = 0; i < LookupTable.WORD_SIZE; i++) {
-			score += PADDED[(rowOfQuery[qRight + i] + residues[start + sRight + i]) & 1023];
-			if (score > leftScore) {
-				leftScore = score;
-				rightD = i + 1;
-			}
-		}
-		qRight += rightD;
-		sRight += rightD;
-		rightExtended = false;
-		lastSubjectOffset = sRight;
-
-		// Extend left from just before (qRight, sRight).
-		leftScore = extendLeft(residues, start, sRight - 1, qRight - 1);
-		int leftD = extensionLength;
-		int rightScore = 0;
-		rightD = 0;
-		if (leftD >= sRight - sLeft) {
-			rightExtended = true;
-			rightScore = extendRight(residues, start, length, sRight, qRight, leftScore);
-			rightD = extensionLength;
-		}
-		hspQuery = qRight - leftD;
-		hspSubject = sRight - leftD;
-		hspLength = leftD + rightD;
-		return Math.max(leftScore, rightScore);
-	}
-
-	private int extensionLength;
-
-	/** {@code s_BlastAaExtendLeft} with a start score of 0. */
-	private int extendLeft(byte[] residues, int start, int sOff, int qOff) {
-		final int n = Math.min(sOff, qOff);
-		int best = n + 1, score = 0, maxScore = 0, floor = -xDrop;
-		final int sBase = start + sOff - n, qBase = qOff - n;
-		for (int i = n; i >= 0; i--) {
-			score += PADDED[(rowOfQuery[qBase + i] + residues[sBase + i]) & 1023];
-			if (score > maxScore) {
-				maxScore = score;
-				best = i;
-				floor = maxScore - xDrop;
-			}
-			if (score <= floor) {
-				break;
-			}
-		}
-		extensionLength = n - best + 1;
-		return maxScore;
-	}
-
-	/** {@code s_BlastAaExtendRight}, continuing from {@code maxScore}. */
-	private int extendRight(byte[] residues, int start, int length, int sOff, int qOff, int maxScore) {
-		final int n = Math.min(length - sOff, query.length - qOff);
-		int best = -1, score = maxScore, i;
-		int floor = Math.max(0, maxScore - xDrop);
-		for (i = 0; i < n; i++) {
-			score += PADDED[(rowOfQuery[qOff + i] + residues[start + sOff + i]) & 1023];
-			if (score > maxScore) {
-				maxScore = score;
-				best = i;
-				floor = Math.max(0, maxScore - xDrop);
-			}
-			if (score <= floor) {
-				break;
-			}
-		}
-		extensionLength = best + 1;
-		lastSubjectOffset = sOff + i;
-		return maxScore;
 	}
 }
