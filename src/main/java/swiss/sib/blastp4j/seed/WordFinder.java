@@ -166,15 +166,16 @@ public final class WordFinder {
 	/** {@code s_BlastAaExtendLeft} with a start score of 0. */
 	private int extendLeft(byte[] residues, int start, int sOff, int qOff) {
 		final int n = Math.min(sOff, qOff);
-		int best = n + 1, score = 0, maxScore = 0;
+		int best = n + 1, score = 0, maxScore = 0, floor = -xDrop;
 		final int sBase = start + sOff - n, qBase = qOff - n;
 		for (int i = n; i >= 0; i--) {
 			score += PADDED[(rowOfQuery[qBase + i] + residues[sBase + i]) & 1023];
 			if (score > maxScore) {
 				maxScore = score;
 				best = i;
+				floor = maxScore - xDrop;
 			}
-			if (maxScore - score >= xDrop) {
+			if (score <= floor) {
 				break;
 			}
 		}
@@ -186,13 +187,15 @@ public final class WordFinder {
 	private int extendRight(byte[] residues, int start, int length, int sOff, int qOff, int maxScore) {
 		final int n = Math.min(length - sOff, query.length - qOff);
 		int best = -1, score = maxScore, i;
+		int floor = Math.max(0, maxScore - xDrop);
 		for (i = 0; i < n; i++) {
 			score += PADDED[(rowOfQuery[qOff + i] + residues[start + sOff + i]) & 1023];
 			if (score > maxScore) {
 				maxScore = score;
 				best = i;
+				floor = Math.max(0, maxScore - xDrop);
 			}
-			if (score <= 0 || maxScore - score >= xDrop) {
+			if (score <= floor) {
 				break;
 			}
 		}
