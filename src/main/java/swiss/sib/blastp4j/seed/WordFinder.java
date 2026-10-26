@@ -52,11 +52,6 @@ public final class WordFinder {
 	// Output of the last extension.
 	private int hspQuery, hspSubject, hspLength, lastSubjectOffset;
 	private boolean rightExtended;
-	// The subject and the output of the current find call. Fields, not arguments, so that the hits in its loop
-	// keep fewer values in registers.
-	private byte[] subject;
-	private int subjectStart, subjectLength;
-	private List<UngappedHsp> hits;
 
 	public WordFinder(byte[] query, LookupTable table, SeedParameters p) {
 		this.query = query;
@@ -82,10 +77,6 @@ public final class WordFinder {
 	 * {@code out}, in the order BLAST finds them (BLAST later sorts them by score).
 	 */
 	public void find(byte[] residues, int start, int length, List<UngappedHsp> out) {
-		subject = residues;
-		subjectStart = start;
-		subjectLength = length;
-		hits = out;
 		final int[] cellStart = table.start, offsets = table.offsets;
 		final int wordSize = LookupTable.WORD_SIZE;
 		final int mask = LookupTable.WORDS - 1;
@@ -94,7 +85,7 @@ public final class WordFinder {
 			for (int s = 0; s <= length - wordSize; s++) {
 				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
 				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
-					hit(offsets[k], s);
+					hit(residues, start, length, offsets[k], s, out);
 				}
 			}
 		}
@@ -107,7 +98,7 @@ public final class WordFinder {
 		}
 	}
 
-	private void hit(int q, int s) {
+	private void hit(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
 		final int diag = (q - s) & diagMask;
 		final int state = diagState[diag];
 		if ((state & EXTENDED) != 0) {
@@ -126,9 +117,9 @@ public final class WordFinder {
 		if (diff < LookupTable.WORD_SIZE) {
 			return; // overlaps the previous hit
 		}
-		int score = extendTwoHit(subject, subjectStart, subjectLength, last + LookupTable.WORD_SIZE, s, q);
+		int score = extendTwoHit(residues, start, length, last + LookupTable.WORD_SIZE, s, q);
 		if (score >= cutoff) {
-			hits.add(new UngappedHsp(hspQuery, hspSubject, hspLength, score, q, s));
+			out.add(new UngappedHsp(hspQuery, hspSubject, hspLength, score, q, s));
 		}
 		if (rightExtended) {
 			diagState[diag] = (lastSubjectOffset - (LookupTable.WORD_SIZE - 1) + diagOffset) | EXTENDED;
