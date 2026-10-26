@@ -73,10 +73,12 @@ public final class WordFinder {
 	}
 
 	/**
-	 * Finds the ungapped alignments of the subject {@code residues[start .. start + length)} and adds them to
-	 * {@code out}, in the order BLAST finds them (BLAST later sorts them by score).
+	 * Finds the ungapped alignments of the subject {@code residues[1 .. length]} (residues[0] is the sentinel) and adds
+	 * them to {@code out}, in the order BLAST finds them (BLAST later sorts them by score).
 	 */
-	public void find(byte[] residues, int start, int length, List<UngappedHsp> out) {
+	public void find(byte[] residues, int length, List<UngappedHsp> out) {
+		// A constant, so that the loop below keeps no register for it.
+		final int start = 1;
 		final int[] cellStart = table.start, offsets = table.offsets;
 		final int wordSize = LookupTable.WORD_SIZE;
 		final int mask = LookupTable.WORDS - 1;
