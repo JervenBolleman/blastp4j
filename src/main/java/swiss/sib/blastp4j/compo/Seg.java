@@ -78,6 +78,8 @@ public final class Seg {
 		int pos; // index of the first letter in seq
 		int start, length, bogus;
 		int[] composition, state;
+		// For each count: how many classes have it, and how many classes have a larger count.
+		int[] num, above;
 		double entropy = -2;
 
 		/** The whole sequence. */
@@ -125,6 +127,32 @@ public final class Seg {
 				s[nel - 1 - i] = t;
 			}
 			state = s;
+			num = new int[length + 2];
+			above = new int[length + 2];
+			for (int i = 0; i < nel; i++) {
+				num[s[i]]++;
+			}
+			int running = 0;
+			for (int v = length + 1; v >= 0; v--) {
+				above[v] = running;
+				running += num[v];
+			}
+		}
+
+		/** One letter leaves a class that had {@code klass} letters: the last entry of that count drops by one. */
+		void lower(int klass) {
+			state[above[klass] + num[klass] - 1] = klass - 1;
+			num[klass]--;
+			num[klass - 1]++;
+			above[klass - 1]--;
+		}
+
+		/** One letter joins a class that had {@code klass} letters: the first entry of that count rises by one. */
+		void raise(int klass) {
+			state[above[klass]] = klass + 1;
+			num[klass]--;
+			num[klass + 1]++;
+			above[klass]++;
 		}
 
 		/** {@code s_ShiftWin1}: moves the window one letter to the right. */
@@ -139,14 +167,14 @@ public final class Seg {
 			}
 			int c = ALPHAINDEX[seq[pos]];
 			if (c >= 0) {
-				decrement(state, composition[c]--);
+				lower(composition[c]--);
 			} else {
 				bogus--;
 			}
 			pos++;
 			c = ALPHAINDEX[next];
 			if (c >= 0) {
-				increment(state, composition[c]++);
+				raise(composition[c]++);
 			} else {
 				bogus++;
 			}
@@ -154,24 +182,6 @@ public final class Seg {
 				entropy = entropy(state);
 			}
 			return true;
-		}
-	}
-
-	private static void decrement(int[] sv, int klass) {
-		for (int i = 0; sv[i] != 0; i++) {
-			if (sv[i] == klass && sv[i + 1] < klass) {
-				sv[i]--;
-				break;
-			}
-		}
-	}
-
-	private static void increment(int[] sv, int klass) {
-		for (int i = 0;; i++) {
-			if (sv[i] == klass) {
-				sv[i]++;
-				break;
-			}
 		}
 	}
 
