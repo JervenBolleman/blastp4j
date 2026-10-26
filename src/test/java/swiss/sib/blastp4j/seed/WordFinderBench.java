@@ -73,10 +73,8 @@ public class WordFinderBench {
 		WordFinder finder = new WordFinder(sequence, table, seeds);
 		List<UngappedHsp> out = new ArrayList<>();
 		long count = 0;
-		byte[] subject = null;
 		for (int i = 0; i < db.size(); i++) {
-			subject = db.withSentinels(i, subject);
-			finder.find(subject, 1, db.length(i), out);
+			finder.find(db.withSentinelsView(i), 1, db.length(i), out);
 			count += out.size();
 			out.clear();
 		}

@@ -145,6 +145,19 @@ public final class SequenceDatabase implements AutoCloseable {
 	}
 
 	/**
+	 * Sequence {@code i} with the sentinels before and after it, as a view of the mapped residues: the residues are at
+	 * {@code [1, 1 + length(i))}. Nothing is copied, and the codes are the database's (NCBIstdaa).
+	 */
+	public MemorySegment withSentinelsView(int i) {
+		int v = volume(i);
+		Volume vol = volumes[v];
+		int k = i - firstOid[v];
+		long start = vol.start(k);
+		int n = (int) (vol.start(k + 1) - start) + 1;
+		return vol.residues.asSlice(start - 1, n);
+	}
+
+	/**
 	 * Copies sequence {@code i} with the sentinels before and after it into {@code buffer}: the residues are at
 	 * {@code [1, 1 + length(i))}. Returns {@code buffer}, or a new array of {@code maxLength() + 2} bytes when it is
 	 * null or too small.
