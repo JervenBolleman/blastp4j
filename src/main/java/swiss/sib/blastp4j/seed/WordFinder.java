@@ -52,8 +52,6 @@ public final class WordFinder {
 	// Output of the last extension.
 	private int hspQuery, hspSubject, hspLength, lastSubjectOffset;
 	private boolean rightExtended;
-	// The hit that scan stopped at, and where the scan resumes after it.
-	private int candidateQ, candidateS, resumeS, resumeK;
 
 	public WordFinder(byte[] query, LookupTable table, SeedParameters p) {
 		this.query = query;
@@ -79,12 +77,16 @@ public final class WordFinder {
 	 * {@code out}, in the order BLAST finds them (BLAST later sorts them by score).
 	 */
 	public void find(byte[] residues, int start, int length, List<UngappedHsp> out) {
-		if (length >= LookupTable.WORD_SIZE) {
-			int s = 0, k = -1;
-			while (scan(residues, start, length, s, k)) {
-				pairHit(residues, start, length, candidateQ, candidateS, out);
-				s = resumeS;
-				k = resumeK;
+		final int[] cellStart = table.start, offsets = table.offsets;
+		final int wordSize = LookupTable.WORD_SIZE;
+		final int mask = LookupTable.WORDS - 1;
+		if (length >= wordSize) {
+			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
+			for (int s = 0; s <= length - wordSize; s++) {
+				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
+				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
+					hit(residues, start, length, offsets[k], s, out);
+				}
 			}
 		}
 		// The next subject's positions start beyond everything stored so far.
@@ -96,47 +98,7 @@ public final class WordFinder {
 		}
 	}
 
-	/**
-	 * Scans the subject from the word at {@code s0}, from its neighbour {@code k0} (-1 for the first), handling the usual
-	 * hits in place. Stops at the first hit that may pair, and returns true with it in {@link #candidateQ} and
-	 * {@link #candidateS}, and the scan's place after it in {@link #resumeS} and {@link #resumeK}. Returns false when the
-	 * subject is done. No call is made here, so the loop keeps its values in registers.
-	 */
-	private boolean scan(byte[] residues, int start, int length, int s0, int k0) {
-		final int[] cellStart = table.start, offsets = table.offsets;
-		final int wordSize = LookupTable.WORD_SIZE;
-		final int mask = LookupTable.WORDS - 1;
-		int word = ((((residues[start + s0] << LookupTable.CHAR_BITS) | residues[start + s0 + 1]) << LookupTable.CHAR_BITS)
-				| residues[start + s0 + 2]) & mask;
-		int k = k0 < 0 ? cellStart[word] : k0;
-		for (int s = s0; s <= length - wordSize; s++) {
-			if (s != s0) {
-				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
-				k = cellStart[word];
-			}
-			for (final int end = cellStart[word + 1]; k < end; k++) {
-				final int q = offsets[k];
-				final int diag = (q - s) & diagMask;
-				final int state = diagState[diag];
-				if ((state & EXTENDED) == 0 && s - (state - diagOffset) >= window) {
-					diagState[diag] = s + diagOffset;
-				} else {
-					candidateQ = q;
-					candidateS = s;
-					resumeS = s;
-					resumeK = k + 1;
-					return true;
-				}
-			}
-		}
-		return false;
-	}
-
-	/**
-	 * The hits {@link #scan} hands over: those on a diagonal extended to the right, and those within a window of the last
-	 * hit.
-	 */
-	private void pairHit(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
+	private void hit(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
 		final int diag = (q - s) & diagMask;
 		final int state = diagState[diag];
 		if ((state & EXTENDED) != 0) {
@@ -148,6 +110,10 @@ public final class WordFinder {
 		}
 		final int last = state - diagOffset;
 		final int diff = s - last;
+		if (diff >= window) {
+			diagState[diag] = s + diagOffset;
+			return;
+		}
 		if (diff < LookupTable.WORD_SIZE) {
 			return; // overlaps the previous hit
 		}
