@@ -21,7 +21,7 @@ class WordFinderTest {
 			// In the database layout: a sentinel before and after.
 			byte[] residues = new byte[s.length() + 2];
 			System.arraycopy(Alphabet.encode(s), 0, residues, 1, s.length());
-			finder.find(residues, s.length(), out);
+			finder.find(residues, 1, s.length(), out);
 		}
 		return out;
 	}
