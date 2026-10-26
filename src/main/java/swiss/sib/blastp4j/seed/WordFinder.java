@@ -91,7 +91,8 @@ public final class WordFinder {
 					final int q = offsets[k];
 					final int diag = (q - s) & diagMaskL;
 					final int state = diags[diag];
-					if ((state & EXTENDED) == 0 && s - (state - diagOffsetL) >= windowL) {
+					// One branch for both tests: a non-short-circuit & of the two conditions.
+					if (((state & EXTENDED) == 0) & (s - (state - diagOffsetL) >= windowL)) {
 						diags[diag] = s + diagOffsetL;
 					} else {
 						hit(residues, start, length, q, s, out);
