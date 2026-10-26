@@ -25,18 +25,6 @@ public final class WordFinder {
 	private final byte[] matrix = Blosum62.matrix();
 	/** BLOSUM62 with 32 columns per row, so that a row starts at a multiple of 32. */
 	private final byte[] padded = new byte[32 * 32];
-	private static final sun.misc.Unsafe UNSAFE = unsafe();
-	private static final long BYTES = UNSAFE.arrayBaseOffset(byte[].class);
-
-	private static sun.misc.Unsafe unsafe() {
-		try {
-			java.lang.reflect.Field f = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
-			f.setAccessible(true);
-			return (sun.misc.Unsafe) f.get(null);
-		} catch (ReflectiveOperationException e) {
-			throw new ExceptionInInitializerError(e);
-		}
-	}
 	/** The start of each query residue's row of the padded matrix. */
 	private final int[] rowOfQuery;
 	private final LookupTable table;
@@ -176,7 +164,7 @@ public final class WordFinder {
 		int best = n + 1, score = 0, maxScore = 0;
 		final int sBase = start + sOff - n, qBase = qOff - n;
 		for (int i = n; i >= 0; i--) {
-			score += UNSAFE.getByte(m, BYTES + ((rowOfQuery[qBase + i] + UNSAFE.getByte(residues, BYTES + sBase + i)) & 1023));
+			score += m[(rowOfQuery[qBase + i] + residues[sBase + i]) & 1023];
 			if (score > maxScore) {
 				maxScore = score;
 				best = i;
@@ -195,7 +183,7 @@ public final class WordFinder {
 		final int n = Math.min(length - sOff, query.length - qOff);
 		int best = -1, score = maxScore, i;
 		for (i = 0; i < n; i++) {
-			score += UNSAFE.getByte(m, BYTES + ((rowOfQuery[qOff + i] + UNSAFE.getByte(residues, BYTES + start + sOff + i)) & 1023));
+			score += m[(rowOfQuery[qOff + i] + residues[start + sOff + i]) & 1023];
 			if (score > maxScore) {
 				maxScore = score;
 				best = i;
