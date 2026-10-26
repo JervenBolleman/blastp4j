@@ -122,26 +122,21 @@ final class OptimizeTargetFreq {
 		return scale * Math.sqrt(sum);
 	}
 
-	/**
-	 * {@code Nlm_FactorLtriangPosDef}: Cholesky factorization in place of the lower triangle. Column by column, so the
-	 * updates of the rows below are independent of each other. Each entry still gets its subtractions in the order of
-	 * the column index, so the result is the same as the row by row factorization.
-	 */
+	/** {@code Nlm_FactorLtriangPosDef}: Cholesky factorization in place of the lower triangle. */
 	private static void factorLtriangPosDef(double[][] a, int n) {
-		final double[] column = new double[n];
-		for (int k = 0; k < n; k++) {
-			a[k][k] = Math.sqrt(a[k][k]);
-			for (int i = k + 1; i < n; i++) {
-				a[i][k] /= a[k][k];
-				column[i] = a[i][k];
-			}
-			for (int i = k + 1; i < n; i++) {
-				final double[] row = a[i];
-				final double aik = row[k];
-				for (int j = k + 1; j <= i; j++) {
-					row[j] -= aik * column[j];
+		for (int i = 0; i < n; i++) {
+			for (int j = 0; j < i; j++) {
+				double temp = a[i][j];
+				for (int k = 0; k < j; k++) {
+					temp -= a[i][k] * a[j][k];
 				}
+				a[i][j] = temp / a[j][j];
 			}
+			double temp = a[i][i];
+			for (int k = 0; k < i; k++) {
+				temp -= a[i][k] * a[i][k];
+			}
+			a[i][i] = Math.sqrt(temp);
 		}
 	}
 
