@@ -23,7 +23,9 @@ import swiss.sib.blastp4j.stats.Blosum62;
 public final class WordFinder {
 	private final byte[] query;
 	private final byte[] matrix = Blosum62.matrix();
-	/** The start of each query residue's row of the matrix. */
+	/** BLOSUM62 with 32 columns per row, so that a row starts at a multiple of 32. */
+	private final byte[] padded = new byte[32 * 32];
+	/** The start of each query residue's row of the padded matrix. */
 	private final int[] rowOfQuery;
 	private final LookupTable table;
 	private final int window, xDrop, cutoff;
@@ -45,9 +47,14 @@ public final class WordFinder {
 		while (length < query.length + window) {
 			length <<= 1;
 		}
+		for (int a = 0; a < Blosum62.SIZE; a++) {
+			for (int b = 0; b < Blosum62.SIZE; b++) {
+				padded[a * 32 + b] = matrix[a * Blosum62.SIZE + b];
+			}
+		}
 		rowOfQuery = new int[query.length];
 		for (int q = 0; q < query.length; q++) {
-			rowOfQuery[q] = query[q] * Blosum62.SIZE;
+			rowOfQuery[q] = query[q] << 5;
 		}
 		lastHit = new int[length];
 		extended = new boolean[length];
@@ -121,7 +128,7 @@ public final class WordFinder {
 		// One beyond the position within the word that gives the best starting score.
 		int score = 0, leftScore = 0, rightD = 0;
 		for (int i = 0; i < LookupTable.WORD_SIZE; i++) {
-			score += matrix[rowOfQuery[qRight + i] + residues[start + sRight + i]];
+			score += padded[(rowOfQuery[qRight + i] + residues[start + sRight + i]) & 1023];
 			if (score > leftScore) {
 				leftScore = score;
 				rightD = i + 1;
@@ -152,12 +159,12 @@ public final class WordFinder {
 
 	/** {@code s_BlastAaExtendLeft} with a start score of 0. */
 	private int extendLeft(byte[] residues, int start, int sOff, int qOff) {
-		final byte[] m = matrix;
+		final byte[] m = padded;
 		final int n = Math.min(sOff, qOff);
 		int best = n + 1, score = 0, maxScore = 0;
 		final int sBase = start + sOff - n, qBase = qOff - n;
 		for (int i = n; i >= 0; i--) {
-			score += m[rowOfQuery[qBase + i] + residues[sBase + i]];
+			score += m[(rowOfQuery[qBase + i] + residues[sBase + i]) & 1023];
 			if (score > maxScore) {
 				maxScore = score;
 				best = i;
@@ -172,11 +179,11 @@ public final class WordFinder {
 
 	/** {@code s_BlastAaExtendRight}, continuing from {@code maxScore}. */
 	private int extendRight(byte[] residues, int start, int length, int sOff, int qOff, int maxScore) {
-		final byte[] m = matrix;
+		final byte[] m = padded;
 		final int n = Math.min(length - sOff, query.length - qOff);
 		int best = -1, score = maxScore, i;
 		for (i = 0; i < n; i++) {
-			score += m[rowOfQuery[qOff + i] + residues[start + sOff + i]];
+			score += m[(rowOfQuery[qOff + i] + residues[start + sOff + i]) & 1023];
 			if (score > maxScore) {
 				maxScore = score;
 				best = i;
