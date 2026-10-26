@@ -20,9 +20,9 @@ public final class LookupTable {
 	static final int WORDS = 1 << (WORD_SIZE * CHAR_BITS);
 
 	final int[] start;
-	final int[] offsets;
+	final char[] offsets;
 
-	private LookupTable(int[] start, int[] offsets) {
+	private LookupTable(int[] start, char[] offsets) {
 		this.start = start;
 		this.offsets = offsets;
 	}
@@ -34,6 +34,9 @@ public final class LookupTable {
 
 	/** The table of a query (NCBIstdaa codes) for neighbourhood score {@code threshold} (11 for blastp). */
 	public static LookupTable of(byte[] query, int threshold) {
+		if (query.length > Character.MAX_VALUE) {
+			throw new IllegalArgumentException("query longer than " + Character.MAX_VALUE + " residues");
+		}
 		final int n = Blosum62.SIZE;
 		int[] rowMax = new int[n];
 		for (int a = 0; a < n; a++) {
@@ -66,11 +69,11 @@ public final class LookupTable {
 		for (int w = 0; w < WORDS; w++) {
 			start[w + 1] = start[w] + cellCount[w + 1];
 		}
-		int[] offsets = new int[start[WORDS]];
+		char[] offsets = new char[start[WORDS]];
 		int[] cursor = start.clone();
 		forEachNeighbour(query, threshold, rowMax, groupStart, grouped, (w, from, to) -> {
 			for (int i = from; i < to; i++) {
-				offsets[cursor[w]++] = grouped[i];
+				offsets[cursor[w]++] = (char) grouped[i];
 			}
 		});
 		return new LookupTable(start, offsets);
@@ -127,6 +130,10 @@ public final class LookupTable {
 
 	/** The query offsets of word {@code w}, for tests. */
 	int[] offsets(int w) {
-		return java.util.Arrays.copyOfRange(offsets, start[w], start[w + 1]);
+		int[] out = new int[start[w + 1] - start[w]];
+		for (int i = 0; i < out.length; i++) {
+			out[i] = offsets[start[w] + i];
+		}
+		return out;
 	}
 }
