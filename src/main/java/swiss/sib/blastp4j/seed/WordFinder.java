@@ -87,14 +87,12 @@ public final class WordFinder {
 			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
 			for (int s = 0; s <= length - wordSize; s++) {
 				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
-				// The stored form of this subject position, the same for every hit at it.
-				final int position = s + diagOffsetL;
 				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
 					final int q = offsets[k];
 					final int diag = (q - s) & diagMaskL;
 					final int state = diags[diag];
-					if ((state & EXTENDED) == 0 && position - state >= windowL) {
-						diags[diag] = position;
+					if ((state & EXTENDED) == 0 && s - (state - diagOffsetL) >= windowL) {
+						diags[diag] = s + diagOffsetL;
 					} else {
 						hit(residues, start, length, q, s, out);
 					}
