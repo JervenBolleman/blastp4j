@@ -3,7 +3,6 @@ package swiss.sib.blastp4j.seed;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -22,7 +21,7 @@ class WordFinderTest {
 			// In the database layout: a sentinel before and after.
 			byte[] residues = new byte[s.length() + 2];
 			System.arraycopy(Alphabet.encode(s), 0, residues, 1, s.length());
-			finder.find(MemorySegment.ofArray(residues), 1, s.length(), out);
+			finder.find(residues, 1, s.length(), out);
 		}
 		return out;
 	}

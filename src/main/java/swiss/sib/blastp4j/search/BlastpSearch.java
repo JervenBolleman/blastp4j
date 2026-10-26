@@ -333,12 +333,12 @@ public final class BlastpSearch {
 		for (int chunk; (chunk = next.getAndIncrement()) * CHUNK < db.size();) {
 			int end = Math.min(db.size(), (chunk + 1) * CHUNK);
 			for (int i = chunk * CHUNK; i < end; i++) {
+				subject = db.withSentinels(i, subject);
 				int length = db.length(i);
-				finder.find(db.withSentinelsView(i), 1, length, seeds);
+				finder.find(subject, 1, length, seeds);
 				if (seeds.isEmpty()) {
 					continue;
 				}
-				subject = db.withSentinels(i, subject);
 				List<Hsp> hsps = gappedScores(query, aligner, subject, length, seeds, cutoff);
 				seeds.clear();
 				if (hsps.isEmpty()) {

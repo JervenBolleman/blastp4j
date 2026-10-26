@@ -1,7 +1,5 @@
 package swiss.sib.blastp4j.seed;
 
-import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.util.List;
 
 import swiss.sib.blastp4j.stats.Blosum62;
@@ -20,8 +18,7 @@ import swiss.sib.blastp4j.stats.Blosum62;
  * query minus subject offset), so diagonals that share an entry behave as in BLAST. Instead of clearing it for each
  * subject, an offset is added to the stored positions, as BLAST does.
  * <p>
- * The residues are read where they lie, as a segment: a mapped database is not copied first. Not thread safe: use one
- * per thread.
+ * Not thread safe: use one per thread.
  */
 public final class WordFinder {
 	private final byte[] query;
@@ -52,22 +49,18 @@ public final class WordFinder {
 		diagOffset = window;
 	}
 
-	private static byte residue(MemorySegment residues, int i) {
-		return residues.get(ValueLayout.JAVA_BYTE, i);
-	}
-
 	/**
 	 * Finds the ungapped alignments of the subject {@code residues[start .. start + length)} and adds them to
 	 * {@code out}, in the order BLAST finds them (BLAST later sorts them by score).
 	 */
-	public void find(MemorySegment residues, int start, int length, List<UngappedHsp> out) {
+	public void find(byte[] residues, int start, int length, List<UngappedHsp> out) {
 		final int[] cellStart = table.start, offsets = table.offsets;
 		final int wordSize = LookupTable.WORD_SIZE;
 		final int mask = LookupTable.WORDS - 1;
 		if (length >= wordSize) {
-			int word = (residue(residues, start) << LookupTable.CHAR_BITS) | residue(residues, start + 1);
+			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
 			for (int s = 0; s <= length - wordSize; s++) {
-				word = ((word << LookupTable.CHAR_BITS) | residue(residues, start + s + 2)) & mask;
+				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
 				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
 					hit(residues, start, length, offsets[k], s, out);
 				}
@@ -83,7 +76,7 @@ public final class WordFinder {
 		}
 	}
 
-	private void hit(MemorySegment residues, int start, int length, int q, int s, List<UngappedHsp> out) {
+	private void hit(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
 		final int diag = (q - s) & diagMask;
 		if (extended[diag]) {
 			// Already extended past this hit: skip it; otherwise it starts a new pair.
@@ -118,11 +111,11 @@ public final class WordFinder {
 	 * {@code s_BlastAaExtendTwoHit}: the second word ends the left extension's start; the right extension runs only
 	 * if the left one reached the first word (which ends at {@code sLeft}).
 	 */
-	private int extendTwoHit(MemorySegment residues, int start, int length, int sLeft, int sRight, int qRight) {
+	private int extendTwoHit(byte[] residues, int start, int length, int sLeft, int sRight, int qRight) {
 		// One beyond the position within the word that gives the best starting score.
 		int score = 0, leftScore = 0, rightD = 0;
 		for (int i = 0; i < LookupTable.WORD_SIZE; i++) {
-			score += matrix[query[qRight + i] * Blosum62.SIZE + residue(residues, start + sRight + i)];
+			score += matrix[query[qRight + i] * Blosum62.SIZE + residues[start + sRight + i]];
 			if (score > leftScore) {
 				leftScore = score;
 				rightD = i + 1;
@@ -152,13 +145,13 @@ public final class WordFinder {
 	private int extensionLength;
 
 	/** {@code s_BlastAaExtendLeft} with a start score of 0. */
-	private int extendLeft(MemorySegment residues, int start, int sOff, int qOff) {
+	private int extendLeft(byte[] residues, int start, int sOff, int qOff) {
 		final byte[] m = matrix;
 		final int n = Math.min(sOff, qOff);
 		int best = n + 1, score = 0, maxScore = 0;
 		final int sBase = start + sOff - n, qBase = qOff - n;
 		for (int i = n; i >= 0; i--) {
-			score += m[query[qBase + i] * Blosum62.SIZE + residue(residues, sBase + i)];
+			score += m[query[qBase + i] * Blosum62.SIZE + residues[sBase + i]];
 			if (score > maxScore) {
 				maxScore = score;
 				best = i;
@@ -172,12 +165,12 @@ public final class WordFinder {
 	}
 
 	/** {@code s_BlastAaExtendRight}, continuing from {@code maxScore}. */
-	private int extendRight(MemorySegment residues, int start, int length, int sOff, int qOff, int maxScore) {
+	private int extendRight(byte[] residues, int start, int length, int sOff, int qOff, int maxScore) {
 		final byte[] m = matrix;
 		final int n = Math.min(length - sOff, query.length - qOff);
 		int best = -1, score = maxScore, i;
 		for (i = 0; i < n; i++) {
-			score += m[query[qOff + i] * Blosum62.SIZE + residue(residues, start + sOff + i)];
+			score += m[query[qOff + i] * Blosum62.SIZE + residues[start + sOff + i]];
 			if (score > maxScore) {
 				maxScore = score;
 				best = i;
