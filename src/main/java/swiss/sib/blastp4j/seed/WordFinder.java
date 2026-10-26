@@ -133,16 +133,14 @@ public final class WordFinder {
 		lastSubjectOffset = sRight;
 
 		// Extend left from just before (qRight, sRight).
-		long left = extendLeft(residues, start, sRight - 1, qRight - 1);
-		leftScore = (int) (left >>> 32);
-		int leftD = (int) left;
+		leftScore = extendLeft(residues, start, sRight - 1, qRight - 1);
+		int leftD = extensionLength;
 		int rightScore = 0;
 		rightD = 0;
 		if (leftD >= sRight - sLeft) {
 			rightExtended = true;
-			long right = extendRight(residues, start, length, sRight, qRight, leftScore);
-			rightScore = (int) (right >>> 32);
-			rightD = (int) right;
+			rightScore = extendRight(residues, start, length, sRight, qRight, leftScore);
+			rightD = extensionLength;
 		}
 		hspQuery = qRight - leftD;
 		hspSubject = sRight - leftD;
@@ -150,11 +148,10 @@ public final class WordFinder {
 		return Math.max(leftScore, rightScore);
 	}
 
-	/**
-	 * {@code s_BlastAaExtendLeft} with a start score of 0: returns the score (high 32 bits) and the length of the
-	 * extension (low 32 bits).
-	 */
-	private long extendLeft(byte[] residues, int start, int sOff, int qOff) {
+	private int extensionLength;
+
+	/** {@code s_BlastAaExtendLeft} with a start score of 0. */
+	private int extendLeft(byte[] residues, int start, int sOff, int qOff) {
 		final byte[] m = matrix;
 		final int n = Math.min(sOff, qOff);
 		int best = n + 1, score = 0, maxScore = 0;
@@ -169,11 +166,12 @@ public final class WordFinder {
 				break;
 			}
 		}
-		return ((long) maxScore << 32) | (n - best + 1);
+		extensionLength = n - best + 1;
+		return maxScore;
 	}
 
 	/** {@code s_BlastAaExtendRight}, continuing from {@code maxScore}. */
-	private long extendRight(byte[] residues, int start, int length, int sOff, int qOff, int maxScore) {
+	private int extendRight(byte[] residues, int start, int length, int sOff, int qOff, int maxScore) {
 		final byte[] m = matrix;
 		final int n = Math.min(length - sOff, query.length - qOff);
 		int best = -1, score = maxScore, i;
@@ -187,7 +185,8 @@ public final class WordFinder {
 				break;
 			}
 		}
+		extensionLength = best + 1;
 		lastSubjectOffset = sOff + i;
-		return ((long) maxScore << 32) | (best + 1);
+		return maxScore;
 	}
 }
