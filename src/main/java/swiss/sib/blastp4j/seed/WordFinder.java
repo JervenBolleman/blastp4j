@@ -106,8 +106,8 @@ public final class WordFinder {
 		final int[] diags = diagState;
 		final int diagMaskL = diagMask, diagOffsetL = diagOffset, windowL = window;
 		for (int block = 0; block < positions; block += BLOCK) {
-			// First the words of the block and a bit per position whose word has neighbours: LANES positions at a
-			// time with vectors, the rest one at a time, without branches.
+			// First the words of the block, LANES positions at a time with vectors and the rest one at a time, then a
+			// bit per position whose word has neighbours, without branches.
 			final int n = Math.min(BLOCK, positions - block);
 			// A vector of positions from p on loads the bytes up to start + p + BYTES.length() + 1. With one byte per
 			// lane those are letters of the subject; with more they go beyond it, and must still be in the array.
@@ -128,13 +128,13 @@ public final class WordFinder {
 				IntVector w = a.lanewise(VectorOperators.LSHL, 2 * LookupTable.CHAR_BITS)
 						.or(b.lanewise(VectorOperators.LSHL, LookupTable.CHAR_BITS)).or(c);
 				w.intoArray(words, j);
-				IntVector from = IntVector.fromArray(INTS, cellStart, 0, words, j);
-				IntVector to = IntVector.fromArray(INTS, cellStart, 1, words, j);
-				present |= to.compare(VectorOperators.NE, from).toLong() << j;
 			}
 			for (; j < n; j++) {
-				final int word = LookupTable.word(residues, start + block + j);
-				words[j] = word;
+				words[j] = LookupTable.word(residues, start + block + j);
+			}
+			// Scalar loads: a Vector API gather is not a gather instruction in a native image.
+			for (j = 0; j < n; j++) {
+				final int word = words[j];
 				present |= (long) (-(cellStart[word + 1] - cellStart[word]) >>> 31) << j;
 			}
 			// Then the hits of those positions, in subject order.
