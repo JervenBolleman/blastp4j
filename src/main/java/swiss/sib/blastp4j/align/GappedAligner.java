@@ -112,37 +112,64 @@ public final class GappedAligner {
 			score -= gapExtend;
 		}
 		int bSize = i, bestScore = 0, first = 0;
-		final int bStep = reverse ? -1 : 1;
 		for (int ai = 1; ai <= m; ai++) {
 			final int row = letterA(a, aBase, m, ai, reverse) * N;
-			int bp = reverse ? bBase + n - first : bBase + first;
 			score = MININT;
 			int gapRow = MININT, last = first;
-			for (int bi = first; bi < bSize; bi++) {
-				bp += bStep;
-				int gapCol = bestGap[bi];
-				int next = best[bi] + mat[row + b[bp]];
-				score = Math.max(score, Math.max(gapCol, gapRow));
-				if (bestScore - score > xDrop) {
-					if (bi == first) {
-						first++;
+			// The same loop twice, B read forwards or backwards: with a constant direction C2 checks B's bounds once
+			// per row instead of per cell (BLAST's compiled code has the two loops as well).
+			if (!reverse) {
+				for (int bi = first; bi < bSize; bi++) {
+					int gapCol = bestGap[bi];
+					int next = best[bi] + mat[row + b[bBase + bi + 1]];
+					score = Math.max(score, Math.max(gapCol, gapRow));
+					if (bestScore - score > xDrop) {
+						if (bi == first) {
+							first++;
+						} else {
+							best[bi] = MININT;
+						}
 					} else {
-						best[bi] = MININT;
+						last = bi;
+						if (score > bestScore) {
+							bestScore = score;
+							aOffset = ai;
+							bOffset = bi;
+						}
+						gapRow -= gapExtend;
+						gapCol -= gapExtend;
+						bestGap[bi] = Math.max(score - goe, gapCol);
+						gapRow = Math.max(score - goe, gapRow);
+						best[bi] = score;
 					}
-				} else {
-					last = bi;
-					if (score > bestScore) {
-						bestScore = score;
-						aOffset = ai;
-						bOffset = bi;
-					}
-					gapRow -= gapExtend;
-					gapCol -= gapExtend;
-					bestGap[bi] = Math.max(score - goe, gapCol);
-					gapRow = Math.max(score - goe, gapRow);
-					best[bi] = score;
+					score = next;
 				}
-				score = next;
+			} else {
+				for (int bi = first; bi < bSize; bi++) {
+					int gapCol = bestGap[bi];
+					int next = best[bi] + mat[row + b[bBase + n - bi - 1]];
+					score = Math.max(score, Math.max(gapCol, gapRow));
+					if (bestScore - score > xDrop) {
+						if (bi == first) {
+							first++;
+						} else {
+							best[bi] = MININT;
+						}
+					} else {
+						last = bi;
+						if (score > bestScore) {
+							bestScore = score;
+							aOffset = ai;
+							bOffset = bi;
+						}
+						gapRow -= gapExtend;
+						gapCol -= gapExtend;
+						bestGap[bi] = Math.max(score - goe, gapCol);
+						gapRow = Math.max(score - goe, gapRow);
+						best[bi] = score;
+					}
+					score = next;
+				}
 			}
 			if (first == bSize) {
 				break;
