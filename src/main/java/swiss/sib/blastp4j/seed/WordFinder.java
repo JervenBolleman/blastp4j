@@ -70,6 +70,12 @@ public final class WordFinder {
 			VectorShape.forBitSize(Math.max(64, LANES * Byte.SIZE)));
 	/** Whether the byte vector has one lane per position, so that its loads stay within the subject. */
 	private static final boolean BYTE_PER_LANE = BYTES.length() == LANES;
+	/**
+	 * Whether this is a GraalVM native image (the property is set there, also while WordFinder is initialized at build
+	 * time). Graal does not compile a Vector API gather to a gather instruction, so there the table is read with scalar
+	 * loads; C2 does, and is faster with it.
+	 */
+	private static final boolean NATIVE_IMAGE = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
 	/** Positions per block: one bit each in a long. */
 	private static final int BLOCK = 64;
 	/** The words of the current block of subject positions. */
@@ -128,9 +134,17 @@ public final class WordFinder {
 				IntVector w = a.lanewise(VectorOperators.LSHL, 2 * LookupTable.CHAR_BITS)
 						.or(b.lanewise(VectorOperators.LSHL, LookupTable.CHAR_BITS)).or(c);
 				w.intoArray(words, j);
-				IntVector from = IntVector.fromArray(INTS, cellStart, 0, words, j);
-				IntVector to = IntVector.fromArray(INTS, cellStart, 1, words, j);
-				present |= to.compare(VectorOperators.NE, from).toLong() << j;
+				if (!NATIVE_IMAGE) {
+					IntVector from = IntVector.fromArray(INTS, cellStart, 0, words, j);
+					IntVector to = IntVector.fromArray(INTS, cellStart, 1, words, j);
+					present |= to.compare(VectorOperators.NE, from).toLong() << j;
+				}
+			}
+			if (NATIVE_IMAGE) {
+				for (int k = 0; k < j; k++) {
+					final int word = words[k];
+					present |= (long) (-(cellStart[word + 1] - cellStart[word]) >>> 31) << k;
+				}
 			}
 			for (; j < n; j++) {
 				final int word = LookupTable.word(residues, start + block + j);
