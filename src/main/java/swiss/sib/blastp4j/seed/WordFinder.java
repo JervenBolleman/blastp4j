@@ -59,7 +59,7 @@ public final class WordFinder {
 	private boolean rightExtended;
 
 	/** The machine's preferred vector of ints: one subject position per lane. */
-	private static final VectorSpecies<Integer> INTS = IntVector.SPECIES_PREFERRED;
+	private static final VectorSpecies<Integer> INTS = IntVector.SPECIES_128;
 	/** Positions per vector. */
 	private static final int LANES = INTS.length();
 	/**
