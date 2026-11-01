@@ -75,11 +75,6 @@ public final class WordFinder {
 	/** The words of the current block of subject positions. */
 	private final int[] blockWords = new int[BLOCK];
 
-	/** The {@link #LANES} letters from {@code residues[i]} on, as ints. */
-	private static IntVector letters(byte[] residues, int i) {
-		return (IntVector) ByteVector.fromArray(BYTES, residues, i).convertShape(VectorOperators.B2I, INTS, 0);
-	}
-
 	public WordFinder(byte[] query, LookupTable table, SeedParameters p) {
 		this.query = query;
 		this.table = table;
@@ -121,10 +116,17 @@ public final class WordFinder {
 			long present = 0;
 			int j = 0;
 			for (; j + LANES <= vectorN; j += LANES) {
+				// The letters of the LANES words, as ints. No vector helper method: when Graal does not inline one, it
+				// runs the vector operations of the whole loop in Java (native image).
 				final int i = start + block + j;
-				IntVector w = letters(residues, i).lanewise(VectorOperators.LSHL, 2 * LookupTable.CHAR_BITS)
-						.or(letters(residues, i + 1).lanewise(VectorOperators.LSHL, LookupTable.CHAR_BITS))
-						.or(letters(residues, i + 2));
+				IntVector a = (IntVector) ByteVector.fromArray(BYTES, residues, i)
+						.convertShape(VectorOperators.B2I, INTS, 0);
+				IntVector b = (IntVector) ByteVector.fromArray(BYTES, residues, i + 1)
+						.convertShape(VectorOperators.B2I, INTS, 0);
+				IntVector c = (IntVector) ByteVector.fromArray(BYTES, residues, i + 2)
+						.convertShape(VectorOperators.B2I, INTS, 0);
+				IntVector w = a.lanewise(VectorOperators.LSHL, 2 * LookupTable.CHAR_BITS)
+						.or(b.lanewise(VectorOperators.LSHL, LookupTable.CHAR_BITS)).or(c);
 				w.intoArray(words, j);
 				IntVector from = IntVector.fromArray(INTS, cellStart, 0, words, j);
 				IntVector to = IntVector.fromArray(INTS, cellStart, 1, words, j);

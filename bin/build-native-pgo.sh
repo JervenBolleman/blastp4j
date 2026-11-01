@@ -2,8 +2,9 @@
 # Builds a native blastp4j with profile-guided optimisation (GraalVM native-image, -O3): an instrumented build, a training
 # run that writes default.iprof, then the optimised build. Needs "mvn compile" to have run (target/classes and target/cp.txt).
 # Usage: bin/build-native-pgo.sh <training.fasta> <blast db prefix> <output directory>
-# NATIVE_IMAGE names the GraalVM native-image to use (default: native-image on PATH). Uses the same options as the
-# measurements in the commit that added it. The default launcher (bin/blastp4j) is unchanged.
+# NATIVE_IMAGE names the GraalVM native-image to use (default: native-image on PATH). The Vector API module and the
+# build-time initialization of the word finder come from META-INF/native-image in target/classes. The default launcher
+# (bin/blastp4j) is unchanged.
 set -e
 if [ $# -ne 3 ]; then
 	echo "usage: $0 <training.fasta> <blast db prefix> <output directory>" >&2
@@ -21,7 +22,7 @@ if [ ! -d "$CLASSES" ] || [ ! -f "$CP_FILE" ]; then
 fi
 NI="${NATIVE_IMAGE:-native-image}"
 CP="$CLASSES:$(cat "$CP_FILE")"
-OPTS="-O3 -H:+UnlockExperimentalVMOptions -H:+SharedArenaSupport"
+OPTS="-O3"
 
 echo "1/3 instrumented build"
 "$NI" $OPTS --pgo-instrument -cp "$CP" swiss.sib.blastp4j.cli.Blastp -o "$OUT/blastp4j-instrumented"

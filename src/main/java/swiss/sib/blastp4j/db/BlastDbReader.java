@@ -37,6 +37,12 @@ public final class BlastDbReader {
 	private BlastDbReader() {
 	}
 
+	/**
+	 * Whether this runs in a GraalVM native image (the property is set there). A native image with the Vector API
+	 * cannot have shared arenas, so there the files are mapped in an automatic arena instead.
+	 */
+	private static final boolean NATIVE_IMAGE = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
+
 	/** Whether {@code prefix} names a BLAST protein database ({@code prefix.pin} or {@code prefix.pal} exists). */
 	public static boolean exists(Path prefix) {
 		return Files.exists(sibling(prefix, ".pin")) || Files.exists(sibling(prefix, ".pal"));
@@ -48,12 +54,13 @@ public final class BlastDbReader {
 
 	/**
 	 * Opens the database {@code prefix} (the name given to {@code makeblastdb -out}, without extension). Its files are
-	 * memory-mapped in a shared arena, and unmapped when the returned database is closed.
+	 * memory-mapped in a shared arena, and unmapped when the returned database is closed. In a native image they are
+	 * mapped in an automatic arena, and unmapped once the database is no longer reachable.
 	 */
 	public static SequenceDatabase read(Path prefix) throws IOException {
 		List<Path> paths = new ArrayList<>();
 		collectVolumes(prefix, paths, 0);
-		Arena arena = Arena.ofShared();
+		Arena arena = NATIVE_IMAGE ? Arena.ofAuto() : Arena.ofShared();
 		try {
 			List<Volume> volumes = new ArrayList<>();
 			for (Path p : paths) {
@@ -63,9 +70,12 @@ public final class BlastDbReader {
 			for (Volume v : volumes) {
 				residues.add(v.residues);
 			}
-			return new SequenceDatabase(arena, residues, new DbHeaders(volumes));
+			// An automatic arena cannot be closed.
+			return new SequenceDatabase(NATIVE_IMAGE ? null : arena, residues, new DbHeaders(volumes));
 		} catch (IOException | RuntimeException e) {
-			arena.close();
+			if (!NATIVE_IMAGE) {
+				arena.close();
+			}
 			throw e;
 		}
 	}

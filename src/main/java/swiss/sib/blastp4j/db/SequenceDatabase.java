@@ -61,7 +61,8 @@ public final class SequenceDatabase implements AutoCloseable {
 	}
 
 	/**
-	 * @param arena   the arena the segments were mapped in, closed by {@link #close()}; null for heap segments
+	 * @param arena   the arena the segments were mapped in, closed by {@link #close()}; null for heap segments or an
+	 *                arena that cannot be closed
 	 * @param volumes the volumes, in order
 	 * @param headers identifiers and titles of all sequences
 	 */
