@@ -5,6 +5,7 @@ import java.util.List;
 import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.IntVector;
 import jdk.incubator.vector.VectorOperators;
+import jdk.incubator.vector.VectorShape;
 import jdk.incubator.vector.VectorSpecies;
 import swiss.sib.blastp4j.stats.Blosum62;
 
@@ -57,16 +58,24 @@ public final class WordFinder {
 	private int hspQuery, hspSubject, hspLength, lastSubjectOffset;
 	private boolean rightExtended;
 
-	private static final VectorSpecies<Byte> BYTES = ByteVector.SPECIES_64;
-	private static final VectorSpecies<Integer> INTS = IntVector.SPECIES_256;
+	/** The machine's preferred vector of ints: one subject position per lane. */
+	private static final VectorSpecies<Integer> INTS = IntVector.SPECIES_PREFERRED;
 	/** Positions per vector. */
-	private static final int LANES = 8;
+	private static final int LANES = INTS.length();
+	/**
+	 * The letters of {@link #LANES} positions, before they are widened to ints: the smallest byte vector with at least
+	 * that many lanes (there is no byte vector smaller than 64 bits, so it can have more).
+	 */
+	private static final VectorSpecies<Byte> BYTES = VectorSpecies.of(byte.class,
+			VectorShape.forBitSize(Math.max(64, LANES * Byte.SIZE)));
+	/** Whether the byte vector has one lane per position, so that its loads stay within the subject. */
+	private static final boolean BYTE_PER_LANE = BYTES.length() == LANES;
 	/** Positions per block: one bit each in a long. */
 	private static final int BLOCK = 64;
 	/** The words of the current block of subject positions. */
 	private final int[] blockWords = new int[BLOCK];
 
-	/** The eight letters from {@code residues[i]} on, as ints. */
+	/** The {@link #LANES} letters from {@code residues[i]} on, as ints. */
 	private static IntVector letters(byte[] residues, int i) {
 		return (IntVector) ByteVector.fromArray(BYTES, residues, i).convertShape(VectorOperators.B2I, INTS, 0);
 	}
@@ -102,12 +111,16 @@ public final class WordFinder {
 		final int[] diags = diagState;
 		final int diagMaskL = diagMask, diagOffsetL = diagOffset, windowL = window;
 		for (int block = 0; block < positions; block += BLOCK) {
-			// First the words of the block and a bit per position whose word has neighbours: eight positions at a
+			// First the words of the block and a bit per position whose word has neighbours: LANES positions at a
 			// time with vectors, the rest one at a time, without branches.
 			final int n = Math.min(BLOCK, positions - block);
+			// A vector of positions from p on loads the bytes up to start + p + BYTES.length() + 1. With one byte per
+			// lane those are letters of the subject; with more they go beyond it, and must still be in the array.
+			final int vectorN = BYTE_PER_LANE ? n
+					: Math.min(n, residues.length - start - BYTES.length() - 2 + LANES - block);
 			long present = 0;
 			int j = 0;
-			for (; j + LANES <= n; j += LANES) {
+			for (; j + LANES <= vectorN; j += LANES) {
 				final int i = start + block + j;
 				IntVector w = letters(residues, i).lanewise(VectorOperators.LSHL, 2 * LookupTable.CHAR_BITS)
 						.or(letters(residues, i + 1).lanewise(VectorOperators.LSHL, LookupTable.CHAR_BITS))
