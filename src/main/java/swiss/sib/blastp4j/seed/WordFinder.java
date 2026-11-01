@@ -4,6 +4,7 @@ import java.util.List;
 
 import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.IntVector;
+import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorShape;
 import jdk.incubator.vector.VectorSpecies;
@@ -82,6 +83,13 @@ public final class WordFinder {
 	private final int[] blockWords = new int[BLOCK];
 	/** The first two letters of the words of the current block, to index the presence table. */
 	private final int[] blockPairs = new int[BLOCK];
+	/** The hits of the current block: query offset, subject offset and diagonal. */
+	private final int[] hitQuery, hitSubject, hitDiag;
+	/** A bit per lane. */
+	private static final long LANE_BITS = LANES == 64 ? -1L : (1L << LANES) - 1;
+	private static final IntVector LANE_INDEX = IntVector.zero(INTS).addIndex(1);
+	/** Per diagonal, the first lane of the current vector of hits on it (only those diagonals are read). */
+	private final int[] owner;
 
 	public WordFinder(byte[] query, LookupTable table, SeedParameters p) {
 		this.query = query;
@@ -98,6 +106,16 @@ public final class WordFinder {
 			rowOfQuery[q] = query[q] << 5;
 		}
 		diagState = new int[length];
+		// A block has at most BLOCK times the longest list of hits, plus a vector of copied padding.
+		int longest = 0;
+		for (int w = 0; w < LookupTable.WORDS; w++) {
+			longest = Math.max(longest, table.start()[w + 1] - table.start()[w]);
+		}
+		final int capacity = BLOCK * longest + LANES;
+		hitQuery = new int[capacity];
+		hitSubject = new int[capacity];
+		hitDiag = new int[capacity];
+		owner = new int[length];
 		diagMask = length - 1;
 		diagOffset = window;
 	}
@@ -154,18 +172,72 @@ public final class WordFinder {
 				present |= (long) ((presence[word >>> LookupTable.CHAR_BITS] >>> word) & 1) << j;
 			}
 			// Then the hits of those positions, in subject order.
+			if (NATIVE_IMAGE) {
+				for (; present != 0; present &= present - 1) {
+					final int b = Long.numberOfTrailingZeros(present);
+					final int s = block + b, word = words[b];
+					for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
+						final int q = offsets[k];
+						final int diag = (q - s) & diagMaskL;
+						final int state = diags[diag];
+						if ((state & EXTENDED) == 0 && s - (state - diagOffsetL) >= windowL) {
+							diags[diag] = s + diagOffsetL;
+						} else {
+							hit(residues, start, length, q, s, out);
+						}
+					}
+				}
+				continue;
+			}
+			// The hits of the block, a vector of query offsets at a time (offsets is padded).
+			final int[] hq = hitQuery, hs = hitSubject, hd = hitDiag, owner = this.owner;
+			int h = 0;
 			for (; present != 0; present &= present - 1) {
 				final int b = Long.numberOfTrailingZeros(present);
 				final int s = block + b, word = words[b];
-				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
-					final int q = offsets[k];
-					final int diag = (q - s) & diagMaskL;
-					final int state = diags[diag];
-					if ((state & EXTENDED) == 0 && s - (state - diagOffsetL) >= windowL) {
-						diags[diag] = s + diagOffsetL;
-					} else {
-						hit(residues, start, length, q, s, out);
-					}
+				final int from = cellStart[word], end = cellStart[word + 1];
+				final IntVector sv = IntVector.broadcast(INTS, s);
+				for (int k = from; k < end; k += LANES) {
+					IntVector.fromArray(INTS, offsets, k).intoArray(hq, h + k - from);
+					sv.intoArray(hs, h + k - from);
+				}
+				h += end - from;
+			}
+			// LANES hits at a time: a usual hit on a diagonal that no earlier hit of the vector shares only stores its
+			// position; the others go through hit, in order. Hits of one diagonal thus keep their order.
+			int g = 0;
+			for (; g + LANES <= h; g += LANES) {
+				final IntVector qv = IntVector.fromArray(INTS, hq, g), sv = IntVector.fromArray(INTS, hs, g);
+				final IntVector dv = qv.sub(sv).and(diagMaskL);
+				dv.intoArray(hd, g);
+				final IntVector state = IntVector.fromArray(INTS, diags, 0, hd, g);
+				VectorMask<Integer> usual = state.and(EXTENDED).compare(VectorOperators.EQ, 0)
+						.and(sv.sub(state.sub(diagOffsetL)).compare(VectorOperators.GE, windowL));
+				// The first lane of each diagonal: written last to first, read back; a lane that does not read itself
+				// shares its diagonal with an earlier lane.
+				for (int l = LANES - 1; l >= 0; l--) {
+					owner[hd[g + l]] = l;
+				}
+				final VectorMask<Integer> shared = IntVector.fromArray(INTS, owner, 0, hd, g)
+						.compare(VectorOperators.NE, LANE_INDEX);
+				long simple = usual.andNot(shared).toLong(), rest = ~simple & LANE_BITS;
+				for (; simple != 0; simple &= simple - 1) {
+					final int l = g + Long.numberOfTrailingZeros(simple);
+					diags[hd[l]] = hs[l] + diagOffsetL;
+				}
+				for (; rest != 0; rest &= rest - 1) {
+					final int l = g + Long.numberOfTrailingZeros(rest);
+					hit(residues, start, length, hq[l], hs[l], out);
+				}
+			}
+			for (; g < h; g++) {
+				final int q = hq[g], s = hs[g];
+				final int diag = (q - s) & diagMaskL;
+				final int state = diags[diag];
+				if ((state & EXTENDED) == 0 && s - (state - diagOffsetL) >= windowL) {
+					diags[diag] = s + diagOffsetL;
+				} else {
+					hit(residues, start, length, q, s, out);
 				}
 			}
 		}
