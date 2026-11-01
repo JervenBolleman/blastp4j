@@ -39,7 +39,6 @@ public final class WordFinder {
 	/** The start of each query residue's row of the padded matrix. */
 	private final int[] rowOfQuery;
 	private final LookupTable table;
-	private final int wordSize;
 	private final int window, xDrop, cutoff;
 	/**
 	 * Per diagonal the subject offset of the last hit, with {@link #EXTENDED} set when the diagonal was extended to the
@@ -57,7 +56,6 @@ public final class WordFinder {
 	public WordFinder(byte[] query, LookupTable table, SeedParameters p) {
 		this.query = query;
 		this.table = table;
-		this.wordSize = table.wordSize();
 		this.window = p.window();
 		this.xDrop = p.xDrop();
 		this.cutoff = p.cutoff();
@@ -80,18 +78,15 @@ public final class WordFinder {
 	 */
 	public void find(byte[] residues, int start, int length, List<UngappedHsp> out) {
 		final int[] cellStart = table.start(), offsets = table.offsets();
-		final int wordSizeL = wordSize;
-		final int mask = (1 << (wordSizeL * LookupTable.CHAR_BITS)) - 1;
+		final int wordSize = LookupTable.WORD_SIZE;
+		final int mask = LookupTable.WORDS - 1;
 		// The diagonal fields as locals, for the usual hit below.
 		final int[] diags = diagState;
 		final int diagMaskL = diagMask, diagOffsetL = diagOffset, windowL = window;
-		if (length >= wordSizeL) {
-			int word = 0;
-			for (int i = 0; i < wordSizeL - 1; i++) {
-				word = (word << LookupTable.CHAR_BITS) | residues[start + i];
-			}
-			for (int s = 0; s <= length - wordSizeL; s++) {
-				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + wordSizeL - 1]) & mask;
+		if (length >= wordSize) {
+			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
+			for (int s = 0; s <= length - wordSize; s++) {
+				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
 				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
 					final int q = offsets[k];
 					final int diag = (q - s) & diagMaskL;
@@ -129,15 +124,15 @@ public final class WordFinder {
 			diagState[diag] = s + diagOffset;
 			return;
 		}
-		if (diff < wordSize) {
+		if (diff < LookupTable.WORD_SIZE) {
 			return; // overlaps the previous hit
 		}
-		int score = extendTwoHit(residues, start, length, last + wordSize, s, q);
+		int score = extendTwoHit(residues, start, length, last + LookupTable.WORD_SIZE, s, q);
 		if (score >= cutoff) {
 			out.add(new UngappedHsp(hspQuery, hspSubject, hspLength, score, q, s));
 		}
 		if (rightExtended) {
-			diagState[diag] = (lastSubjectOffset - (wordSize - 1) + diagOffset) | EXTENDED;
+			diagState[diag] = (lastSubjectOffset - (LookupTable.WORD_SIZE - 1) + diagOffset) | EXTENDED;
 		} else {
 			diagState[diag] = s + diagOffset;
 		}
@@ -150,7 +145,7 @@ public final class WordFinder {
 	private int extendTwoHit(byte[] residues, int start, int length, int sLeft, int sRight, int qRight) {
 		// One beyond the position within the word that gives the best starting score.
 		int score = 0, leftScore = 0, rightD = 0;
-		for (int i = 0; i < wordSize; i++) {
+		for (int i = 0; i < LookupTable.WORD_SIZE; i++) {
 			score += PADDED[(rowOfQuery[qRight + i] + residues[start + sRight + i]) & 1023];
 			if (score > leftScore) {
 				leftScore = score;
