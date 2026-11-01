@@ -2,6 +2,10 @@ package swiss.sib.blastp4j.seed;
 
 import java.util.List;
 
+import jdk.incubator.vector.ByteVector;
+import jdk.incubator.vector.IntVector;
+import jdk.incubator.vector.VectorOperators;
+import jdk.incubator.vector.VectorSpecies;
 import swiss.sib.blastp4j.stats.Blosum62;
 
 /**
@@ -53,6 +57,20 @@ public final class WordFinder {
 	private int hspQuery, hspSubject, hspLength, lastSubjectOffset;
 	private boolean rightExtended;
 
+	private static final VectorSpecies<Byte> BYTES = ByteVector.SPECIES_64;
+	private static final VectorSpecies<Integer> INTS = IntVector.SPECIES_256;
+	/** Positions per vector. */
+	private static final int LANES = 8;
+	/** Positions per block: one bit each in a long. */
+	private static final int BLOCK = 64;
+	/** The words of the current block of subject positions. */
+	private final int[] blockWords = new int[BLOCK];
+
+	/** The eight letters from {@code residues[i]} on, as ints. */
+	private static IntVector letters(byte[] residues, int i) {
+		return (IntVector) ByteVector.fromArray(BYTES, residues, i).convertShape(VectorOperators.B2I, INTS, 0);
+	}
+
 	public WordFinder(byte[] query, LookupTable table, SeedParameters p) {
 		this.query = query;
 		this.table = table;
@@ -78,15 +96,36 @@ public final class WordFinder {
 	 */
 	public void find(byte[] residues, int start, int length, List<UngappedHsp> out) {
 		final int[] cellStart = table.start(), offsets = table.offsets();
-		final int wordSize = LookupTable.WORD_SIZE;
-		final int mask = LookupTable.WORDS - 1;
+		final int[] words = blockWords;
+		final int positions = length - LookupTable.WORD_SIZE + 1;
 		// The diagonal fields as locals, for the usual hit below.
 		final int[] diags = diagState;
 		final int diagMaskL = diagMask, diagOffsetL = diagOffset, windowL = window;
-		if (length >= wordSize) {
-			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
-			for (int s = 0; s <= length - wordSize; s++) {
-				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
+		for (int block = 0; block < positions; block += BLOCK) {
+			// First the words of the block and a bit per position whose word has neighbours: eight positions at a
+			// time with vectors, the rest one at a time, without branches.
+			final int n = Math.min(BLOCK, positions - block);
+			long present = 0;
+			int j = 0;
+			for (; j + LANES <= n; j += LANES) {
+				final int i = start + block + j;
+				IntVector w = letters(residues, i).lanewise(VectorOperators.LSHL, 2 * LookupTable.CHAR_BITS)
+						.or(letters(residues, i + 1).lanewise(VectorOperators.LSHL, LookupTable.CHAR_BITS))
+						.or(letters(residues, i + 2));
+				w.intoArray(words, j);
+				IntVector from = IntVector.fromArray(INTS, cellStart, 0, words, j);
+				IntVector to = IntVector.fromArray(INTS, cellStart, 1, words, j);
+				present |= to.compare(VectorOperators.NE, from).toLong() << j;
+			}
+			for (; j < n; j++) {
+				final int word = LookupTable.word(residues, start + block + j);
+				words[j] = word;
+				present |= (long) (-(cellStart[word + 1] - cellStart[word]) >>> 31) << j;
+			}
+			// Then the hits of those positions, in subject order.
+			for (; present != 0; present &= present - 1) {
+				final int b = Long.numberOfTrailingZeros(present);
+				final int s = block + b, word = words[b];
 				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
 					final int q = offsets[k];
 					final int diag = (q - s) & diagMaskL;
