@@ -80,6 +80,8 @@ public final class WordFinder {
 	private static final int BLOCK = 64;
 	/** The words of the current block of subject positions. */
 	private final int[] blockWords = new int[BLOCK];
+	/** The first two letters of the words of the current block, to index the presence table. */
+	private final int[] blockPairs = new int[BLOCK];
 
 	public WordFinder(byte[] query, LookupTable table, SeedParameters p) {
 		this.query = query;
@@ -105,8 +107,8 @@ public final class WordFinder {
 	 * {@code out}, in the order BLAST finds them (BLAST later sorts them by score).
 	 */
 	public void find(byte[] residues, int start, int length, List<UngappedHsp> out) {
-		final int[] cellStart = table.start(), offsets = table.offsets();
-		final int[] words = blockWords;
+		final int[] cellStart = table.start(), offsets = table.offsets(), presence = table.presence();
+		final int[] words = blockWords, pairs = blockPairs;
 		final int positions = length - LookupTable.WORD_SIZE + 1;
 		// The diagonal fields as locals, for the usual hit below.
 		final int[] diags = diagState;
@@ -131,25 +133,25 @@ public final class WordFinder {
 						.convertShape(VectorOperators.B2I, INTS, 0);
 				IntVector c = (IntVector) ByteVector.fromArray(BYTES, residues, i + 2)
 						.convertShape(VectorOperators.B2I, INTS, 0);
-				IntVector w = a.lanewise(VectorOperators.LSHL, 2 * LookupTable.CHAR_BITS)
-						.or(b.lanewise(VectorOperators.LSHL, LookupTable.CHAR_BITS)).or(c);
-				w.intoArray(words, j);
+				IntVector ab = a.lanewise(VectorOperators.LSHL, LookupTable.CHAR_BITS).or(b);
+				ab.lanewise(VectorOperators.LSHL, LookupTable.CHAR_BITS).or(c).intoArray(words, j);
 				if (!NATIVE_IMAGE) {
-					IntVector from = IntVector.fromArray(INTS, cellStart, 0, words, j);
-					IntVector to = IntVector.fromArray(INTS, cellStart, 1, words, j);
-					present |= to.compare(VectorOperators.NE, from).toLong() << j;
+					// The presence bit of word abc is bit c of presence[ab]: one gather from a 4 KB table.
+					ab.intoArray(pairs, j);
+					present |= IntVector.fromArray(INTS, presence, 0, pairs, j).lanewise(VectorOperators.LSHR, c)
+							.and(1).compare(VectorOperators.NE, 0).toLong() << j;
 				}
 			}
 			if (NATIVE_IMAGE) {
 				for (int k = 0; k < j; k++) {
 					final int word = words[k];
-					present |= (long) (-(cellStart[word + 1] - cellStart[word]) >>> 31) << k;
+					present |= (long) ((presence[word >>> LookupTable.CHAR_BITS] >>> word) & 1) << k;
 				}
 			}
 			for (; j < n; j++) {
 				final int word = LookupTable.word(residues, start + block + j);
 				words[j] = word;
-				present |= (long) (-(cellStart[word + 1] - cellStart[word]) >>> 31) << j;
+				present |= (long) ((presence[word >>> LookupTable.CHAR_BITS] >>> word) & 1) << j;
 			}
 			// Then the hits of those positions, in subject order.
 			for (; present != 0; present &= present - 1) {

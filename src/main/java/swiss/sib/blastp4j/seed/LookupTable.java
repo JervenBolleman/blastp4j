@@ -12,7 +12,7 @@ import swiss.sib.blastp4j.stats.Blosum62;
  * <p>
  * Instances are immutable.
  */
-public record LookupTable(int[] start, int[] offsets) {
+public record LookupTable(int[] start, int[] offsets, int[] presence) {
 	/** Letters per word. */
 	public static final int WORD_SIZE = 3;
 	/** Bits per letter. */
@@ -66,7 +66,14 @@ public record LookupTable(int[] start, int[] offsets) {
 				offsets[cursor[w]++] = grouped[i];
 			}
 		});
-		return new LookupTable(start, offsets);
+		// One bit per word whose range is not empty: word abc is bit c of presence[ab], a table of 4 KB.
+		int[] presence = new int[WORDS >>> CHAR_BITS];
+		for (int w = 0; w < WORDS; w++) {
+			if (start[w + 1] != start[w]) {
+				presence[w >>> CHAR_BITS] |= 1 << (w & ((1 << CHAR_BITS) - 1));
+			}
+		}
+		return new LookupTable(start, offsets, presence);
 	}
 
 	@FunctionalInterface
