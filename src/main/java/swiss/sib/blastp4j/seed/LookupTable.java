@@ -1,5 +1,6 @@
 package swiss.sib.blastp4j.seed;
 
+import static java.util.Arrays.copyOfRange;
 import swiss.sib.blastp4j.stats.Blosum62;
 
 /**
@@ -11,21 +12,13 @@ import swiss.sib.blastp4j.stats.Blosum62;
  * <p>
  * Instances are immutable.
  */
-public final class LookupTable {
+public record LookupTable(int[] start, int[] offsets) {
 	/** Letters per word. */
 	public static final int WORD_SIZE = 3;
 	/** Bits per letter. */
 	static final int CHAR_BITS = 5;
 	/** Number of words (some unused, the alphabet has 28 letters). */
 	static final int WORDS = 1 << (WORD_SIZE * CHAR_BITS);
-
-	final int[] start;
-	final int[] offsets;
-
-	private LookupTable(int[] start, int[] offsets) {
-		this.start = start;
-		this.offsets = offsets;
-	}
 
 	/** Index of the word at {@code pos} of {@code seq}. */
 	static int word(byte[] seq, int pos) {
@@ -127,6 +120,6 @@ public final class LookupTable {
 
 	/** The query offsets of word {@code w}, for tests. */
 	int[] offsets(int w) {
-		return java.util.Arrays.copyOfRange(offsets, start[w], start[w + 1]);
+		return copyOfRange(offsets, start[w], start[w + 1]);
 	}
 }

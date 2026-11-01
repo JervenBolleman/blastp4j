@@ -462,22 +462,7 @@ public final class BlastpSearch {
 		if (hsps.size() < 2) {
 			return;
 		}
-		hsps.sort((h1, h2) -> {
-			int r = Integer.compare(h1.queryStart, h2.queryStart);
-			if (r == 0) {
-				r = Integer.compare(h1.subjectStart, h2.subjectStart);
-			}
-			if (r == 0) {
-				r = Integer.compare(h2.score, h1.score);
-			}
-			if (r == 0) {
-				r = Integer.compare(h2.queryEnd, h1.queryEnd);
-			}
-			if (r == 0) {
-				r = Integer.compare(h2.subjectEnd, h1.subjectEnd);
-			}
-			return r;
-		});
+		hsps.sort(BlastpSearch::compareHsp);
 		for (int i = 0; i < hsps.size(); i++) {
 			Hsp a = hsps.get(i);
 			while (i + 1 < hsps.size() && hsps.get(i + 1).queryStart == a.queryStart
@@ -508,5 +493,22 @@ public final class BlastpSearch {
 				hsps.remove(i + 1);
 			}
 		}
+	}
+
+	private static int compareHsp(Hsp h1, Hsp h2) {
+		int r = Integer.compare(h1.queryStart, h2.queryStart);
+		if (r == 0) {
+			r = Integer.compare(h1.subjectStart, h2.subjectStart);
+		}
+		if (r == 0) {
+			r = Integer.compare(h2.score, h1.score);
+		}
+		if (r == 0) {
+			r = Integer.compare(h2.queryEnd, h1.queryEnd);
+		}
+		if (r == 0) {
+			r = Integer.compare(h2.subjectEnd, h1.subjectEnd);
+		}
+		return r;
 	}
 }
