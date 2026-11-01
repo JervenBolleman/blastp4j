@@ -19,8 +19,6 @@ public record LookupTable(int[] start, int[] offsets, int[] presence) {
 	static final int CHAR_BITS = 5;
 	/** Number of words (some unused, the alphabet has 28 letters). */
 	static final int WORDS = 1 << (WORD_SIZE * CHAR_BITS);
-	/** Unused entries at the end of {@code offsets}. */
-	static final int PADDING = 16;
 
 	/** Index of the word at {@code pos} of {@code seq}. */
 	static int word(byte[] seq, int pos) {
@@ -61,8 +59,7 @@ public record LookupTable(int[] start, int[] offsets, int[] presence) {
 		for (int w = 0; w < WORDS; w++) {
 			start[w + 1] = start[w] + cellCount[w + 1];
 		}
-		// Padded, so that a word's offsets can be copied a whole vector (up to 16 ints) at a time.
-		int[] offsets = new int[start[WORDS] + PADDING];
+		int[] offsets = new int[start[WORDS]];
 		int[] cursor = start.clone();
 		forEachNeighbour(query, threshold, rowMax, groupStart, grouped, (w, from, to) -> {
 			for (int i = from; i < to; i++) {
@@ -125,7 +122,7 @@ public record LookupTable(int[] start, int[] offsets, int[] presence) {
 
 	/** Number of (word, query offset) entries. */
 	public int size() {
-		return start[WORDS];
+		return offsets.length;
 	}
 
 	/** The query offsets of word {@code w}, for tests. */
