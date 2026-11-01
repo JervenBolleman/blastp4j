@@ -116,6 +116,8 @@ public final class GappedAligner {
 			score -= gapExtend;
 		}
 		int bSize = i, bestScore = 0, first = 0;
+		// bestScore - xDrop, kept up to date, so that the inner loop does not need xDrop.
+		int floor = -xDrop;
 		for (int ai = 1; ai <= m; ai++) {
 			final int row = letterA(a, aBase, m, ai, reverse) * N;
 			score = MININT;
@@ -127,7 +129,7 @@ public final class GappedAligner {
 					int gapCol = dp[2 * bi + 1];
 					int next = dp[2 * bi] + mat[row + b[bBase + bi + 1]];
 					score = Math.max(score, Math.max(gapCol, gapRow));
-					if (bestScore - score > xDrop) {
+					if (score < floor) {
 						if (bi == first) {
 							first++;
 						} else {
@@ -137,6 +139,7 @@ public final class GappedAligner {
 						last = bi;
 						if (score > bestScore) {
 							bestScore = score;
+							floor = score - xDrop;
 							aOffset = ai;
 							bOffset = bi;
 						}
@@ -153,7 +156,7 @@ public final class GappedAligner {
 					int gapCol = dp[2 * bi + 1];
 					int next = dp[2 * bi] + mat[row + b[bBase + n - bi - 1]];
 					score = Math.max(score, Math.max(gapCol, gapRow));
-					if (bestScore - score > xDrop) {
+					if (score < floor) {
 						if (bi == first) {
 							first++;
 						} else {
@@ -163,6 +166,7 @@ public final class GappedAligner {
 						last = bi;
 						if (score > bestScore) {
 							bestScore = score;
+							floor = score - xDrop;
 							aOffset = ai;
 							bOffset = bi;
 						}
@@ -181,7 +185,7 @@ public final class GappedAligner {
 			if (last < bSize - 1) {
 				bSize = last + 1;
 			} else {
-				while (gapRow >= bestScore - xDrop && bSize <= n) {
+				while (gapRow >= floor && bSize <= n) {
 					dp[2 * bSize] = gapRow;
 					dp[2 * bSize + 1] = gapRow - goe;
 					gapRow -= gapExtend;
