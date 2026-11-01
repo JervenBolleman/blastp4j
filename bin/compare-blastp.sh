@@ -3,7 +3,8 @@
 # Usage: bin/compare-blastp.sh [all|blast|jvm|native]...   (default: all)
 #
 # 1. ROUNDS timing rounds (default 5), the chosen systems interleaved in each round (/usr/bin/time: wall, user, sys).
-# 2. One perf stat run per system (instructions, cycles, branches, branch misses), after all timing rounds.
+# 2. One perf stat run per system (instructions, cycles, branches, branch misses), after all timing rounds; skipped
+#    where perf has no hardware counters.
 # 3. For the JVM, one run with async-profiler (CPU samples, flame graph in jvm-profile.html).
 # Every output is compared with the first one written (BLAST+'s when blast is chosen).
 #
@@ -81,10 +82,15 @@ for s in "${SYSTEMS[@]}"; do
 done
 
 echo "== perf stat"
-for s in "${SYSTEMS[@]}"; do
-	search "$s" "perf-$s" perf stat -x, -e instructions:u,cycles:u,branches:u,branch-misses:u -o "$OUT/perf-$s.txt" --
-	echo "$s: $(awk -F, 'NR>1 && $1 ~ /^[0-9]/{printf "%s=%.1fG ", $3, $1/1e9}' "$OUT/perf-$s.txt")($SAME)"
-done
+# Virtual machines often have no hardware counters; perf then reports them as not supported.
+if perf stat -x, -e cycles:u -o "$OUT/perf-check.txt" -- true 2>/dev/null && grep -q '^[0-9]' "$OUT/perf-check.txt"; then
+	for s in "${SYSTEMS[@]}"; do
+		search "$s" "perf-$s" perf stat -x, -e instructions:u,cycles:u,branches:u,branch-misses:u -o "$OUT/perf-$s.txt" --
+		echo "$s: $(awk -F, 'NR>1 && $1 ~ /^[0-9]/{printf "%s=%.1fG ", $3, $1/1e9}' "$OUT/perf-$s.txt")($SAME)"
+	done
+else
+	echo "skipped: no hardware counters (perf stat -e cycles:u)"
+fi
 
 if [[ " ${SYSTEMS[*]} " == *" jvm "* ]]; then
 	echo "== async-profiler (JVM)"

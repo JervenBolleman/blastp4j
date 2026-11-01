@@ -1,0 +1,193 @@
+# Compares blastp4j (C2) with BLAST+ (gcc) on x86-64 and on AArch64, to see whether the gap in the X-drop alignment
+# loop (register spills: C2 has fewer allocatable registers than gcc on x86-64) shrinks on AArch64.
+#
+# Per architecture:
+# 1. Spills: the stack accesses in Blast_SemiGappedAlign and GappedAligner.semiGapped, static and weighted by
+#    cpu-clock samples (.github/scripts/compare-spills.sh); C2's code is printed with hsdis.
+# 2. GappedScoreBench (JMH), with compressed object references on and off.
+# 3. A full search, BLAST+ and blastp4j interleaved (bin/compare-blastp.sh), with an async-profiler flame graph.
+# The database is the Phaseolus vulgaris reference proteome (UP000000226); the queries are its first QUERIES proteins.
+#
+# Hosted runners are virtual machines: hardware counters are usually missing and wall times are noisy, so compare
+# the ratios between BLAST+ and blastp4j within one job, not times across jobs. ARM runners are free for public
+# repositories only.
+#
+# Needs cssw4j: the repository in the CSSW4J_REPOSITORY variable, default <owner>/cssw4j.
+name: Architecture comparison
+
+on:
+  workflow_dispatch:
+    inputs:
+      queries:
+        description: Number of proteome sequences used as queries in the full search
+        default: "500"
+      rounds:
+        description: Timing rounds of the full search
+        default: "3"
+
+permissions:
+  contents: read
+
+env:
+  BLAST_VERSION: 2.17.0
+  JDK_TAG: jdk-25+36
+  ASYNC_PROFILER_VERSION: "4.5"
+  PROTEOME_URL: https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/Eukaryota/UP000000226/UP000000226_3885.fasta.gz
+
+jobs:
+  compare:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            blast: x64-linux
+            profiler: linux-x64
+          - runner: ubuntu-24.04-arm
+            blast: aarch64-linux
+            profiler: linux-arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: blastp4j
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ vars.CSSW4J_REPOSITORY || format('{0}/cssw4j', github.repository_owner) }}
+          path: cssw4j
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+          cache-dependency-path: |
+            blastp4j/pom.xml
+            cssw4j/pom.xml
+
+      - name: Install packages
+        run: |
+          sudo apt-get update -q
+          # binutils-dev for hsdis; the rest is what the JDK's configure checks for.
+          sudo apt-get install -yq binutils-dev autoconf zip unzip file time libasound2-dev libcups2-dev \
+            libfontconfig1-dev libx11-dev libxext-dev libxrender-dev libxrandr-dev libxtst-dev libxt-dev
+          sudo apt-get install -yq linux-tools-common "linux-tools-$(uname -r)" || sudo apt-get install -yq linux-tools-generic
+          sudo sysctl -w kernel.perf_event_paranoid=1
+          perf --version
+
+      - name: Machine
+        run: |
+          {
+            echo "## $(uname -m) on ${{ matrix.runner }}"
+            echo
+            echo '```'
+            lscpu | grep -E 'Model name|^CPU\(s\)|Vendor|Flags' | cut -c1-200
+            java -version 2>&1
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      # hsdis links the system's libbfd, so the cache is per runner image.
+      - name: Runner image
+        id: image
+        run: echo "version=$ImageOS-$ImageVersion" >>"$GITHUB_OUTPUT"
+      - name: Cache hsdis
+        id: hsdis
+        uses: actions/cache@v6
+        with:
+          path: hsdis
+          key: hsdis-binutils-${{ runner.arch }}-${{ env.JDK_TAG }}-${{ steps.image.outputs.version }}
+      - name: Build hsdis
+        if: steps.hsdis.outputs.cache-hit != 'true'
+        run: |
+          git clone -q --depth 1 --branch "$JDK_TAG" https://github.com/openjdk/jdk.git jdk-src
+          cd jdk-src
+          bash configure --with-boot-jdk="$JAVA_HOME" --with-hsdis=binutils --with-binutils=system >/dev/null
+          make build-hsdis
+          mkdir -p ../hsdis
+          find build -name 'hsdis-*.so' -exec cp {} ../hsdis/ \;
+          ls -l ../hsdis
+      - name: Install hsdis
+        run: cp hsdis/hsdis-*.so "$JAVA_HOME/lib/server/"
+
+      - name: Cache BLAST+
+        id: blast
+        uses: actions/cache@v6
+        with:
+          path: ncbi-blast
+          key: blast-${{ env.BLAST_VERSION }}-${{ matrix.blast }}
+      - name: Download BLAST+
+        if: steps.blast.outputs.cache-hit != 'true'
+        run: |
+          curl -sSfL "https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/$BLAST_VERSION/ncbi-blast-$BLAST_VERSION+-${{ matrix.blast }}.tar.gz" |
+            tar xz "ncbi-blast-$BLAST_VERSION+/bin/blastp" "ncbi-blast-$BLAST_VERSION+/bin/makeblastdb"
+          mv "ncbi-blast-$BLAST_VERSION+" ncbi-blast
+      - name: Add BLAST+ to the path
+        run: echo "$PWD/ncbi-blast/bin" >>"$GITHUB_PATH"
+
+      - name: Build
+        run: |
+          mvn -B -q -f cssw4j/pom.xml install -DskipTests
+          mvn -B -q -f blastp4j/pom.xml package -DskipTests
+          mvn -B -q -f blastp4j/pom.xml dependency:build-classpath -Dmdep.outputFile="$PWD/blastp4j/target/cp.txt"
+
+      - name: Data
+        run: |
+          mkdir -p data/blastdb
+          curl -sSfL "$PROTEOME_URL" | gunzip >data/proteome.fasta
+          # GappedScoreBench reads <dir>/blastdb/sprot.
+          makeblastdb -in data/proteome.fasta -dbtype prot -parse_seqids -out data/blastdb/sprot >/dev/null
+          awk -v n="${{ inputs.queries }}" '/^>/ { if (++k > n) exit } { print }' data/proteome.fasta >data/queries.fasta
+          echo "database: $(grep -c '^>' data/proteome.fasta) sequences; queries: $(grep -c '^>' data/queries.fasta)"
+
+      - name: Spills
+        working-directory: blastp4j
+        run: |
+          QUERY=../data/queries.fasta DB=../data/blastdb/sprot OUT=target/spills .github/scripts/compare-spills.sh |
+            tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: GappedScoreBench
+        working-directory: blastp4j
+        run: |
+          for oops in +UseCompressedOops -UseCompressedOops; do
+            java -cp "target/test-classes:target/classes:$(cat target/cp.txt)" \
+              org.openjdk.jmh.Main GappedScoreBench.gapped -f 1 -wi 5 -i 20 \
+              -jvmArgsAppend "-Dblastp4j.sprot=$PWD/../data -XX:$oops" \
+              -rf text -rff "target/jmh-$oops.txt" >"target/jmh-$oops.log" 2>&1
+          done
+          {
+            echo
+            echo "### GappedScoreBench (ms per pass over the seeds, one thread)"
+            for oops in +UseCompressedOops -UseCompressedOops; do
+              echo
+              echo "-XX:$oops"
+              echo '```'
+              cat "target/jmh-$oops.txt"
+              echo '```'
+            done
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Full search
+        working-directory: blastp4j
+        run: |
+          curl -sSfL "https://github.com/async-profiler/async-profiler/releases/download/v$ASYNC_PROFILER_VERSION/async-profiler-$ASYNC_PROFILER_VERSION-${{ matrix.profiler }}.tar.gz" |
+            tar xz -C ..
+          {
+            echo
+            echo "### Full search, $(nproc) threads"
+            echo '```'
+            QUERY=../data/queries.fasta DB=../data/blastdb/sprot ROUNDS="${{ inputs.rounds }}" OUT=target/compare \
+              ASYNC_PROFILER="$(ls "$PWD"/../async-profiler-*/lib/libasyncProfiler.so)" bin/compare-blastp.sh blast jvm
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: compare-${{ runner.arch }}
+          path: |
+            blastp4j/target/spills/*.s
+            blastp4j/target/spills/*.log
+            blastp4j/target/jmh-*
+            blastp4j/target/compare/*.log
+            blastp4j/target/compare/*.txt
+            blastp4j/target/compare/jvm-profile.html
