@@ -143,6 +143,11 @@ profile-guided optimisation (Oracle GraalVM 25.4.4, `bin/build-native-pgo.sh`, t
 times (672.5 G, with 35% more instructions than the JVM; not profiled yet). In a native image the word finder reads
 the presence table with scalar loads.
 
+With the word finder's constants copy and the score-only extensions in vector lanes (main at 36cbdf8, JDK 27 C2, three
+interleaved rounds, output identical), blastp4j took 1.43 times BLAST+'s cycles (570.7 to 579.2 G against 401.5 to
+402.7 G) and 1.27 times its instructions (650.6 to 664.0 G against 516.7 G). Wall time was 24.9 to 25.6 s against 19.0
+to 19.3 s, and peak memory 767 to 788 MB against 357 MB.
+
 ## BLAST databases
 
 `db.BlastDbReader` reads the protein databases `makeblastdb` makes, format version 4 or 5:
