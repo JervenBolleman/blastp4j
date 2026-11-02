@@ -167,26 +167,22 @@ public final class GappedAligner {
 				int gapCol = dp[2 * bi + 1];
 				int next = dp[2 * bi] + rowScores[bs[bi] & 31];
 				score = Math.max(score, Math.max(gapCol, gapRow));
-				if (score < floor) {
-					if (bi == first) {
-						first++;
-					} else {
-						dp[2 * bi] = MININT;
-					}
-				} else {
-					last = bi;
-					if (score > bestScore) {
-						bestScore = score;
-						floor = score - xDrop;
-						aOffset = ai;
-						bOffset = bi;
-					}
-					gapRow -= ext;
-					gapCol -= ext;
-					dp[2 * bi + 1] = Math.max(score - goe, gapCol);
-					gapRow = Math.max(score - goe, gapRow);
-					dp[2 * bi] = score;
+				// Live or dead without a branch, which was hard to predict: every update is a select. A dead cell at the
+				// band's start gets MININT as well, which no later row reads.
+				final boolean live = score >= floor;
+				if (score > bestScore) {
+					// Only a live cell: the floor is below bestScore.
+					bestScore = score;
+					floor = score - xDrop;
+					aOffset = ai;
+					bOffset = bi;
 				}
+				first = !live && bi == first ? first + 1 : first;
+				last = live ? bi : last;
+				final int open = score - goe;
+				dp[2 * bi + 1] = live ? Math.max(open, gapCol - ext) : gapCol;
+				gapRow = live ? Math.max(open, gapRow - ext) : gapRow;
+				dp[2 * bi] = live ? score : MININT;
 				score = next;
 			}
 			if (first == bSize) {
