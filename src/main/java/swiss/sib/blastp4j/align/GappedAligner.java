@@ -113,7 +113,8 @@ public final class GappedAligner {
 	 * backwards, they are {@code a[aBase + m - 1 .. aBase]} and {@code b[bBase + n - 1 .. bBase]}.
 	 */
 	int semiGapped(byte[] a, int aBase, int m, byte[] b, int bBase, int n, boolean reverse, int xDrop) {
-		final int goe = gapOpen + gapExtend;
+		// The gap costs and the best cell in locals: the inner loop then reads and writes no fields.
+		final int ext = gapExtend, goe = gapOpen + ext;
 		xDrop = Math.max(xDrop, goe);
 		aOffset = 0;
 		bOffset = 0;
@@ -139,9 +140,9 @@ public final class GappedAligner {
 			}
 			dp[2 * i] = score;
 			dp[2 * i + 1] = score - goe;
-			score -= gapExtend;
+			score -= ext;
 		}
-		int bSize = i, bestScore = 0, first = 0;
+		int bSize = i, bestScore = 0, first = 0, bestA = 0, bestB = 0;
 		// bestScore - xDrop, kept up to date, so that the inner loop does not need xDrop.
 		int floor = -xDrop;
 		for (int ai = 1; ai <= m; ai++) {
@@ -163,11 +164,11 @@ public final class GappedAligner {
 					if (score > bestScore) {
 						bestScore = score;
 						floor = score - xDrop;
-						aOffset = ai;
-						bOffset = bi;
+						bestA = ai;
+						bestB = bi;
 					}
-					gapRow -= gapExtend;
-					gapCol -= gapExtend;
+					gapRow -= ext;
+					gapCol -= ext;
 					dp[2 * bi + 1] = Math.max(score - goe, gapCol);
 					gapRow = Math.max(score - goe, gapRow);
 					dp[2 * bi] = score;
@@ -183,7 +184,7 @@ public final class GappedAligner {
 				while (gapRow >= floor && bSize <= n) {
 					dp[2 * bSize] = gapRow;
 					dp[2 * bSize + 1] = gapRow - goe;
-					gapRow -= gapExtend;
+					gapRow -= ext;
 					bSize++;
 				}
 			}
@@ -193,6 +194,8 @@ public final class GappedAligner {
 				bSize++;
 			}
 		}
+		aOffset = bestA;
+		bOffset = bestB;
 		return bestScore;
 	}
 
