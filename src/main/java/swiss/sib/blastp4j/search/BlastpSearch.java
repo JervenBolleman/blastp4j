@@ -15,6 +15,7 @@ import swiss.sib.blastp4j.align.HspTree;
 import swiss.sib.blastp4j.compo.CompoHeap;
 import swiss.sib.blastp4j.compo.CompoRedo;
 import swiss.sib.blastp4j.db.SequenceDatabase;
+import swiss.sib.blastp4j.seed.BatchWordFinder;
 import swiss.sib.blastp4j.seed.LookupTable;
 import swiss.sib.blastp4j.seed.SeedParameters;
 import swiss.sib.blastp4j.seed.UngappedHsp;
@@ -215,8 +216,59 @@ public final class BlastpSearch {
 			prelim.addAll(part);
 		}
 		prelim.sort(BY_EVALUE);
-		List<Hit> kept = prelim.subList(0,
-				Math.min(prelimHitlistSize, prelim.size()));
+		return finish(query, prelim.subList(0, Math.min(prelimHitlistSize, prelim.size())), pool, tasks,
+				earlyTermination);
+	}
+
+	/**
+	 * The preliminary stage for a batch of queries, as BLAST runs it for a batch: each subject is scanned once for all
+	 * of them ({@link BatchWordFinder}). Gives each query's preliminary hits, best first and cut to the preliminary
+	 * hit list size, the same as {@link #search} keeps for the query alone; {@link #finish} completes each query.
+	 */
+	public List<List<Hit>> prelim(List<byte[]> queries, ExecutorService pool, int tasks) throws InterruptedException {
+		final int n = queries.size();
+		final byte[][] qs = queries.toArray(byte[][]::new);
+		final SeedParameters[] seeds = new SeedParameters[n];
+		final LookupTable[] tables = new LookupTable[n];
+		final int[] cutoffs = new int[n];
+		for (int i = 0; i < n; i++) {
+			seeds[i] = seedParameters(qs[i]);
+			tables[i] = LookupTable.of(qs[i], seeds[i].threshold());
+			cutoffs[i] = cutoff(qs[i]);
+		}
+		final BatchWordFinder.Table table = BatchWordFinder.Table.of(tables);
+		AtomicInteger next = new AtomicInteger();
+		List<Callable<List<List<Hit>>>> prelimTasks = new ArrayList<>();
+		for (int t = 0; t < tasks; t++) {
+			prelimTasks.add(() -> prelim(qs, new BatchWordFinder(qs, tables, seeds, table), cutoffs, next));
+		}
+		List<List<Hit>> found = new ArrayList<>();
+		for (int i = 0; i < n; i++) {
+			found.add(new ArrayList<>());
+		}
+		for (List<List<Hit>> part : runAll(pool, prelimTasks)) {
+			for (int i = 0; i < n; i++) {
+				found.get(i).addAll(part.get(i));
+			}
+		}
+		List<List<Hit>> kept = new ArrayList<>();
+		for (List<Hit> prelim : found) {
+			prelim.sort(BY_EVALUE);
+			kept.add(prelim.subList(0, Math.min(prelimHitlistSize, prelim.size())));
+		}
+		return kept;
+	}
+
+	/**
+	 * The stages after the preliminary one for a query: composition-based statistics or the traceback, as
+	 * {@link #search} does with its preliminary hits.
+	 *
+	 * @param kept             the query's preliminary hits, best first, as {@link #prelim(List, ExecutorService, int)}
+	 *                         gives them
+	 * @param earlyTermination as for {@link #search(byte[], ExecutorService, int, boolean)}
+	 */
+	public Result finish(byte[] query, List<Hit> kept, ExecutorService pool, int tasks, boolean earlyTermination)
+			throws InterruptedException {
 		if (compositionBased) {
 			return compositionBasedStage(query, kept, pool, tasks, earlyTermination);
 		}
@@ -374,28 +426,71 @@ public final class BlastpSearch {
 				if (seeds.isEmpty()) {
 					continue;
 				}
-				List<Hsp> hsps = gappedScores(query, aligner, subject, length, seeds, cutoff);
+				Hit hit = prelimHit(query, aligner, i, subject, length, seeds, cutoff);
 				seeds.clear();
-				if (hsps.isEmpty()) {
-					continue;
-				}
-				purgeCommonEndpoints(hsps);
-				hsps.sort(Hsp.BY_SCORE);
-				double best = Double.MAX_VALUE;
-				List<Hsp> kept = new ArrayList<>();
-				for (Hsp h : hsps) {
-					h.evalue = statistics.evalue(h.score, query.length, length);
-					if (h.evalue <= prelimEvalue) {
-						kept.add(h);
-						best = Math.min(best, h.evalue);
-					}
-				}
-				if (!kept.isEmpty()) {
-					found.add(new Hit(i, kept, best));
+				if (hit != null) {
+					found.add(hit);
 				}
 			}
 		}
 		return found;
+	}
+
+	/** The preliminary stage of a batch's task: {@link #prelim(byte[], WordFinder, int, AtomicInteger)} per query. */
+	@SuppressWarnings("unchecked")
+	private List<List<Hit>> prelim(byte[][] queries, BatchWordFinder finder, int[] cutoffs, AtomicInteger next) {
+		final GappedAligner aligner = new GappedAligner(gapOpen, gapExtend);
+		final int n = queries.length;
+		final List<List<Hit>> found = new ArrayList<>();
+		final List<UngappedHsp>[] seeds = new List[n];
+		for (int q = 0; q < n; q++) {
+			found.add(new ArrayList<>());
+			seeds[q] = new ArrayList<>();
+		}
+		byte[] subject = null;
+		for (int chunk; (chunk = next.getAndIncrement()) * CHUNK < db.size();) {
+			int end = Math.min(db.size(), (chunk + 1) * CHUNK);
+			for (int i = chunk * CHUNK; i < end; i++) {
+				subject = db.withSentinels(i, subject);
+				int length = db.length(i);
+				finder.find(subject, 1, length, seeds);
+				for (int q = 0; q < n; q++) {
+					if (seeds[q].isEmpty()) {
+						continue;
+					}
+					Hit hit = prelimHit(queries[q], aligner, i, subject, length, seeds[q], cutoffs[q]);
+					seeds[q].clear();
+					if (hit != null) {
+						found.get(q).add(hit);
+					}
+				}
+			}
+		}
+		return found;
+	}
+
+	/**
+	 * The gapped scores of the query's seeds in subject {@code i} and the HSPs the preliminary stage keeps of them, as
+	 * a hit; null when it keeps none.
+	 */
+	private Hit prelimHit(byte[] query, GappedAligner aligner, int i, byte[] subject, int length,
+			List<UngappedHsp> seeds, int cutoff) {
+		List<Hsp> hsps = gappedScores(query, aligner, subject, length, seeds, cutoff);
+		if (hsps.isEmpty()) {
+			return null;
+		}
+		purgeCommonEndpoints(hsps);
+		hsps.sort(Hsp.BY_SCORE);
+		double best = Double.MAX_VALUE;
+		List<Hsp> kept = new ArrayList<>();
+		for (Hsp h : hsps) {
+			h.evalue = statistics.evalue(h.score, query.length, length);
+			if (h.evalue <= prelimEvalue) {
+				kept.add(h);
+				best = Math.min(best, h.evalue);
+			}
+		}
+		return kept.isEmpty() ? null : new Hit(i, kept, best);
 	}
 
 	/**

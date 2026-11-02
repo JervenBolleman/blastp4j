@@ -8,6 +8,7 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -230,27 +231,56 @@ public final class Blastp {
 				lengths[q] = queries.length(q);
 			}
 			QueryBatches batches = QueryBatches.blastp(lengths);
-			for (int q = 0; q < queries.size(); q++) {
-				byte[] query = queries.sequence(q);
-				List<BlastpSearch.Hit> hits;
-				try {
-					BlastpSearch.Result result = search.search(query, pool, o.threads(), batches.next());
-					batches.done(result.filledToCutoff());
-					hits = result.hits();
-				} catch (IllegalArgumentException e) {
-					// As blastp, skip a query whose composition gives no Karlin-Altschul parameters.
-					batches.done(false);
-					stderr.println("blastp4j: warning: query " + queries.id(q) + " skipped: " + e.getMessage());
-					continue;
+			for (int first = 0, end; first < queries.size(); first = end) {
+				// BLAST's batch: queries until it holds the batch size in residues. The preliminary stage scans the
+				// database once for the batch; the later stages go query by query.
+				long residues = 0;
+				for (end = first; end < queries.size() && residues < batches.batchSize(); end++) {
+					residues += lengths[end];
 				}
-				for (BlastpSearch.Hit h : hits) {
-					for (Hsp hsp : h.hsps()) {
-						out.write(TabularFormat.row(o.columns(), queries.name(q), query, db, h.subject(), hsp,
-								statistics));
-						out.write('\n');
+				// As blastp, skip a query whose composition gives no Karlin-Altschul parameters.
+				String[] skipped = new String[end - first];
+				List<byte[]> batch = new ArrayList<>();
+				for (int q = first; q < end; q++) {
+					try {
+						search.seedParameters(queries.sequence(q));
+						search.cutoff(queries.sequence(q));
+						batch.add(queries.sequence(q));
+					} catch (IllegalArgumentException e) {
+						skipped[q - first] = e.getMessage();
 					}
 				}
-				out.flush();
+				List<List<BlastpSearch.Hit>> prelim = batch.size() > 1 ? search.prelim(batch, pool, o.threads()) : null;
+				int inBatch = 0;
+				for (int q = first; q < end; q++) {
+					byte[] query = queries.sequence(q);
+					boolean earlyTermination = batches.next();
+					if (skipped[q - first] != null) {
+						batches.done(false);
+						stderr.println("blastp4j: warning: query " + queries.id(q) + " skipped: " + skipped[q - first]);
+						continue;
+					}
+					List<BlastpSearch.Hit> hits;
+					try {
+						BlastpSearch.Result result = prelim != null
+								? search.finish(query, prelim.get(inBatch++), pool, o.threads(), earlyTermination)
+								: search.search(query, pool, o.threads(), earlyTermination);
+						batches.done(result.filledToCutoff());
+						hits = result.hits();
+					} catch (IllegalArgumentException e) {
+						batches.done(false);
+						stderr.println("blastp4j: warning: query " + queries.id(q) + " skipped: " + e.getMessage());
+						continue;
+					}
+					for (BlastpSearch.Hit h : hits) {
+						for (Hsp hsp : h.hsps()) {
+							out.write(TabularFormat.row(o.columns(), queries.name(q), query, db, h.subject(), hsp,
+									statistics));
+							out.write('\n');
+						}
+					}
+					out.flush();
+				}
 			}
 		}
 	}

@@ -233,6 +233,31 @@ public final class WordFinder {
 		}
 	}
 
+	/**
+	 * One word hit of a scan done elsewhere ({@link BatchWordFinder}): query offset {@code q} at subject position
+	 * {@code s}, handled as {@link #find} handles each.
+	 */
+	void probe(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
+		final int diag = (q - s) & diagMask;
+		final int state = diagState[diag];
+		if ((state & EXTENDED) == 0 && s - (state - diagOffset) >= window) {
+			diagState[diag] = s + diagOffset;
+		} else {
+			hit(residues, start, length, q, s, out);
+		}
+	}
+
+	/** The end of a subject of {@code length} letters scanned elsewhere, as at the end of {@link #find}. */
+	void endSubject(int length) {
+		// The next subject's positions start beyond everything stored so far.
+		if (diagOffset >= Integer.MAX_VALUE / 4) {
+			diagOffset = window;
+			java.util.Arrays.fill(diagState, 0);
+		} else {
+			diagOffset += length + window;
+		}
+	}
+
 	private void hit(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
 		final int diag = (q - s) & diagMask;
 		final int state = diagState[diag];

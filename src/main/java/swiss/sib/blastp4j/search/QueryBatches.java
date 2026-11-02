@@ -37,6 +37,11 @@ public final class QueryBatches {
 		return new QueryBatches(lengths, size != null ? Integer.parseInt(size.trim()) : BLASTP_BATCH_SIZE);
 	}
 
+	/** The batch size in residues: a batch takes queries until it holds at least this many. */
+	public int batchSize() {
+		return batchSize;
+	}
+
 	/** Whether the next query may skip subjects: it is the last of its batch, and all earlier ones ended filled. */
 	public boolean next() {
 		batchResidues += lengths[next];
