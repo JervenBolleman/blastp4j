@@ -44,6 +44,9 @@ on:
       benchmark:
         description: JMH benchmark (a regular expression) for the benchmark step
         default: GappedScoreBench.gapped
+      bench_args:
+        description: "Further JMH arguments for the benchmark step, such as -p query=HBA_HUMAN,BRCA1_HUMAN"
+        default: ""
 
 permissions:
   contents: read
@@ -186,6 +189,7 @@ jobs:
         working-directory: blastp4j
         env:
           BENCHMARK: ${{ inputs.benchmark }}
+          BENCH_ARGS: ${{ inputs.bench_args }}
           VARIANTS: ${{ inputs.variants }}
           BENCH_ROUNDS: ${{ inputs.bench_rounds }}
         run: |
@@ -202,7 +206,7 @@ jobs:
                 # The benchmarks read their queries from the tree they run in.
                 (cd "${codes[$k]#*=}" &&
                   java -cp "target/test-classes:target/classes:$(cat target/cp.txt)" \
-                    org.openjdk.jmh.Main "$BENCHMARK" -f 1 -wi 5 -i 20 \
+                    org.openjdk.jmh.Main "$BENCHMARK" -f 1 -wi 5 -i 20 $BENCH_ARGS \
                     -jvmArgsAppend "$base-Dblastp4j.sprot=$data ${v#*=}" \
                     -rf csv -rff "$out/jmh-$k-${v%%=*}-$r.csv" >"$out/jmh-$k-${v%%=*}-$r.log" 2>&1)
               done
