@@ -4,11 +4,13 @@
 # Per architecture:
 # 1. Spills: the stack accesses in Blast_SemiGappedAlign and GappedAligner.semiGapped, static and weighted by
 #    cpu-clock samples (.github/scripts/compare-spills.sh); C2's code is printed with hsdis.
-# 2. GappedScoreBench (JMH) with this machine's options from bin/jvm.options plus each variant's own (the VARIANTS input), the
-#    variants interleaved over BENCH_ROUNDS rounds. With a REFERENCE commit, that commit is built too and benchmarked
-#    in the same rounds with the same options: runners differ from run to run (BLAST+ itself took 12% more cycles on
-#    one ARM runner than on another), so code is compared within one job.
+# 2. A JMH benchmark (the BENCHMARK input, default GappedScoreBench) with this machine's options from bin/jvm.options
+#    plus each variant's own (the VARIANTS input), the variants interleaved over BENCH_ROUNDS rounds.
 # 3. A full search, BLAST+ and blastp4j interleaved (bin/compare-blastp.sh), with an async-profiler flame graph.
+# The code measured is the CODE input (a branch, tag or commit; default the ref the workflow runs from). With a
+# REFERENCE, that blastp4j is built too and run in the same rounds of 2 and 3 with the same options: runners differ
+# from run to run (BLAST+ itself took 12% more cycles on one ARM runner than on another), so code is compared within
+# one job.
 # The database is the Phaseolus vulgaris reference proteome (UP000000226); the queries are its first QUERIES proteins.
 #
 # Hosted runners are virtual machines: hardware counters are usually missing and wall times are noisy, so compare
@@ -28,14 +30,20 @@ on:
         description: Timing rounds of the full search
         default: "3"
       variants:
-        description: "GappedScoreBench variants, label=JVM options after bin/jvm.options, separated by ;"
+        description: "Benchmark variants, label=JVM options after bin/jvm.options, separated by ;"
         default: "launcher=;oops-on=-XX:+UseCompressedOops;oops-off=-XX:-UseCompressedOops"
       bench_rounds:
-        description: GappedScoreBench rounds, the variants interleaved in each
+        description: Benchmark rounds, the variants interleaved in each
         default: "1"
-      reference:
-        description: blastp4j commit (full 40-character SHA), branch or tag to benchmark against in GappedScoreBench; empty for none
+      code:
+        description: blastp4j branch, tag or commit (full 40-character SHA) to measure; empty for the workflow's ref
         default: ""
+      reference:
+        description: blastp4j branch, tag or commit (full 40-character SHA) to compare with in the same job; empty for none
+        default: ""
+      benchmark:
+        description: JMH benchmark (a regular expression) for the benchmark step
+        default: GappedScoreBench.gapped
 
 permissions:
   contents: read
@@ -63,6 +71,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.code }}
           path: blastp4j
       - uses: actions/checkout@v7
         if: inputs.reference != ''
@@ -161,8 +170,9 @@ jobs:
         run: |
           mkdir -p data/blastdb
           curl -sSfL "$PROTEOME_URL" | gunzip >data/proteome.fasta
-          # GappedScoreBench reads <dir>/blastdb/sprot.
+          # The benchmarks read <dir>/blastdb/sprot (GappedScoreBench) or <dir>/uniprot_sprot.fasta (SeedSearchBench).
           makeblastdb -in data/proteome.fasta -dbtype prot -parse_seqids -out data/blastdb/sprot >/dev/null
+          ln -s proteome.fasta data/uniprot_sprot.fasta
           awk -v n="${{ inputs.queries }}" '/^>/ { if (++k > n) exit } { print }' data/proteome.fasta >data/queries.fasta
           echo "database: $(grep -c '^>' data/proteome.fasta) sequences; queries: $(grep -c '^>' data/queries.fasta)"
 
@@ -172,9 +182,10 @@ jobs:
           QUERY=../data/queries.fasta DB=../data/blastdb/sprot OUT=target/spills .github/scripts/compare-spills.sh |
             tee -a "$GITHUB_STEP_SUMMARY"
 
-      - name: GappedScoreBench
+      - name: Benchmark
         working-directory: blastp4j
         env:
+          BENCHMARK: ${{ inputs.benchmark }}
           VARIANTS: ${{ inputs.variants }}
           BENCH_ROUNDS: ${{ inputs.bench_rounds }}
         run: |
@@ -182,36 +193,42 @@ jobs:
           data="$(cd ../data && pwd)"
           out="$PWD/target"
           IFS=';' read -ra variants <<<"$VARIANTS"
-          # The code: this checkout, and the reference commit when there is one, with the same options.
-          codes=("HEAD $(git rev-parse --short HEAD)=$PWD")
+          # The code: this checkout, and the reference when there is one, with the same options.
+          codes=("$(git rev-parse --abbrev-ref HEAD | sed 's/^HEAD$/code/') $(git rev-parse --short HEAD)=$PWD")
           [ -d ../reference ] && codes+=("reference $(git -C ../reference rev-parse --short HEAD)=$(cd ../reference && pwd)")
           for r in $(seq 1 "$BENCH_ROUNDS"); do
             for v in "${variants[@]}"; do
               for k in "${!codes[@]}"; do
-                # GappedScoreBench reads its queries from the tree it runs in.
+                # The benchmarks read their queries from the tree they run in.
                 (cd "${codes[$k]#*=}" &&
                   java -cp "target/test-classes:target/classes:$(cat target/cp.txt)" \
-                    org.openjdk.jmh.Main GappedScoreBench.gapped -f 1 -wi 5 -i 20 \
+                    org.openjdk.jmh.Main "$BENCHMARK" -f 1 -wi 5 -i 20 \
                     -jvmArgsAppend "$base-Dblastp4j.sprot=$data ${v#*=}" \
                     -rf csv -rff "$out/jmh-$k-${v%%=*}-$r.csv" >"$out/jmh-$k-${v%%=*}-$r.log" 2>&1)
               done
             done
           done
+          # One column per query, in the order of the first result.
+          queries="$(awk -F, 'NR > 1 { gsub(/["\r]/, ""); printf "%s ", $8 }' "target/jmh-0-${variants[0]%%=*}-1.csv")"
           {
             echo
-            echo "### GappedScoreBench (ms per pass over the seeds, one thread)"
+            echo "### $BENCHMARK (ms/op, one thread)"
             echo
             echo "bin/jvm-options: \`$base\`"
             echo
-            echo "| code | variant | options | round | CDK1_HUMAN | BRCA1_HUMAN |"
-            echo "|---|---|---|--:|--:|--:|"
+            echo "| code | variant | options | round | ${queries// / | }"
+            echo "|---|---|---|--:|$(for q in $queries; do printf -- '--:|'; done)"
             for r in $(seq 1 "$BENCH_ROUNDS"); do
               for v in "${variants[@]}"; do
                 for k in "${!codes[@]}"; do
-                  awk -F, -v c="${codes[$k]%%=*}" -v l="${v%%=*}" -v o="${v#*=}" -v r="$r" '
+                  awk -F, -v c="${codes[$k]%%=*}" -v l="${v%%=*}" -v o="${v#*=}" -v r="$r" -v q="$queries" '
                     NR > 1 { gsub(/["\r]/, ""); s[$8] = sprintf("%.1f ± %.1f", $5, $6) }
-                    END { printf "| %s | %s | `%s` | %s | %s | %s |\n", c, l, o, r, s["CDK1_HUMAN"], s["BRCA1_HUMAN"] }' \
-                    "target/jmh-$k-${v%%=*}-$r.csv"
+                    END {
+                      printf "| %s | %s | `%s` | %s |", c, l, o, r
+                      n = split(q, qs, " ")
+                      for (i = 1; i <= n; i++) printf " %s |", s[qs[i]]
+                      print ""
+                    }' "target/jmh-$k-${v%%=*}-$r.csv"
                 done
               done
             done
@@ -226,8 +243,14 @@ jobs:
             echo
             echo "### Full search, $(nproc) threads"
             echo '```'
+            systems=(blast jvm)
+            if [ -d ../reference ]; then
+              systems+=(ref)
+              export REF_JAR="$(ls "$PWD"/../reference/target/blastp4j-*.jar | grep -v -e sources -e javadoc | head -1)"
+              echo "jvm: $(git rev-parse --short HEAD), ref: $(git -C ../reference rev-parse --short HEAD)"
+            fi
             QUERY=../data/queries.fasta DB=../data/blastdb/sprot THREADS="$(nproc)" ROUNDS="${{ inputs.rounds }}" OUT=target/compare \
-              ASYNC_PROFILER="$(ls "$PWD"/../async-profiler-*/lib/libasyncProfiler.so)" bin/compare-blastp.sh blast jvm
+              ASYNC_PROFILER="$(ls "$PWD"/../async-profiler-*/lib/libasyncProfiler.so)" bin/compare-blastp.sh "${systems[@]}"
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 

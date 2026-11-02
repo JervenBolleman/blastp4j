@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Compares BLAST+ blastp, blastp4j on the JVM and a native blastp4j on one search.
-# Usage: bin/compare-blastp.sh [all|blast|jvm|native]...   (default: all)
+# Usage: bin/compare-blastp.sh [all|blast|jvm|ref|native]...   (default: all, which is blast, jvm and native)
 #
 # 1. ROUNDS timing rounds (default 5), the chosen systems interleaved in each round (/usr/bin/time: wall, user, sys).
 # 2. One perf stat run per system (instructions, cycles, branches, branch misses), after all timing rounds; skipped
@@ -11,7 +11,8 @@
 # Settings (environment): QUERY, DB, THREADS (8), ROUNDS (5), OUT (target/compare), BLASTP (blastp on PATH),
 # JAVA_HOME or JAVA, NATIVE (the native executable, needed for native), ASYNC_PROFILER (libasyncProfiler.so; without
 # it the profile run is skipped). The JVM runs the jar built by "mvn package", with this machine's options from
-# bin/jvm.options (as bin/blastp4j).
+# bin/jvm.options (as bin/blastp4j). ref runs another build's jar, REF_JAR, with the same options: blastp4j at another
+# commit, to compare code on the same machine.
 set -e
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 QUERY="${QUERY:-$HERE/src/test/resources/queries/uniprot_human.fasta}"
@@ -27,9 +28,9 @@ SYSTEMS=()
 for a in "${@:-all}"; do
 	case "$a" in
 	all) SYSTEMS=(blast jvm native) ;;
-	blast | jvm | native) SYSTEMS+=("$a") ;;
+	blast | jvm | ref | native) SYSTEMS+=("$a") ;;
 	*)
-		echo "usage: $0 [all|blast|jvm|native]..." >&2
+		echo "usage: $0 [all|blast|jvm|ref|native]..." >&2
 		exit 1
 		;;
 	esac
@@ -39,6 +40,7 @@ JAR="$(ls "$HERE"/target/blastp4j-*.jar 2>/dev/null | grep -v -e sources -e java
 for s in "${SYSTEMS[@]}"; do
 	case $s in
 	jvm) [ -n "$JAR" ] || { echo "compare-blastp: no jar in $HERE/target; run 'mvn package' first" >&2; exit 1; } ;;
+	ref) [ -f "${REF_JAR:-}" ] || { echo "compare-blastp: set REF_JAR to the jar to compare with" >&2; exit 1; } ;;
 	native) [ -x "${NATIVE:-}" ] || { echo "compare-blastp: set NATIVE to the native blastp4j executable" >&2; exit 1; } ;;
 	esac
 done
@@ -49,6 +51,7 @@ command_of() {
 	case $1 in
 	blast) echo "$BLASTP" ;;
 	jvm) echo "$JAVA $("$HERE/bin/jvm-options") ${2:-} -jar $JAR" ;;
+	ref) echo "$JAVA $("$HERE/bin/jvm-options") ${2:-} -jar $REF_JAR" ;;
 	native) echo "$NATIVE" ;;
 	esac
 }
