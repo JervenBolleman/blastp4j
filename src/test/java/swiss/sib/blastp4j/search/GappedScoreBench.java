@@ -79,7 +79,8 @@ public class GappedScoreBench {
 
 	@Benchmark
 	public long gapped(Blackhole bh) {
-		GappedAligner aligner = new GappedAligner(Integer.getInteger("gapOpen", 11), Integer.getInteger("gapExtend", 1));
+		GappedAligner aligner = new GappedAligner(Integer.getInteger("gapOpen", 11),
+				Integer.getInteger("gapExtend", 1));
 		long count = 0;
 		byte[] subject = null;
 		for (SeedSearch.Seeds s : seeds) {

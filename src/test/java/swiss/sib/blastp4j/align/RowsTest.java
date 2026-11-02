@@ -12,11 +12,15 @@ import org.junit.jupiter.api.Test;
 /** The row loops with constant gap costs: a hidden copy of {@link GappedAligner.Rows}, one per pair of costs. */
 class RowsTest {
 	@Test
-	void aCopyPerPairOfGapCosts() {
-		GappedAligner.RowLoops a = GappedAligner.Rows.of(12, 1);
+	void aCopyPerPairOfGapCostsAndMatrix() {
+		GappedAligner.RowLoops a = GappedAligner.Rows.of(12, 1, null);
+		GappedAligner.RowLoops b = GappedAligner.Rows.of(12, 1, GappedAligner.Rows.BLOSUM62);
 		assertTrue(a.getClass().isHidden(), a.getClass().getName());
-		assertSame(a, GappedAligner.Rows.of(12, 1));
-		assertNotSame(a.getClass(), GappedAligner.Rows.of(11, 2).getClass());
+		assertTrue(b.getClass().isHidden(), b.getClass().getName());
+		assertSame(a, GappedAligner.Rows.of(12, 1, null));
+		assertSame(b, GappedAligner.Rows.of(12, 1, GappedAligner.Rows.BLOSUM62));
+		assertNotSame(a.getClass(), b.getClass());
+		assertNotSame(a.getClass(), GappedAligner.Rows.of(11, 2, null).getClass());
 	}
 
 	@Test
@@ -24,9 +28,20 @@ class RowsTest {
 		Random random = new Random(1);
 		for (int[] costs : new int[][] { { 11, 1 }, { 10, 1 }, { 9, 2 }, { 13, 3 } }) {
 			GappedAligner copy = new GappedAligner(costs[0], costs[1]);
-			GappedAligner fields = new GappedAligner(costs[0], costs[1],
-					new GappedAligner.Rows(costs[0] + costs[1], costs[1]));
+			GappedAligner.Rows plain = new GappedAligner.Rows(costs[0] + costs[1], costs[1]);
+			GappedAligner fields = new GappedAligner(costs[0], costs[1], plain, plain);
+			// Half the rounds with another matrix, as the composition-based stage sets: the copy without the matrix.
+			int[][] other = new int[28][28];
+			for (int x = 0; x < 28; x++) {
+				for (int y = 0; y < 28; y++) {
+					other[x][y] = swiss.sib.blastp4j.stats.Blosum62.score(x, y) + (x == y ? 1 : 0);
+				}
+			}
 			for (int round = 0; round < 50; round++) {
+				if (round == 25) {
+					copy.setMatrix(other);
+					fields.setMatrix(other);
+				}
 				// A random query, and a mutated copy of it as the subject, between sentinels as in the database.
 				int len = 60 + random.nextInt(200);
 				byte[] q = new byte[len];

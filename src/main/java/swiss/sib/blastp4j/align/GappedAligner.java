@@ -52,22 +52,29 @@ public final class GappedAligner {
 	public EditScript editScript;
 
 	private final EditScript left = new EditScript(), right = new EditScript();
-	/** The row loops, with this aligner's gap costs as constants where that can be done: {@link Rows#of}. */
-	private final RowLoops rowLoops;
+	/**
+	 * The row loop, with this aligner's gap costs as constants where that can be done ({@link Rows#of}): with BLOSUM62
+	 * as constants too, while the matrix is BLOSUM62, and with the matrix field once {@link #setMatrix} changed it.
+	 */
+	private final RowLoops rowLoops, rowLoopsBlosum62;
+	/** Whether {@link #matrix} is still BLOSUM62. */
+	private boolean blosum62 = true;
 
 	/**
 	 * @param gapOpen   BLAST's gap open cost (11): a gap of k letters costs {@code gapOpen + k * gapExtend}
 	 * @param gapExtend BLAST's gap extension cost (1)
 	 */
 	public GappedAligner(int gapOpen, int gapExtend) {
-		this(gapOpen, gapExtend, Rows.of(gapOpen + gapExtend, gapExtend));
+		this(gapOpen, gapExtend, Rows.of(gapOpen + gapExtend, gapExtend, null),
+				Rows.of(gapOpen + gapExtend, gapExtend, Rows.BLOSUM62));
 	}
 
-	/** With the given row loops (the tests compare the copy with constant gap costs with {@link Rows} itself). */
-	GappedAligner(int gapOpen, int gapExtend, RowLoops rowLoops) {
+	/** With the given row loops (the tests compare the copies with {@link Rows} itself). */
+	GappedAligner(int gapOpen, int gapExtend, RowLoops rowLoops, RowLoops rowLoopsBlosum62) {
 		this.gapOpen = gapOpen;
 		this.gapExtend = gapExtend;
 		this.rowLoops = rowLoops;
+		this.rowLoopsBlosum62 = rowLoopsBlosum62;
 		for (int a = 0; a < N; a++) {
 			for (int b = 0; b < N; b++) {
 				matrix[a * N + b] = Blosum62.score(a, b);
@@ -77,6 +84,7 @@ public final class GappedAligner {
 
 	/** Uses {@code m[query][subject]} (28 x 28) as the score matrix from now on. */
 	public void setMatrix(int[][] m) {
+		blosum62 = false;
 		for (int a = 0; a < N; a++) {
 			System.arraycopy(m[a], 0, matrix, a * N, N);
 		}
@@ -145,7 +153,7 @@ public final class GappedAligner {
 			dp[2 * i + 1] = score - goe;
 			score -= gapExtend;
 		}
-		return rowLoops.rows(this, a, aBase, m, n, reverse, xDrop, i);
+		return (blosum62 ? rowLoopsBlosum62 : rowLoops).rows(this, a, aBase, m, n, reverse, xDrop, i);
 	}
 
 
@@ -655,9 +663,24 @@ public final class GappedAligner {
 	 */
 	static final class Rows implements RowLoops {
 		/** One copy per pair of gap costs. */
-		private static final java.util.Map<Long, RowLoops> COPIES = new java.util.concurrent.ConcurrentHashMap<>();
+		private static final java.util.Map<Key, RowLoops> COPIES = new java.util.concurrent.ConcurrentHashMap<>();
 		/** A native image cannot define classes at run time: there the fields stay. */
 		private static final boolean NATIVE_IMAGE = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
+
+		/** BLOSUM62 padded to 32 columns: row {@code a << 5}, column {@code b}. */
+		static final int[] BLOSUM62 = new int[32 * 32];
+		static {
+			for (int a = 0; a < N; a++) {
+				for (int b = 0; b < N; b++) {
+					BLOSUM62[a << 5 | b] = Blosum62.score(a, b);
+				}
+			}
+		}
+		/**
+		 * The score matrix padded to 32 columns, as a constant of a copy ({@link #of} with a matrix); null here, where
+		 * the loop reads the aligner's matrix.
+		 */
+		private static final int[] MATRIX = null;
 
 		private final int goe, ext;
 
@@ -666,22 +689,41 @@ public final class GappedAligner {
 			this.ext = ext;
 		}
 
-		/** The row loops for these gap costs: a copy with them as constants, or this class where that fails. */
-		static RowLoops of(int goe, int ext) {
+		/**
+		 * The row loop for these gap costs, and for {@code matrix} (padded as {@link #BLOSUM62}) unless it is null: a
+		 * copy with them as constants, or this class where that fails.
+		 */
+		static RowLoops of(int goe, int ext, int[] matrix) {
 			if (NATIVE_IMAGE) {
 				return new Rows(goe, ext);
 			}
-			return COPIES.computeIfAbsent(((long) goe << 32) | (ext & 0xffffffffL), key -> {
+			return COPIES.computeIfAbsent(new Key(goe, ext, matrix), key -> {
 				try {
-					return specialize(goe, ext);
+					return specialize(goe, ext, matrix);
 				} catch (Throwable e) {
 					return new Rows(goe, ext);
 				}
 			});
 		}
 
-		/** This class with each read of {@code goe} and {@code ext} replaced by the constant. */
-		private static RowLoops specialize(int goe, int ext) throws Throwable {
+		/** A copy's constants: the gap costs and the matrix (by identity; only {@link #BLOSUM62} for now). */
+		private record Key(int goe, int ext, int[] matrix) {
+			@Override
+			public boolean equals(Object o) {
+				return o instanceof Key k && k.goe == goe && k.ext == ext && k.matrix == matrix;
+			}
+
+			@Override
+			public int hashCode() {
+				return 31 * (31 * goe + ext) + System.identityHashCode(matrix);
+			}
+		}
+
+		/**
+		 * This class with each read of {@code goe} and {@code ext} replaced by the constant, and with a matrix each
+		 * read of {@code MATRIX} by the hidden class's class data, a dynamic constant.
+		 */
+		private static RowLoops specialize(int goe, int ext, int[] matrix) throws Throwable {
 			final byte[] bytes;
 			try (java.io.InputStream in = Rows.class.getResourceAsStream("GappedAligner$Rows.class")) {
 				bytes = in.readAllBytes();
@@ -695,6 +737,12 @@ public final class GappedAligner {
 						&& (f.name().equalsString("goe") || f.name().equalsString("ext"))) {
 					code.pop(); // the receiver
 					code.loadConstant(f.name().equalsString("goe") ? goe : ext);
+				} else if (matrix != null && element instanceof java.lang.classfile.instruction.FieldInstruction f
+						&& f.opcode() == java.lang.classfile.Opcode.GETSTATIC && f.owner().asSymbol().equals(self)
+						&& f.name().equalsString("MATRIX")) {
+					code.loadConstant(java.lang.constant.DynamicConstantDesc.ofNamed(
+							java.lang.constant.ConstantDescs.BSM_CLASS_DATA, java.lang.constant.ConstantDescs.DEFAULT_NAME,
+							java.lang.constant.ConstantDescs.CD_int.arrayType()));
 				} else {
 					code.with(element);
 				}
@@ -704,20 +752,20 @@ public final class GappedAligner {
 					.dropping(e -> e instanceof java.lang.classfile.attribute.NestHostAttribute
 							|| e instanceof java.lang.classfile.attribute.InnerClassesAttribute)
 					.andThen(java.lang.classfile.ClassTransform.transformingMethodBodies(constants)));
-			final java.lang.invoke.MethodHandles.Lookup lookup = java.lang.invoke.MethodHandles.lookup()
-					.defineHiddenClass(copy, true, java.lang.invoke.MethodHandles.Lookup.ClassOption.NESTMATE);
+			final java.lang.invoke.MethodHandles.Lookup lookup = matrix == null
+					? java.lang.invoke.MethodHandles.lookup().defineHiddenClass(copy, true,
+							java.lang.invoke.MethodHandles.Lookup.ClassOption.NESTMATE)
+					: java.lang.invoke.MethodHandles.lookup().defineHiddenClassWithClassData(copy, matrix.clone(), true,
+							java.lang.invoke.MethodHandles.Lookup.ClassOption.NESTMATE);
 			return (RowLoops) lookup.findConstructor(lookup.lookupClass(),
 					java.lang.invoke.MethodType.methodType(void.class, int.class, int.class)).invoke(goe, ext);
 		}
 
-		/**
-		 * {@link GappedAligner#semiGapped}'s rows of A, after the initial row: the gap costs as arguments ({@code goe} = gapOpen + gapExtend, {@code ext} =
-		 * gapExtend), and the first row's band end {@code bSize}.
-		 */
+		/** {@link GappedAligner#semiGapped}'s rows of A after the initial row, whose band ends at {@code bSize}. */
 		public int rows(GappedAligner g, byte[] a, int aBase, int m, int n, boolean reverse, int xDrop, int bSize) {
 			final int goe = this.goe, ext = this.ext;
 			final int[] dp = g.dp;
-			final int[] mat = g.matrix;
+			final int[] mat = g.matrix, fixed = MATRIX;
 			final byte[] bs = g.bLetters;
 			// The scores of A's current letter. Allocated here with a constant length, so that C2 knows an index masked
 			// with 31 is in bounds and does not check it every cell.
@@ -727,12 +775,19 @@ public final class GappedAligner {
 			// bestScore - xDrop, kept up to date, so that the inner loop does not need xDrop.
 			int floor = -xDrop;
 			for (int ai = 1; ai <= m; ai++) {
-				System.arraycopy(mat, letterA(a, aBase, m, ai, reverse) * N, rowScores, 0, N);
+				// With a constant matrix (a copy's), its row is read in place: with both indices masked C2 knows the
+				// index is within its 1024 entries. Otherwise the row is copied, as above. C2 keeps one of the two.
+				final int letter = letterA(a, aBase, m, ai, reverse);
+				final int row = (letter & 31) << 5;
+				if (fixed == null) {
+					System.arraycopy(mat, letter * N, rowScores, 0, N);
+				}
 				score = MININT;
 				int gapRow = MININT, last = first;
 				for (int bi = first; bi < bSize; bi++) {
 					int gapCol = dp[2 * bi + 1];
-					int next = dp[2 * bi] + rowScores[bs[bi] & 31];
+					final int b = bs[bi] & 31;
+					int next = dp[2 * bi] + (fixed != null ? fixed[row | b] : rowScores[b]);
 					score = Math.max(score, Math.max(gapCol, gapRow));
 					if (score < floor) {
 						if (bi == first) {
