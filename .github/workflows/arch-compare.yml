@@ -30,7 +30,7 @@ permissions:
 
 env:
   BLAST_VERSION: 2.17.0
-  JDK_TAG: jdk-25+36
+  JAVA_VERSION: "27"
   ASYNC_PROFILER_VERSION: "4.5"
   PROTEOME_URL: https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/Eukaryota/UP000000226/UP000000226_3885.fasta.gz
 
@@ -59,7 +59,7 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: "25"
+          java-version: ${{ env.JAVA_VERSION }}
           cache: maven
           cache-dependency-path: |
             blastp4j/pom.xml
@@ -86,20 +86,26 @@ jobs:
             echo '```'
           } >>"$GITHUB_STEP_SUMMARY"
 
-      # hsdis links the system's libbfd, so the cache is per runner image.
-      - name: Runner image
+      # hsdis links the system's libbfd, so the cache is per runner image. It is built from the sources of the JDK that
+      # setup-java installed: the jdk<feature>u tag of its runtime version (27.0.1.0.2+1 -> jdk-27.0.1.0.2+1).
+      - name: Runner image and JDK tag
         id: image
-        run: echo "version=$ImageOS-$ImageVersion" >>"$GITHUB_OUTPUT"
+        run: |
+          echo "version=$ImageOS-$ImageVersion" >>"$GITHUB_OUTPUT"
+          runtime=$(sed -n 's/^JAVA_RUNTIME_VERSION="\(.*\)"$/\1/p' "$JAVA_HOME/release")
+          echo "jdk-tag=jdk-${runtime%%-*}" >>"$GITHUB_OUTPUT"
+          echo "JDK $runtime, hsdis from jdk${JAVA_VERSION}u tag jdk-${runtime%%-*}"
       - name: Cache hsdis
         id: hsdis
         uses: actions/cache@v6
         with:
           path: hsdis
-          key: hsdis-binutils-${{ runner.arch }}-${{ env.JDK_TAG }}-${{ steps.image.outputs.version }}
+          key: hsdis-binutils-${{ runner.arch }}-${{ steps.image.outputs.jdk-tag }}-${{ steps.image.outputs.version }}
       - name: Build hsdis
         if: steps.hsdis.outputs.cache-hit != 'true'
         run: |
-          git clone -q --depth 1 --branch "$JDK_TAG" https://github.com/openjdk/jdk.git jdk-src
+          git clone -q --depth 1 --branch "${{ steps.image.outputs.jdk-tag }}" \
+            "https://github.com/openjdk/jdk${JAVA_VERSION}u.git" jdk-src
           cd jdk-src
           bash configure --with-boot-jdk="$JAVA_HOME" --with-hsdis=binutils --with-binutils=system >/dev/null
           make build-hsdis
