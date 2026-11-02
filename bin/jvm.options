@@ -16,3 +16,5 @@
 -XX:CompileCommand=inline,swiss.sib.blastp4j.align.GappedAligner::alignExRows
 # The word finder uses the Vector API, an incubator module, which the JVM then reports with a warning on stderr.
 --add-modules=jdk.incubator.vector
+# No loop unrolling (experiment).
+-XX:LoopUnrollLimit=0
