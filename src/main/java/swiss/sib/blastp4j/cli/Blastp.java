@@ -21,6 +21,7 @@ import swiss.sib.blastp4j.db.FastaReader;
 import swiss.sib.blastp4j.db.SequenceDatabase;
 import swiss.sib.blastp4j.output.TabularFormat;
 import swiss.sib.blastp4j.search.BlastpSearch;
+import swiss.sib.blastp4j.search.QueryBatches;
 import swiss.sib.blastp4j.stats.ScoringParameters;
 import swiss.sib.blastp4j.stats.Statistics;
 
@@ -224,13 +225,21 @@ public final class Blastp {
 		try (db; ExecutorService pool = Executors.newFixedThreadPool(o.threads());
 				Writer out = o.out() != null ? Files.newBufferedWriter(o.out(), StandardCharsets.US_ASCII)
 						: new BufferedWriter(new OutputStreamWriter(stdout, StandardCharsets.US_ASCII))) {
+			int[] lengths = new int[queries.size()];
+			for (int q = 0; q < lengths.length; q++) {
+				lengths[q] = queries.length(q);
+			}
+			QueryBatches batches = QueryBatches.blastp(lengths);
 			for (int q = 0; q < queries.size(); q++) {
 				byte[] query = queries.sequence(q);
 				List<BlastpSearch.Hit> hits;
 				try {
-					hits = search.search(query, pool, o.threads());
+					BlastpSearch.Result result = search.search(query, pool, o.threads(), batches.next());
+					batches.done(result.filledToCutoff());
+					hits = result.hits();
 				} catch (IllegalArgumentException e) {
 					// As blastp, skip a query whose composition gives no Karlin-Altschul parameters.
+					batches.done(false);
 					stderr.println("blastp4j: warning: query " + queries.id(q) + " skipped: " + e.getMessage());
 					continue;
 				}

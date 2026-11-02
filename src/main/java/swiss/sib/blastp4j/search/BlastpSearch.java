@@ -41,6 +41,13 @@ public final class BlastpSearch {
 	public record Hit(int subject, List<Hsp> hsps, double bestEvalue) {
 	}
 
+	/**
+	 * The hits of a query, and whether the composition-based stage's heap ended filled to its cutoff
+	 * ({@code BlastCompo_HeapFilledToCutoff}; always false without composition-based statistics).
+	 */
+	public record Result(List<Hit> hits, boolean filledToCutoff) {
+	}
+
 	/** E-value under which composition-based statistics keeps all subjects ({@code PSI_INCLUSION_ETHRESH}). */
 	static final double INCLUSION_ETHRESH = 0.002;
 	/** Largest E-value cutoff for which the restricted alignment may be used. */
@@ -176,8 +183,23 @@ public final class BlastpSearch {
 		return Double.compare(e1, e2) < 0 ? -1 : e1 > e2 ? 1 : 0;
 	}
 
-	/** Searches a query (NCBIstdaa codes) with {@code tasks} tasks of the pool. */
+	/**
+	 * Searches a query (NCBIstdaa codes) with {@code tasks} tasks of the pool, as BLAST does a query that is alone in
+	 * its batch.
+	 */
 	public List<Hit> search(byte[] query, ExecutorService pool, int tasks) throws InterruptedException {
+		return search(query, pool, tasks, true).hits();
+	}
+
+	/**
+	 * Searches a query (NCBIstdaa codes) with {@code tasks} tasks of the pool.
+	 *
+	 * @param earlyTermination whether the composition-based stage may skip subjects once its heap is filled to the
+	 *                         cutoff; BLAST does so only when the heaps of all queries in the batch are (see
+	 *                         {@link QueryBatches})
+	 */
+	public Result search(byte[] query, ExecutorService pool, int tasks, boolean earlyTermination)
+			throws InterruptedException {
 		SeedParameters seeds = seedParameters(query);
 		LookupTable table = LookupTable.of(query, seeds.threshold());
 		int cutoff = cutoff(query);
@@ -196,7 +218,7 @@ public final class BlastpSearch {
 		List<Hit> kept = prelim.subList(0,
 				Math.min(prelimHitlistSize, prelim.size()));
 		if (compositionBased) {
-			return compositionBasedStage(query, kept, pool, tasks);
+			return compositionBasedStage(query, kept, pool, tasks, earlyTermination);
 		}
 
 		// Traceback stage.
@@ -221,21 +243,29 @@ public final class BlastpSearch {
 		for (List<Hit> part : runAll(pool, tracebackTasks)) {
 			hits.addAll(part);
 		}
-		return finalHitList(hits);
+		return new Result(finalHitList(hits), false);
 	}
 
 	/**
 	 * The traceback stage with composition-based statistics ({@code Blast_RedoAlignmentCore_MT}). BLAST reads the
-	 * preliminary subjects in increasing order and skips a subject when its result heap is already full of subjects
-	 * below the inclusion E-value and the subject's preliminary E-value is more than 5 times that. The redoing is done
-	 * in parallel here; the skipping and the heap are then replayed in BLAST's order, which gives the same result
-	 * because redoing one subject does not depend on another.
+	 * preliminary subjects best first (the HSP stream sorts on read: {@code Blast_HSPResultsReverseSort}) and skips a
+	 * subject when its result heap is already full of subjects below the inclusion E-value and the subject's
+	 * preliminary E-value is more than 5 times that. The redoing is done in parallel here; the skipping and the heap
+	 * are then replayed in BLAST's order, which gives the same result because redoing one subject does not depend on
+	 * another.
+	 * <p>
+	 * This is BLAST's result with one thread. With more threads BLAST gives each thread its own heap and skipping over
+	 * a static share of the subjects (of all queries in the batch), so its output can depend on the number of threads
+	 * when a query has more than {@code max_target_seqs} significant subjects.
+	 *
+	 * @param earlyTermination whether subjects may be skipped at all (see {@link #search(byte[], ExecutorService, int,
+	 *                         boolean)})
 	 */
-	private List<Hit> compositionBasedStage(byte[] query, List<Hit> prelim, ExecutorService pool, int tasks)
-			throws InterruptedException {
+	private Result compositionBasedStage(byte[] query, List<Hit> prelim, ExecutorService pool, int tasks,
+			boolean earlyTermination) throws InterruptedException {
 		CompoRedo.Query q = new CompoRedo.Query(query);
 		List<Hit> ordered = new ArrayList<>(prelim);
-		ordered.sort(Comparator.comparingInt(Hit::subject));
+		ordered.sort(BY_EVALUE);
 		CompoRedo.Result[] results = new CompoRedo.Result[ordered.size()];
 		AtomicInteger next = new AtomicInteger();
 		List<Callable<Void>> work = new ArrayList<>();
@@ -264,7 +294,7 @@ public final class BlastpSearch {
 		CompoRedo sequential = null;
 		for (int i = 0; i < ordered.size(); i++) {
 			Hit h = ordered.get(i);
-			if (heap.earlyTermination(h.bestEvalue())) {
+			if (earlyTermination && heap.earlyTermination(h.bestEvalue())) {
 				continue;
 			}
 			CompoRedo.Result r = results[i];
@@ -287,11 +317,12 @@ public final class BlastpSearch {
 						h.subject());
 			}
 		}
+		boolean filled = heap.filledToCutoff();
 		List<Hit> hits = new ArrayList<>();
 		for (Hit h; (h = heap.pop()) != null;) {
 			hits.add(h);
 		}
-		return finalHitList(hits);
+		return new Result(finalHitList(hits), filled);
 	}
 
 	private static <T> List<T> runAll(ExecutorService pool, List<Callable<T>> tasks) throws InterruptedException {
