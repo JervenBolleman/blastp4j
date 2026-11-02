@@ -4,7 +4,8 @@
 # Per architecture:
 # 1. Spills: the stack accesses in Blast_SemiGappedAlign and GappedAligner.semiGapped, static and weighted by
 #    cpu-clock samples (.github/scripts/compare-spills.sh); C2's code is printed with hsdis.
-# 2. GappedScoreBench (JMH) with the options in bin/jvm.options, and compressed object references on and off.
+# 2. GappedScoreBench (JMH) with the options in bin/jvm.options plus each variant's own (the VARIANTS input), the
+#    variants interleaved over BENCH_ROUNDS rounds.
 # 3. A full search, BLAST+ and blastp4j interleaved (bin/compare-blastp.sh), with an async-profiler flame graph.
 # The database is the Phaseolus vulgaris reference proteome (UP000000226); the queries are its first QUERIES proteins.
 #
@@ -24,6 +25,12 @@ on:
       rounds:
         description: Timing rounds of the full search
         default: "3"
+      variants:
+        description: "GappedScoreBench variants, label=JVM options after bin/jvm.options, separated by ;"
+        default: "launcher=;compressed-oops=-XX:+UseCompressedOops"
+      bench_rounds:
+        description: GappedScoreBench rounds, the variants interleaved in each
+        default: "1"
 
 permissions:
   contents: read
@@ -153,24 +160,38 @@ jobs:
 
       - name: GappedScoreBench
         working-directory: blastp4j
+        env:
+          VARIANTS: ${{ inputs.variants }}
+          BENCH_ROUNDS: ${{ inputs.bench_rounds }}
         run: |
-          for oops in +UseCompressedOops -UseCompressedOops; do
-            java -cp "target/test-classes:target/classes:$(cat target/cp.txt)" \
-              org.openjdk.jmh.Main GappedScoreBench.gapped -f 1 -wi 5 -i 20 \
-              -jvmArgsAppend "$(grep -v '^#' bin/jvm.options | tr '\n' ' ')-Dblastp4j.sprot=$PWD/../data -XX:$oops" \
-              -rf text -rff "target/jmh-$oops.txt" >"target/jmh-$oops.log" 2>&1
+          base="$(grep -v '^#' bin/jvm.options | tr '\n' ' ')"
+          IFS=';' read -ra variants <<<"$VARIANTS"
+          for r in $(seq 1 "$BENCH_ROUNDS"); do
+            for v in "${variants[@]}"; do
+              label="${v%%=*}"
+              java -cp "target/test-classes:target/classes:$(cat target/cp.txt)" \
+                org.openjdk.jmh.Main GappedScoreBench.gapped -f 1 -wi 5 -i 20 \
+                -jvmArgsAppend "$base-Dblastp4j.sprot=$PWD/../data ${v#*=}" \
+                -rf csv -rff "target/jmh-$label-$r.csv" >"target/jmh-$label-$r.log" 2>&1
+            done
           done
           {
             echo
             echo "### GappedScoreBench (ms per pass over the seeds, one thread)"
-            for oops in +UseCompressedOops -UseCompressedOops; do
-              echo
-              echo "-XX:$oops"
-              echo '```'
-              cat "target/jmh-$oops.txt"
-              echo '```'
+            echo
+            echo "bin/jvm.options: \`$base\`"
+            echo
+            echo "| variant | options | round | CDK1_HUMAN | BRCA1_HUMAN |"
+            echo "|---|---|--:|--:|--:|"
+            for r in $(seq 1 "$BENCH_ROUNDS"); do
+              for v in "${variants[@]}"; do
+                label="${v%%=*}"
+                awk -F, -v l="$label" -v o="${v#*=}" -v r="$r" 'NR > 1 { gsub(/["\r]/, ""); s[$8] = sprintf("%.1f ± %.1f", $5, $6) }
+                  END { printf "| %s | `%s` | %s | %s | %s |\n", l, o, r, s["CDK1_HUMAN"], s["BRCA1_HUMAN"] }' \
+                  "target/jmh-$label-$r.csv"
+              done
             done
-          } >>"$GITHUB_STEP_SUMMARY"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Full search
         working-directory: blastp4j
