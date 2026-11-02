@@ -92,6 +92,9 @@ commit.
   `-window_size 40` and `-seg no` are accepted with these values only. Anything else is rejected with a message.
 * Use a HotSpot JDK. `bin/blastp4j` uses `$JAVA_HOME` and passes this machine's options from `bin/jvm.options`, then
   `$BLASTP4J_OPTS`, to the JVM.
+* The word finder uses the Vector API, still the incubator module `jdk.incubator.vector`: `bin/jvm.options` adds it,
+  and the JVM then prints a warning about incubator modules on stderr. Other ways of running blastp4j need
+  `--add-modules jdk.incubator.vector` too.
 
 Checked against blastp:
 
@@ -450,9 +453,9 @@ The baselines and their benchmarks need Swiss-Prot in `~/data/uniprot` (see `ref
     mvn test-compile dependency:build-classpath -Dmdep.outputFile=target/cp.txt
     CP=target/classes:target/test-classes:$(cat target/cp.txt)
     java --add-modules jdk.incubator.vector -Xmx3g -cp $CP swiss.sib.blastp4j.search.ExhaustiveBaseline 8
-    java -Xmx3g -cp $CP swiss.sib.blastp4j.search.SeedingBaseline 8
-    java -Xmx3g -cp $CP swiss.sib.blastp4j.search.GappedBaseline 8 cbs0
-    java -Xmx3g -cp $CP swiss.sib.blastp4j.search.GappedBaseline 8 cbs2
+    java --add-modules jdk.incubator.vector -Xmx3g -cp $CP swiss.sib.blastp4j.search.SeedingBaseline 8
+    java --add-modules jdk.incubator.vector -Xmx3g -cp $CP swiss.sib.blastp4j.search.GappedBaseline 8 cbs0
+    java --add-modules jdk.incubator.vector -Xmx3g -cp $CP swiss.sib.blastp4j.search.GappedBaseline 8 cbs2
     java -cp $CP org.openjdk.jmh.Main 'ExhaustiveSearchBench|SeedSearchBench|BlastpSearchBench'
 
 `SeedingBaseline` also counts the Smith-Waterman hits without a seed when `target/exhaustive.tsv` from

@@ -39,7 +39,7 @@ import swiss.sib.blastp4j.stats.Statistics;
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
 @Warmup(iterations = 2)
 @Measurement(iterations = 5)
-@Fork(value = 1, jvmArgs = "-Xmx2g")
+@Fork(value = 1, jvmArgs = { "-Xmx2g", "--add-modules", "jdk.incubator.vector" })
 @State(Scope.Benchmark)
 public class CompoRedoBench {
 	@Param({ "CDK1_HUMAN", "BRCA1_HUMAN" })

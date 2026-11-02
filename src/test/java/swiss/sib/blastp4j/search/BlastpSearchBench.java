@@ -36,7 +36,7 @@ import swiss.sib.blastp4j.stats.Statistics;
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
 @Warmup(iterations = 3)
 @Measurement(iterations = 10)
-@Fork(value = 1, jvmArgs = "-Xmx2g")
+@Fork(value = 1, jvmArgs = { "-Xmx2g", "--add-modules", "jdk.incubator.vector" })
 @State(Scope.Benchmark)
 public class BlastpSearchBench {
 	@Param({ "HBA_HUMAN", "CDK1_HUMAN", "BRCA1_HUMAN" })
