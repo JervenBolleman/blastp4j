@@ -6,7 +6,6 @@ import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.IntVector;
 import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorShape;
-import jdk.incubator.vector.VectorShuffle;
 import jdk.incubator.vector.VectorSpecies;
 import swiss.sib.blastp4j.stats.Blosum62;
 
@@ -38,14 +37,6 @@ public final class WordFinder {
 			for (int b = 0; b < Blosum62.SIZE; b++) {
 				PADDED[a * 32 + b] = matrix[a * Blosum62.SIZE + b];
 			}
-		}
-	}
-
-	/** {@link #PADDED} as ints, for the extensions' gathers. */
-	private static final int[] PADDED_INTS = new int[32 * 32];
-	static {
-		for (int i = 0; i < PADDED.length; i++) {
-			PADDED_INTS[i] = PADDED[i];
 		}
 	}
 
@@ -101,10 +92,6 @@ public final class WordFinder {
 	 * EGFR 5.7% and BRCA1 4.0% faster, FBF1 (0.71) the same.
 	 */
 	static final double VECTOR_MAX_COVERAGE = LANES >= 8 ? 0.85 : 0.75;
-	/** Reverses the lanes: the left extension reads its cells backwards. */
-	private static final VectorShuffle<Integer> REVERSE = VectorShuffle.iota(INTS, LANES - 1, -1, true);
-	/** The matrix indices of the cells of an extension block, for the gather. */
-	private final int[] cellIndex = new int[LANES];
 	/** Whether {@link #findBlocks} is for this query: its table has a coverage below {@link #VECTOR_MAX_COVERAGE}. */
 	private final boolean vectorScan;
 
@@ -313,65 +300,12 @@ public final class WordFinder {
 
 	private int extensionLength;
 
-	/**
-	 * The scores of {@link #LANES} cells of an extension, summed from {@code score} on: lane j holds the score after
-	 * cell j. The cells are {@code rowOfQuery[q + j]} against {@code residues[s + j]}, in reverse lane order when
-	 * {@code reverse}.
-	 */
-	private IntVector blockScores(byte[] residues, int s, int q, boolean reverse, int score) {
-		IntVector rows = IntVector.fromArray(INTS, rowOfQuery, q);
-		IntVector letters = (IntVector) ByteVector.fromArray(BYTES, residues, s)
-				.convertShape(VectorOperators.B2I, INTS, 0);
-		IntVector index = rows.add(letters).and(1023);
-		if (reverse) {
-			index = index.rearrange(REVERSE);
-		}
-		index.intoArray(cellIndex, 0);
-		IntVector sum = IntVector.fromArray(INTS, PADDED_INTS, 0, cellIndex, 0);
-		for (int shift = 1; shift < LANES; shift <<= 1) {
-			sum = sum.add(sum.unslice(shift));
-		}
-		return sum.add(score);
-	}
-
-	/**
-	 * The running maximum of the block's scores, from {@code maxScore}; zeros are shifted in, which is no change as
-	 * an extension's maximum is at least 0.
-	 */
-	private static IntVector runningMax(IntVector scores, int maxScore) {
-		IntVector top = scores;
-		for (int shift = 1; shift < LANES; shift <<= 1) {
-			top = top.max(top.unslice(shift));
-		}
-		return top.max(maxScore);
-	}
-
 	/** {@code s_BlastAaExtendLeft} with a start score of 0. */
 	private int extendLeft(byte[] residues, int start, int sOff, int qOff) {
 		final int n = Math.min(sOff, qOff);
 		int best = n + 1, score = 0, maxScore = 0, floor = -xDrop;
 		final int sBase = start + sOff - n, qBase = qOff - n;
-		int i = n;
-		// Blocks of LANES cells, i down to i - LANES + 1, while the byte loads stay within the array.
-		for (; i - LANES + 1 >= 0 && sBase + i - LANES + 1 + BYTES.length() <= residues.length; i -= LANES) {
-			final IntVector scores = blockScores(residues, sBase + i - LANES + 1, qBase + i - LANES + 1, true, score);
-			final IntVector top = runningMax(scores, maxScore);
-			final int stop = scores.compare(VectorOperators.LE, top.sub(xDrop)).firstTrue();
-			final int last = Math.min(stop, LANES - 1);
-			final int newMax = top.lane(last);
-			if (newMax > maxScore) {
-				// The first cell that reached it: BLAST keeps the first of equal maxima.
-				best = i - scores.compare(VectorOperators.EQ, newMax).firstTrue();
-				maxScore = newMax;
-				floor = maxScore - xDrop;
-			}
-			if (stop < LANES) {
-				extensionLength = n - best + 1;
-				return maxScore;
-			}
-			score = scores.lane(LANES - 1);
-		}
-		for (; i >= 0; i--) {
+		for (int i = n; i >= 0; i--) {
 			score += PADDED[(rowOfQuery[qBase + i] + residues[sBase + i]) & 1023];
 			if (score > maxScore) {
 				maxScore = score;
@@ -389,28 +323,9 @@ public final class WordFinder {
 	/** {@code s_BlastAaExtendRight}, continuing from {@code maxScore}. */
 	private int extendRight(byte[] residues, int start, int length, int sOff, int qOff, int maxScore) {
 		final int n = Math.min(length - sOff, query.length - qOff);
-		int best = -1, score = maxScore, i = 0;
+		int best = -1, score = maxScore, i;
 		int floor = Math.max(0, maxScore - xDrop);
-		// Blocks of LANES cells while the byte loads stay within the array.
-		for (; i + LANES <= n && start + sOff + i + BYTES.length() <= residues.length; i += LANES) {
-			final IntVector scores = blockScores(residues, start + sOff + i, qOff + i, false, score);
-			final IntVector top = runningMax(scores, maxScore);
-			final int stop = scores.compare(VectorOperators.LE, top.sub(xDrop).max(0)).firstTrue();
-			final int last = Math.min(stop, LANES - 1);
-			final int newMax = top.lane(last);
-			if (newMax > maxScore) {
-				best = i + scores.compare(VectorOperators.EQ, newMax).firstTrue();
-				maxScore = newMax;
-				floor = Math.max(0, maxScore - xDrop);
-			}
-			if (stop < LANES) {
-				extensionLength = best + 1;
-				lastSubjectOffset = sOff + i + stop;
-				return maxScore;
-			}
-			score = scores.lane(LANES - 1);
-		}
-		for (; i < n; i++) {
+		for (i = 0; i < n; i++) {
 			score += PADDED[(rowOfQuery[qOff + i] + residues[start + sOff + i]) & 1023];
 			if (score > maxScore) {
 				maxScore = score;
