@@ -220,13 +220,13 @@ public final class TabularFormat {
 			case BITSCORE -> bitScore(statistics.bitScore(hsp.score));
 			case SCORE -> Integer.toString(hsp.score);
 			case LENGTH -> Integer.toString(a.length);
-			case PIDENT -> fixed(100.0 * a.identities / a.length, 3);
+			case PIDENT -> fixed((double) a.identities / a.length * 100, 3);
 			case NIDENT -> Integer.toString(a.identities);
 			case MISMATCH -> Integer.toString(a.mismatches);
 			case POSITIVE -> Integer.toString(a.positives);
 			case GAPOPEN -> Integer.toString(a.gapOpens);
 			case GAPS -> Integer.toString(a.gaps);
-			case PPOS -> fixed(100.0 * a.positives / a.length, 2);
+			case PPOS -> fixed((double) a.positives / a.length * 100, 2);
 			case QCOVHSP -> Integer.toString(coverage(hsp.queryEnd - hsp.queryStart, query.length));
 			case BTOP -> a.btop;
 			});
