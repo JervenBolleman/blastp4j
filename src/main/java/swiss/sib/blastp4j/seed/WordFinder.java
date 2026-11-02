@@ -1,6 +1,21 @@
 package swiss.sib.blastp4j.seed;
 
+import java.io.InputStream;
+import java.lang.classfile.ClassFile;
+import java.lang.classfile.ClassModel;
+import java.lang.classfile.ClassTransform;
+import java.lang.classfile.CodeTransform;
+import java.lang.classfile.Opcode;
+import java.lang.classfile.attribute.InnerClassesAttribute;
+import java.lang.classfile.attribute.NestMembersAttribute;
+import java.lang.classfile.instruction.FieldInstruction;
+import java.lang.constant.ClassDesc;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.IntVector;
@@ -25,7 +40,14 @@ import swiss.sib.blastp4j.stats.Blosum62;
  * <p>
  * Not thread safe: use one per thread.
  */
-public final class WordFinder {
+public final class WordFinder implements WordScan {
+	/** The copies by their constants. */
+	private static final Map<Key, MethodHandle> COPIES = new ConcurrentHashMap<>();
+
+	/** A copy's constants. */
+	private record Key(int window, int xDrop, int cutoff, int diagMask) {
+	}
+
 	/**
 	 * BLOSUM62 with 32 columns per row, so that a row starts at a multiple of 32. Static, so that C2 knows its length and
 	 * need not check the lookups against it.
@@ -101,10 +123,7 @@ public final class WordFinder {
 		this.window = p.window();
 		this.xDrop = p.xDrop();
 		this.cutoff = p.cutoff();
-		int length = 1;
-		while (length < query.length + window) {
-			length <<= 1;
-		}
+		final int length = diagonals(query.length, window);
 		rowOfQuery = new int[query.length];
 		for (int q = 0; q < query.length; q++) {
 			rowOfQuery[q] = query[q] << 5;
@@ -115,11 +134,74 @@ public final class WordFinder {
 		vectorScan = table.coverage() < VECTOR_MAX_COVERAGE;
 	}
 
+	/** The diagonal array's length for a query: a power of two of at least the query length plus the window. */
+	private static int diagonals(int queryLength, int window) {
+		int length = 1;
+		while (length < queryLength + window) {
+			length <<= 1;
+		}
+		return length;
+	}
+
+	/**
+	 * A word finder for this query whose window, X-drop, cutoff and diagonal mask are constants: a copy of this class,
+	 * made with the class-file API and defined as a hidden class, with each read of those fields replaced by its
+	 * value. One copy per combination of values, so queries that share them share a copy. In a native image, which
+	 * cannot define classes at run time, or where the copy fails, a {@link WordFinder}.
+	 */
+	public static WordScan of(byte[] query, LookupTable table, SeedParameters p) {
+		if (!NATIVE_IMAGE) {
+			final Key key = new Key(p.window(), p.xDrop(), p.cutoff(), diagonals(query.length, p.window()) - 1);
+			try {
+				return (WordScan) COPIES.computeIfAbsent(key, k -> {
+					try {
+						return specialize(k);
+					} catch (Throwable e) {
+						throw new IllegalStateException(e);
+					}
+				}).invoke(query, table, p);
+			} catch (Throwable e) {
+				// Fall back to the fields.
+			}
+		}
+		return new WordFinder(query, table, p);
+	}
+
+	/** This class with each read of the fields in {@code key} replaced by the value; its constructor. */
+	private static MethodHandle specialize(Key key) throws Throwable {
+		final byte[] bytes;
+		try (InputStream in = WordFinder.class.getResourceAsStream("WordFinder.class")) {
+			bytes = in.readAllBytes();
+		}
+		final ClassFile cf = ClassFile.of();
+		final ClassModel model = cf.parse(bytes);
+		final ClassDesc self = model.thisClass().asSymbol();
+		final Map<String, Integer> constants = Map.of("window", key.window(), "xDrop", key.xDrop(), "cutoff",
+				key.cutoff(), "diagMask", key.diagMask());
+		final CodeTransform replace = (code, element) -> {
+			if (element instanceof FieldInstruction f && f.opcode() == Opcode.GETFIELD
+					&& f.owner().asSymbol().equals(self) && constants.containsKey(f.name().stringValue())) {
+				code.pop(); // the receiver
+				code.loadConstant(constants.get(f.name().stringValue()));
+			} else {
+				code.with(element);
+			}
+		};
+		// A hidden class takes its nest from the lookup, not from these attributes.
+		final byte[] copy = cf.transformClass(model,
+				ClassTransform.dropping(e -> e instanceof NestMembersAttribute || e instanceof InnerClassesAttribute)
+						.andThen(ClassTransform.transformingMethodBodies(replace)));
+		final MethodHandles.Lookup lookup = MethodHandles.lookup().defineHiddenClass(copy, true);
+		return lookup.findConstructor(lookup.lookupClass(),
+				MethodType.methodType(void.class, byte[].class, LookupTable.class, SeedParameters.class));
+	}
+
 	/**
 	 * Whether to call {@link #findBlocks} rather than {@link #find} for this query: its table has a coverage below
 	 * {@link #VECTOR_MAX_COVERAGE}. The caller chooses, so that C2 inlines {@link #find} into the caller as before the
 	 * vector scan: a find that chose between the scans was not inlined, and its scalar scan ran 5% more instructions.
 	 */
+	@Override
 	public boolean vectorScan() {
 		return vectorScan;
 	}
@@ -128,6 +210,7 @@ public final class WordFinder {
 	 * Finds the ungapped alignments of the subject {@code residues[start .. start + length)} and adds them to
 	 * {@code out}, in the order BLAST finds them (BLAST later sorts them by score). Scans one position at a time.
 	 */
+	@Override
 	public void find(byte[] residues, int start, int length, List<UngappedHsp> out) {
 		final int[] cellStart = table.start(), offsets = table.offsets();
 		final int wordSize = LookupTable.WORD_SIZE;
@@ -161,6 +244,7 @@ public final class WordFinder {
 	}
 
 	/** As {@link #find}, scanning blocks of positions and finding those whose words have neighbours with vectors. */
+	@Override
 	public void findBlocks(byte[] residues, int start, int length, List<UngappedHsp> out) {
 		final int[] cellStart = table.start(), offsets = table.offsets(), presence = table.presence();
 		final int[] words = blockWords, pairs = blockPairs;

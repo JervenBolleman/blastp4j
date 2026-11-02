@@ -1,6 +1,7 @@
 package swiss.sib.blastp4j.seed;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -13,16 +14,22 @@ import swiss.sib.blastp4j.db.Alphabet;
 class WordFinderTest {
 	static final SeedParameters PARAMS = new SeedParameters(11, 40, 16, 41, 41);
 
-	/** The alignments of both scans, {@link WordFinder#find} and {@link WordFinder#findBlocks}, which must agree. */
+	/**
+	 * The alignments of both scans, {@link WordFinder#find} and {@link WordFinder#findBlocks}, of a word finder and of
+	 * its copy with constants ({@link WordFinder#of}), which must all agree.
+	 */
 	static List<UngappedHsp> find(String query, String... subjects) {
-		List<UngappedHsp> one = find(false, query, subjects), blocks = find(true, query, subjects);
-		assertEquals(one, blocks);
+		List<UngappedHsp> one = find(false, false, query, subjects);
+		assertEquals(one, find(true, false, query, subjects));
+		assertEquals(one, find(false, true, query, subjects));
+		assertEquals(one, find(true, true, query, subjects));
 		return one;
 	}
 
-	static List<UngappedHsp> find(boolean blocks, String query, String... subjects) {
+	static List<UngappedHsp> find(boolean blocks, boolean copy, String query, String... subjects) {
 		byte[] q = Alphabet.encode(query);
-		WordFinder finder = new WordFinder(q, LookupTable.of(q, PARAMS.threshold()), PARAMS);
+		LookupTable table = LookupTable.of(q, PARAMS.threshold());
+		WordScan finder = copy ? WordFinder.of(q, table, PARAMS) : new WordFinder(q, table, PARAMS);
 		List<UngappedHsp> out = new ArrayList<>();
 		for (String s : subjects) {
 			// In the database layout: a sentinel before and after.
@@ -47,6 +54,17 @@ class WordFinderTest {
 	}
 
 	static final String HBA = "MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSHGSAQVKGHGKKVADALTNAVAHVDDMPNALSALSDLHAHKLRVDPVNFKLLSHCLLVTLAAHLPAEFTPAVHASLDKFLASVSTVLTSKYR";
+
+	@Test
+	void aCopyPerSetOfConstants() {
+		byte[] q = Alphabet.encode(HBA);
+		LookupTable table = LookupTable.of(q, PARAMS.threshold());
+		WordScan a = WordFinder.of(q, table, PARAMS), b = WordFinder.of(q, table, PARAMS);
+		assertTrue(a.getClass().isHidden(), a.getClass().toString());
+		assertEquals(a.getClass(), b.getClass());
+		SeedParameters other = new SeedParameters(11, 40, 15, 41, 41);
+		assertNotEquals(a.getClass(), WordFinder.of(q, table, other).getClass());
+	}
 
 	@Test
 	void identicalSequencesGiveOneFullLengthAlignment() {

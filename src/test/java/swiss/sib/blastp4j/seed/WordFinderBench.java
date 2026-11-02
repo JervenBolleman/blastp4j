@@ -70,7 +70,7 @@ public class WordFinderBench {
 
 	@Benchmark
 	public long find(Blackhole bh) {
-		WordFinder finder = new WordFinder(sequence, table, seeds);
+		WordScan finder = WordFinder.of(sequence, table, seeds);
 		List<UngappedHsp> out = new ArrayList<>();
 		long count = 0;
 		byte[] subject = null;

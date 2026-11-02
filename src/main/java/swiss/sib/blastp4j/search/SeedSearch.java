@@ -13,6 +13,7 @@ import swiss.sib.blastp4j.seed.LookupTable;
 import swiss.sib.blastp4j.seed.SeedParameters;
 import swiss.sib.blastp4j.seed.UngappedHsp;
 import swiss.sib.blastp4j.seed.WordFinder;
+import swiss.sib.blastp4j.seed.WordScan;
 
 /**
  * The seeding stage of blastp over a database: the lookup table scan, two-hit trigger and ungapped extension for every
@@ -41,7 +42,7 @@ public final class SeedSearch {
 		AtomicInteger next = new AtomicInteger();
 		List<Future<List<Seeds>>> parts = new ArrayList<>();
 		for (int t = 0; t < tasks; t++) {
-			parts.add(pool.submit(() -> scan(new WordFinder(query, table, parameters), next)));
+			parts.add(pool.submit(() -> scan(WordFinder.of(query, table, parameters), next)));
 		}
 		List<Seeds> all = new ArrayList<>();
 		try {
@@ -55,7 +56,7 @@ public final class SeedSearch {
 		return all;
 	}
 
-	private List<Seeds> scan(WordFinder finder, AtomicInteger next) {
+	private List<Seeds> scan(WordScan finder, AtomicInteger next) {
 		byte[] subject = null;
 		final List<Seeds> found = new ArrayList<>();
 		List<UngappedHsp> hsps = new ArrayList<>();

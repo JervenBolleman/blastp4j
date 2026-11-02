@@ -20,6 +20,7 @@ import swiss.sib.blastp4j.seed.LookupTable;
 import swiss.sib.blastp4j.seed.SeedParameters;
 import swiss.sib.blastp4j.seed.UngappedHsp;
 import swiss.sib.blastp4j.seed.WordFinder;
+import swiss.sib.blastp4j.seed.WordScan;
 import swiss.sib.blastp4j.stats.Statistics;
 
 /**
@@ -209,7 +210,7 @@ public final class BlastpSearch {
 		AtomicInteger next = new AtomicInteger();
 		List<Callable<List<Hit>>> prelimTasks = new ArrayList<>();
 		for (int t = 0; t < tasks; t++) {
-			prelimTasks.add(() -> prelim(query, new WordFinder(query, table, seeds), cutoff, next));
+			prelimTasks.add(() -> prelim(query, WordFinder.of(query, table, seeds), cutoff, next));
 		}
 		List<Hit> prelim = new ArrayList<>();
 		for (List<Hit> part : runAll(pool, prelimTasks)) {
@@ -408,7 +409,7 @@ public final class BlastpSearch {
 		return r;
 	};
 
-	List<Hit> prelim(byte[] query, WordFinder finder, int cutoff, AtomicInteger next) {
+	List<Hit> prelim(byte[] query, WordScan finder, int cutoff, AtomicInteger next) {
 		final GappedAligner aligner = new GappedAligner(gapOpen, gapExtend);
 		final List<Hit> found = new ArrayList<>();
 		final List<UngappedHsp> seeds = new ArrayList<>();
@@ -436,7 +437,7 @@ public final class BlastpSearch {
 		return found;
 	}
 
-	/** The preliminary stage of a batch's task: {@link #prelim(byte[], WordFinder, int, AtomicInteger)} per query. */
+	/** The preliminary stage of a batch's task: {@link #prelim(byte[], WordScan, int, AtomicInteger)} per query. */
 	@SuppressWarnings("unchecked")
 	private List<List<Hit>> prelim(byte[][] queries, BatchWordFinder finder, int[] cutoffs, AtomicInteger next) {
 		final GappedAligner aligner = new GappedAligner(gapOpen, gapExtend);
