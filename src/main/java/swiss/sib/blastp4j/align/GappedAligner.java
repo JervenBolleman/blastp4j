@@ -103,6 +103,9 @@ public final class GappedAligner {
 		// best and bestGap of a column next to each other, as BLAST's BlastGapDP: dp[2 * i] and dp[2 * i + 1].
 		final int[] dp = this.dp;
 		final int[] mat = matrix;
+		// The scores of A's current letter. Allocated here with a constant length, so that C2 knows an index masked
+		// with 31 is in bounds and does not check it every cell.
+		final int[] rowScores = new int[32];
 		int score = -goe;
 		dp[0] = 0;
 		dp[1] = -goe;
@@ -119,7 +122,7 @@ public final class GappedAligner {
 		// bestScore - xDrop, kept up to date, so that the inner loop does not need xDrop.
 		int floor = -xDrop;
 		for (int ai = 1; ai <= m; ai++) {
-			final int row = letterA(a, aBase, m, ai, reverse) * N;
+			System.arraycopy(mat, letterA(a, aBase, m, ai, reverse) * N, rowScores, 0, N);
 			score = MININT;
 			int gapRow = MININT, last = first;
 			// The same loop twice, B read forwards or backwards: with a constant direction C2 checks B's bounds once
@@ -127,7 +130,7 @@ public final class GappedAligner {
 			if (!reverse) {
 				for (int bi = first; bi < bSize; bi++) {
 					int gapCol = dp[2 * bi + 1];
-					int next = dp[2 * bi] + mat[row + b[bBase + bi + 1]];
+					int next = dp[2 * bi] + rowScores[b[bBase + bi + 1] & 31];
 					score = Math.max(score, Math.max(gapCol, gapRow));
 					if (score < floor) {
 						if (bi == first) {
@@ -154,7 +157,7 @@ public final class GappedAligner {
 			} else {
 				for (int bi = first; bi < bSize; bi++) {
 					int gapCol = dp[2 * bi + 1];
-					int next = dp[2 * bi] + mat[row + b[bBase + n - bi - 1]];
+					int next = dp[2 * bi] + rowScores[b[bBase + n - bi - 1] & 31];
 					score = Math.max(score, Math.max(gapCol, gapRow));
 					if (score < floor) {
 						if (bi == first) {
