@@ -85,11 +85,12 @@ public final class WordFinder {
 	/**
 	 * The lookup table coverage (expected fraction of subject positions with neighbours) from which {@link #find} scans
 	 * one position at a time instead of a block of positions with vectors. The vectors pay by skipping positions without
-	 * neighbours, so the fewer of those, the less they gain: with SeedSearchBench on an i7-6700HQ (AVX2) they halved the
-	 * time at coverage 0.23 and gained 3% at 0.71 and nothing at 0.88, where on GitHub's AArch64 runner (NEON) they were
-	 * 7.5% slower.
+	 * neighbours, so the fewer of those, the less they gain, and the narrower the vectors, the sooner they lose. With
+	 * SeedSearchBench on GitHub's runners (run 41454777233), against the vector scan: with 8 lanes (x64, AVX2) EGFR
+	 * (coverage 0.81) was 1.5% slower and BRCA1 (0.88) 2.0% faster one position at a time; with 4 lanes (AArch64, NEON)
+	 * EGFR 5.7% and BRCA1 4.0% faster, FBF1 (0.71) the same.
 	 */
-	static final double VECTOR_MAX_COVERAGE = 0.75;
+	static final double VECTOR_MAX_COVERAGE = LANES >= 8 ? 0.85 : 0.75;
 	/** Whether {@link #find} scans with vectors: the query's table has a coverage below {@link #VECTOR_MAX_COVERAGE}. */
 	private final boolean vectorScan;
 
