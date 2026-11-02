@@ -1,0 +1,13 @@
+# JVM options for blastp4j, one per line; lines starting with # are comments. Read by bin/blastp4j,
+# bin/compare-blastp.sh and the architecture comparison workflow, so that all of them run the same configuration.
+# Options given later on the command line (BLASTP4J_OPTS, JMH's -jvmArgsAppend) override these.
+#
+# Compressed object references off: C2 then has r12 as one more register for the alignment loops (1-3% faster
+# gapped stage on x86).
+-XX:-UseCompressedOops
+# No safepoints in counted loops: C2 then does not strip-mine the alignment loops, which frees registers there.
+-XX:-UseCountedLoopSafepoints
+# GappedAligner.rows inlined, so that BLAST's default gap costs are constants in it (too large to be inlined
+# otherwise); quiet keeps C2 from printing the command on stdout.
+-XX:CompileCommand=quiet
+-XX:CompileCommand=inline,swiss.sib.blastp4j.align.GappedAligner::rows

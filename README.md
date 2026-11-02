@@ -90,7 +90,8 @@ commit.
   * `-num_threads`: the default is the number of processors. The output does not depend on it.
 * `-task blastp`, `-matrix BLOSUM62`, `-gapopen 11`, `-gapextend 1`, `-word_size 3`, `-threshold 11`,
   `-window_size 40` and `-seg no` are accepted with these values only. Anything else is rejected with a message.
-* Use a HotSpot JDK. `bin/blastp4j` uses `$JAVA_HOME` and passes `$BLASTP4J_OPTS` to the JVM.
+* Use a HotSpot JDK. `bin/blastp4j` uses `$JAVA_HOME` and passes the options in `bin/jvm.options`, then
+  `$BLASTP4J_OPTS`, to the JVM.
 
 Checked against blastp:
 

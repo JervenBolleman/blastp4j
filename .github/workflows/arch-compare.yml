@@ -4,7 +4,7 @@
 # Per architecture:
 # 1. Spills: the stack accesses in Blast_SemiGappedAlign and GappedAligner.semiGapped, static and weighted by
 #    cpu-clock samples (.github/scripts/compare-spills.sh); C2's code is printed with hsdis.
-# 2. GappedScoreBench (JMH), with compressed object references on and off.
+# 2. GappedScoreBench (JMH) with the options in bin/jvm.options, and compressed object references on and off.
 # 3. A full search, BLAST+ and blastp4j interleaved (bin/compare-blastp.sh), with an async-profiler flame graph.
 # The database is the Phaseolus vulgaris reference proteome (UP000000226); the queries are its first QUERIES proteins.
 #
@@ -157,7 +157,7 @@ jobs:
           for oops in +UseCompressedOops -UseCompressedOops; do
             java -cp "target/test-classes:target/classes:$(cat target/cp.txt)" \
               org.openjdk.jmh.Main GappedScoreBench.gapped -f 1 -wi 5 -i 20 \
-              -jvmArgsAppend "-Dblastp4j.sprot=$PWD/../data -XX:$oops" \
+              -jvmArgsAppend "$(grep -v '^#' bin/jvm.options | tr '\n' ' ')-Dblastp4j.sprot=$PWD/../data -XX:$oops" \
               -rf text -rff "target/jmh-$oops.txt" >"target/jmh-$oops.log" 2>&1
           done
           {

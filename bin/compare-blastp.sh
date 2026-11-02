@@ -10,7 +10,8 @@
 #
 # Settings (environment): QUERY, DB, THREADS (8), ROUNDS (5), OUT (target/compare), BLASTP (blastp on PATH),
 # JAVA_HOME or JAVA, NATIVE (the native executable, needed for native), ASYNC_PROFILER (libasyncProfiler.so; without
-# it the profile run is skipped). The JVM runs the jar built by "mvn package".
+# it the profile run is skipped). The JVM runs the jar built by "mvn package", with the options in bin/jvm.options
+# (as bin/blastp4j).
 set -e
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 QUERY="${QUERY:-$HERE/src/test/resources/queries/uniprot_human.fasta}"
@@ -47,7 +48,7 @@ mkdir -p "$OUT"
 command_of() {
 	case $1 in
 	blast) echo "$BLASTP" ;;
-	jvm) echo "$JAVA ${2:-} -jar $JAR" ;;
+	jvm) echo "$JAVA $(grep -v '^#' "$HERE/bin/jvm.options" | tr '\n' ' ') ${2:-} -jar $JAR" ;;
 	native) echo "$NATIVE" ;;
 	esac
 }
