@@ -160,7 +160,12 @@ public final class GappedAligner {
 		// bestScore - xDrop, kept up to date, so that the inner loop does not need xDrop.
 		int floor = -xDrop;
 		for (int ai = 1; ai <= m; ai++) {
-			System.arraycopy(mat, letterA(a, aBase, m, ai, reverse) * N, rowScores, 0, N);
+			// A loop, not System.arraycopy: for 28 ints that is a call to a stub, and C2 keeps no value in a register
+			// across a call, so the inner loop reloaded its arrays and the floor from the stack every cell.
+			final int row = letterA(a, aBase, m, ai, reverse) * N;
+			for (int k = 0; k < N; k++) {
+				rowScores[k] = mat[row + k];
+			}
 			score = MININT;
 			int gapRow = MININT, last = first;
 			for (int bi = first; bi < bSize; bi++) {
