@@ -335,6 +335,18 @@ The blastp times include starting the program and opening the database. Seeding 
 whole gapped search takes only 0.1 to 3.3 s more than its ungapped one. blastp4j's seeding runs at about the speed of
 BLAST's. On 8 threads, the 24 queries are seeded in 20 s.
 
+**Query parameters as constants.** `WordFinder.of` gives a copy of `WordFinder`, made with the class-file API and
+defined as a hidden class, in which the query's window, X-drop, cutoff and diagonal mask are constants (d7bdab1:
+1.5-2.2% fewer cycles for CDK1 and BRCA1 in `WordFinderBench`). Single-query searches use it. The batched scan
+(`BatchWordFinder`, which the CLI uses for batches of several queries) does not: all queries' hits go through one call
+site, where copies would make each hit a virtual call.
+
+*Not tried yet:* a copy of `BatchWordFinder` per batch that sends each hit through a switch on the query number to
+that query's copy, held as a constant (class data). With a constant receiver C2 inlines the copy's `probe`, and since
+final fields of a hidden class are trusted, its diagonal array folds too, saving several loads per hit. The risk is
+the switch itself: an indirect jump per hit whose target follows the query order of the merged table entries, which
+predicts poorly, where today's loads hit L1.
+
 ## Gapped extension and traceback
 
 `align.GappedAligner`, `align.HspTree` and `search.BlastpSearch` follow BLAST+'s `blast_gapalign.c`, `blast_itree.c`,
