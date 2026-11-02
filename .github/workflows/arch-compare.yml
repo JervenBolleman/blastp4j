@@ -175,7 +175,7 @@ jobs:
             echo
             echo "### Full search, $(nproc) threads"
             echo '```'
-            QUERY=../data/queries.fasta DB=../data/blastdb/sprot ROUNDS="${{ inputs.rounds }}" OUT=target/compare \
+            QUERY=../data/queries.fasta DB=../data/blastdb/sprot THREADS="$(nproc)" ROUNDS="${{ inputs.rounds }}" OUT=target/compare \
               ASYNC_PROFILER="$(ls "$PWD"/../async-profiler-*/lib/libasyncProfiler.so)" bin/compare-blastp.sh blast jvm
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
