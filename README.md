@@ -290,6 +290,22 @@ See the standalone reproducer in cssw4j's
   * Gap trigger: 22 bits, which is 40 to 42.
   * Cutoff: the gap trigger, unless the E-value cutoff gives a lower score.
 
+**Word size 4, measured with BLAST+ only.** blastp4j seeds with 3-letter words only. A 4-letter seed only pays with a
+higher neighbourhood threshold: at BLAST's 11, four letters reach the threshold so easily that the table grows and the
+search gets slower. BLAST+ 2.17.0 on the 24 queries against Swiss-Prot, 8 threads, i7-6700HQ:
+
+| `blastp` options | cycles | query-subject pairs | of the default's pairs missed | of those E < 1e-10 |
+|---|---:|---:|---:|---:|
+| default (word size 3, threshold 11) | 402 G | 7,817 | 0 | 0 |
+| `-word_size 4` (threshold 11) | 616 G | 7,856 | 39 | 0 |
+| `-word_size 4 -threshold 14` | 170 G | 7,674 | 215 | 7 |
+| `-word_size 4 -threshold 16` | 81 G | 7,365 | 651 | 82 |
+| `-word_size 4 -threshold 18` | 44 G | 7,023 | 1,290 | 424 |
+
+So a 4-letter mode could only be an opt-in fast mode with different results, such as `-word_size 4 -threshold 14`
+(2.4 times fewer cycles, 2.8% of the pairs missed). It would need a lookup table of its own: a word size known only at
+run time made the 3-letter scan 15-27% slower (c0a3894, reverted).
+
 `SeedingBaseline` (in the tests) runs the 24 queries and checks the result against blastp:
 
 | | |
