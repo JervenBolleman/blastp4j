@@ -4,7 +4,8 @@
 # Use a HotSpot JDK (C2): the Graal JIT is much slower on this code (see README). Compressed object references are
 # off: C2 then has r12 as one more register for the alignment loops (1-3% faster gapped stage); BLASTP4J_OPTS can
 # turn them back on with -XX:+UseCompressedOops. No safepoints in counted loops: C2 then does not strip-mine the
-# alignment loops, which frees registers there.
+# alignment loops, which frees registers there. GappedAligner.rows is inlined, so that BLAST's default gap costs are
+# constants in it.
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 JAR="$(ls "$HERE"/target/blastp4j-*.jar 2>/dev/null | grep -v -e sources -e javadoc | head -1)"
 if [ -z "$JAR" ]; then
@@ -12,4 +13,5 @@ if [ -z "$JAR" ]; then
 	exit 1
 fi
 JAVA="${JAVA_HOME:+$JAVA_HOME/bin/}java"
-exec "$JAVA" -XX:-UseCompressedOops -XX:-UseCountedLoopSafepoints $BLASTP4J_OPTS -jar "$JAR" "$@"
+exec "$JAVA" -XX:-UseCompressedOops -XX:-UseCountedLoopSafepoints \
+	-XX:CompileCommand=quiet -XX:CompileCommand=inline,swiss.sib.blastp4j.align.GappedAligner::rows $BLASTP4J_OPTS -jar "$JAR" "$@"

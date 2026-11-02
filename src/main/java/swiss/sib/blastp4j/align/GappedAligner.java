@@ -123,12 +123,8 @@ public final class GappedAligner {
 		ensureDp(n + 2);
 		// best and bestGap of a column next to each other, as BLAST's BlastGapDP: dp[2 * i] and dp[2 * i + 1].
 		final int[] dp = this.dp;
-		final int[] mat = matrix;
 		// B read in one direction by one loop: its index is the loop's, so C2 checks its bounds once per row.
-		final byte[] bs = bLetters(b, bBase, n, reverse);
-		// The scores of A's current letter. Allocated here with a constant length, so that C2 knows an index masked
-		// with 31 is in bounds and does not check it every cell.
-		final int[] rowScores = new int[32];
+		bLetters(b, bBase, n, reverse);
 		int score = -goe;
 		dp[0] = 0;
 		dp[1] = -goe;
@@ -141,7 +137,26 @@ public final class GappedAligner {
 			dp[2 * i + 1] = score - goe;
 			score -= gapExtend;
 		}
-		int bSize = i, bestScore = 0, first = 0;
+		// BLAST's default gap costs (11, 1) as constants: with rows inlined (bin/blastp4j asks C2 to), C2 folds them
+		// into the instructions of the inner loop, which then needs two registers less.
+		return gapOpen == 11 && gapExtend == 1
+				? rows(a, aBase, m, n, reverse, xDrop, 12, 1, i)
+				: rows(a, aBase, m, n, reverse, xDrop, goe, gapExtend, i);
+	}
+
+	/**
+	 * semiGapped's rows of A, after the initial row: the gap costs as arguments ({@code goe} = gapOpen + gapExtend, {@code ext} =
+	 * gapExtend), and the first row's band end {@code bSize}.
+	 */
+	private int rows(byte[] a, int aBase, int m, int n, boolean reverse, int xDrop, int goe, int ext, int bSize) {
+		final int[] dp = this.dp;
+		final int[] mat = matrix;
+		final byte[] bs = bLetters;
+		// The scores of A's current letter. Allocated here with a constant length, so that C2 knows an index masked
+		// with 31 is in bounds and does not check it every cell.
+		final int[] rowScores = new int[32];
+		int score;
+		int bestScore = 0, first = 0;
 		// bestScore - xDrop, kept up to date, so that the inner loop does not need xDrop.
 		int floor = -xDrop;
 		for (int ai = 1; ai <= m; ai++) {
@@ -166,8 +181,8 @@ public final class GappedAligner {
 						aOffset = ai;
 						bOffset = bi;
 					}
-					gapRow -= gapExtend;
-					gapCol -= gapExtend;
+					gapRow -= ext;
+					gapCol -= ext;
 					dp[2 * bi + 1] = Math.max(score - goe, gapCol);
 					gapRow = Math.max(score - goe, gapRow);
 					dp[2 * bi] = score;
@@ -183,7 +198,7 @@ public final class GappedAligner {
 				while (gapRow >= floor && bSize <= n) {
 					dp[2 * bSize] = gapRow;
 					dp[2 * bSize + 1] = gapRow - goe;
-					gapRow -= gapExtend;
+					gapRow -= ext;
 					bSize++;
 				}
 			}
