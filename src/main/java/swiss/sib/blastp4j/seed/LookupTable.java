@@ -2,6 +2,7 @@ package swiss.sib.blastp4j.seed;
 
 import static java.util.Arrays.copyOfRange;
 import swiss.sib.blastp4j.stats.Blosum62;
+import swiss.sib.blastp4j.stats.UngappedKarlin;
 
 /**
  * blastp's lookup table: for every word of three letters, the query positions whose word scores at least the threshold
@@ -74,6 +75,22 @@ public record LookupTable(int[] start, int[] offsets, int[] presence) {
 			}
 		}
 		return new LookupTable(start, offsets, presence);
+	}
+
+	/**
+	 * The expected fraction of subject positions whose word has neighbours in the query: the sum of the Robinson and
+	 * Robinson frequencies of the table's words.
+	 */
+	public double coverage() {
+		final double[] f = UngappedKarlin.robinson();
+		double sum = 0;
+		for (int w = 0; w < WORDS; w++) {
+			if (start[w] != start[w + 1]) {
+				sum += f[w >>> (2 * CHAR_BITS)] * f[(w >>> CHAR_BITS) & ((1 << CHAR_BITS) - 1)]
+						* f[w & ((1 << CHAR_BITS) - 1)];
+			}
+		}
+		return sum;
 	}
 
 	@FunctionalInterface

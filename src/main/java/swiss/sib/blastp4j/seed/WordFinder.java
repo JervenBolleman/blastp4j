@@ -82,6 +82,16 @@ public final class WordFinder {
 	private final int[] blockWords = new int[BLOCK];
 	/** The first two letters of the words of the current block, to index the presence table. */
 	private final int[] blockPairs = new int[BLOCK];
+	/**
+	 * The lookup table coverage (expected fraction of subject positions with neighbours) from which {@link #find} scans
+	 * one position at a time instead of a block of positions with vectors. The vectors pay by skipping positions without
+	 * neighbours, so the fewer of those, the less they gain: with SeedSearchBench on an i7-6700HQ (AVX2) they halved the
+	 * time at coverage 0.23 and gained 3% at 0.71 and nothing at 0.88, where on GitHub's AArch64 runner (NEON) they were
+	 * 7.5% slower.
+	 */
+	static final double VECTOR_MAX_COVERAGE = 0.75;
+	/** Whether {@link #find} scans with vectors: the query's table has a coverage below {@link #VECTOR_MAX_COVERAGE}. */
+	private final boolean vectorScan;
 
 	public WordFinder(byte[] query, LookupTable table, SeedParameters p) {
 		this.query = query;
@@ -100,6 +110,7 @@ public final class WordFinder {
 		diagState = new int[length];
 		diagMask = length - 1;
 		diagOffset = window;
+		vectorScan = table.coverage() < VECTOR_MAX_COVERAGE;
 	}
 
 	/**
@@ -107,6 +118,48 @@ public final class WordFinder {
 	 * {@code out}, in the order BLAST finds them (BLAST later sorts them by score).
 	 */
 	public void find(byte[] residues, int start, int length, List<UngappedHsp> out) {
+		if (vectorScan) {
+			scanBlocks(residues, start, length, out);
+		} else {
+			scan(residues, start, length, out);
+		}
+		// The next subject's positions start beyond everything stored so far.
+		if (diagOffset >= Integer.MAX_VALUE / 4) {
+			diagOffset = window;
+			java.util.Arrays.fill(diagState, 0);
+		} else {
+			diagOffset += length + window;
+		}
+	}
+
+	/** The scan one position at a time, for queries whose words have neighbours at most positions. */
+	private void scan(byte[] residues, int start, int length, List<UngappedHsp> out) {
+		final int[] cellStart = table.start(), offsets = table.offsets();
+		final int wordSize = LookupTable.WORD_SIZE;
+		final int mask = LookupTable.WORDS - 1;
+		// The diagonal fields as locals, for the usual hit below.
+		final int[] diags = diagState;
+		final int diagMaskL = diagMask, diagOffsetL = diagOffset, windowL = window;
+		if (length >= wordSize) {
+			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
+			for (int s = 0; s <= length - wordSize; s++) {
+				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
+				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
+					final int q = offsets[k];
+					final int diag = (q - s) & diagMaskL;
+					final int state = diags[diag];
+					if ((state & EXTENDED) == 0 && s - (state - diagOffsetL) >= windowL) {
+						diags[diag] = s + diagOffsetL;
+					} else {
+						hit(residues, start, length, q, s, out);
+					}
+				}
+			}
+		}
+	}
+
+	/** The scan of blocks of positions, finding those whose words have neighbours with vectors. */
+	private void scanBlocks(byte[] residues, int start, int length, List<UngappedHsp> out) {
 		final int[] cellStart = table.start(), offsets = table.offsets(), presence = table.presence();
 		final int[] words = blockWords, pairs = blockPairs;
 		final int positions = length - LookupTable.WORD_SIZE + 1;
@@ -168,13 +221,6 @@ public final class WordFinder {
 					}
 				}
 			}
-		}
-		// The next subject's positions start beyond everything stored so far.
-		if (diagOffset >= Integer.MAX_VALUE / 4) {
-			diagOffset = window;
-			java.util.Arrays.fill(diagState, 0);
-		} else {
-			diagOffset += length + window;
 		}
 	}
 

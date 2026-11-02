@@ -32,12 +32,18 @@ public record UngappedKarlin(double lambda, double k, double h) {
 	 * BLAST).
 	 */
 	public static UngappedKarlin ideal() {
+		double[] background = robinson();
+		return of(new ScoreDistribution(background, background));
+	}
+
+	/** The Robinson and Robinson background frequencies per NCBIstdaa code, summing to 1 (0 for the other codes). */
+	public static double[] robinson() {
 		double[] background = new double[Blosum62.SIZE];
 		for (int i = 0; i < ROBINSON.length; i++) {
 			background[Alphabet.encode(ROBINSON_LETTERS.charAt(i))] = ROBINSON[i];
 		}
 		normalize(background);
-		return of(new ScoreDistribution(background, background));
+		return background;
 	}
 
 	public double logK() {
@@ -58,12 +64,7 @@ public record UngappedKarlin(double lambda, double k, double h) {
 		}
 		queryFreq[Alphabet.X] = 0; // ambiguous residues are not counted
 		normalize(queryFreq);
-		double[] background = new double[n];
-		for (int i = 0; i < ROBINSON.length; i++) {
-			background[Alphabet.encode(ROBINSON_LETTERS.charAt(i))] = ROBINSON[i];
-		}
-		normalize(background);
-		return of(new ScoreDistribution(queryFreq, background));
+		return of(new ScoreDistribution(queryFreq, robinson()));
 	}
 
 	private static void normalize(double[] p) {
