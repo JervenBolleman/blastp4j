@@ -5,7 +5,9 @@
 # 1. Spills: the stack accesses in Blast_SemiGappedAlign and GappedAligner.semiGapped, static and weighted by
 #    cpu-clock samples (.github/scripts/compare-spills.sh); C2's code is printed with hsdis.
 # 2. GappedScoreBench (JMH) with this machine's options from bin/jvm.options plus each variant's own (the VARIANTS input), the
-#    variants interleaved over BENCH_ROUNDS rounds.
+#    variants interleaved over BENCH_ROUNDS rounds. With a REFERENCE commit, that commit is built too and benchmarked
+#    in the same rounds with the same options: runners differ from run to run (BLAST+ itself took 12% more cycles on
+#    one ARM runner than on another), so code is compared within one job.
 # 3. A full search, BLAST+ and blastp4j interleaved (bin/compare-blastp.sh), with an async-profiler flame graph.
 # The database is the Phaseolus vulgaris reference proteome (UP000000226); the queries are its first QUERIES proteins.
 #
@@ -31,6 +33,9 @@ on:
       bench_rounds:
         description: GappedScoreBench rounds, the variants interleaved in each
         default: "1"
+      reference:
+        description: A commit (or branch, tag) of blastp4j to benchmark against in GappedScoreBench; empty for none
+        default: ""
 
 permissions:
   contents: read
@@ -59,6 +64,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           path: blastp4j
+      - uses: actions/checkout@v7
+        if: inputs.reference != ''
+        with:
+          ref: ${{ inputs.reference }}
+          path: reference
       - uses: actions/checkout@v7
         with:
           repository: ${{ vars.CSSW4J_REPOSITORY || format('{0}/cssw4j', github.repository_owner) }}
@@ -142,6 +152,10 @@ jobs:
           mvn -B -q -f cssw4j/pom.xml install -DskipTests
           mvn -B -q -f blastp4j/pom.xml package -DskipTests
           mvn -B -q -f blastp4j/pom.xml dependency:build-classpath -Dmdep.outputFile="$PWD/blastp4j/target/cp.txt"
+          if [ -d reference ]; then
+            mvn -B -q -f reference/pom.xml package -DskipTests
+            mvn -B -q -f reference/pom.xml dependency:build-classpath -Dmdep.outputFile="$PWD/reference/target/cp.txt"
+          fi
 
       - name: Data
         run: |
@@ -165,14 +179,22 @@ jobs:
           BENCH_ROUNDS: ${{ inputs.bench_rounds }}
         run: |
           base="$(bin/jvm-options)"
+          data="$(cd ../data && pwd)"
+          out="$PWD/target"
           IFS=';' read -ra variants <<<"$VARIANTS"
+          # The code: this checkout, and the reference commit when there is one, with the same options.
+          codes=("HEAD $(git rev-parse --short HEAD)=$PWD")
+          [ -d ../reference ] && codes+=("reference $(git -C ../reference rev-parse --short HEAD)=$(cd ../reference && pwd)")
           for r in $(seq 1 "$BENCH_ROUNDS"); do
             for v in "${variants[@]}"; do
-              label="${v%%=*}"
-              java -cp "target/test-classes:target/classes:$(cat target/cp.txt)" \
-                org.openjdk.jmh.Main GappedScoreBench.gapped -f 1 -wi 5 -i 20 \
-                -jvmArgsAppend "$base-Dblastp4j.sprot=$PWD/../data ${v#*=}" \
-                -rf csv -rff "target/jmh-$label-$r.csv" >"target/jmh-$label-$r.log" 2>&1
+              for k in "${!codes[@]}"; do
+                # GappedScoreBench reads its queries from the tree it runs in.
+                (cd "${codes[$k]#*=}" &&
+                  java -cp "target/test-classes:target/classes:$(cat target/cp.txt)" \
+                    org.openjdk.jmh.Main GappedScoreBench.gapped -f 1 -wi 5 -i 20 \
+                    -jvmArgsAppend "$base-Dblastp4j.sprot=$data ${v#*=}" \
+                    -rf csv -rff "$out/jmh-$k-${v%%=*}-$r.csv" >"$out/jmh-$k-${v%%=*}-$r.log" 2>&1)
+              done
             done
           done
           {
@@ -181,14 +203,16 @@ jobs:
             echo
             echo "bin/jvm-options: \`$base\`"
             echo
-            echo "| variant | options | round | CDK1_HUMAN | BRCA1_HUMAN |"
-            echo "|---|---|--:|--:|--:|"
+            echo "| code | variant | options | round | CDK1_HUMAN | BRCA1_HUMAN |"
+            echo "|---|---|---|--:|--:|--:|"
             for r in $(seq 1 "$BENCH_ROUNDS"); do
               for v in "${variants[@]}"; do
-                label="${v%%=*}"
-                awk -F, -v l="$label" -v o="${v#*=}" -v r="$r" 'NR > 1 { gsub(/["\r]/, ""); s[$8] = sprintf("%.1f ± %.1f", $5, $6) }
-                  END { printf "| %s | `%s` | %s | %s | %s |\n", l, o, r, s["CDK1_HUMAN"], s["BRCA1_HUMAN"] }' \
-                  "target/jmh-$label-$r.csv"
+                for k in "${!codes[@]}"; do
+                  awk -F, -v c="${codes[$k]%%=*}" -v l="${v%%=*}" -v o="${v#*=}" -v r="$r" '
+                    NR > 1 { gsub(/["\r]/, ""); s[$8] = sprintf("%.1f ± %.1f", $5, $6) }
+                    END { printf "| %s | %s | `%s` | %s | %s | %s |\n", c, l, o, r, s["CDK1_HUMAN"], s["BRCA1_HUMAN"] }' \
+                    "target/jmh-$k-${v%%=*}-$r.csv"
+                done
               done
             done
           } | tee -a "$GITHUB_STEP_SUMMARY"
