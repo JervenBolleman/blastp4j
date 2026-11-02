@@ -34,7 +34,7 @@ on:
         description: GappedScoreBench rounds, the variants interleaved in each
         default: "1"
       reference:
-        description: A commit (or branch, tag) of blastp4j to benchmark against in GappedScoreBench; empty for none
+        description: blastp4j commit (full 40-character SHA), branch or tag to benchmark against in GappedScoreBench; empty for none
         default: ""
 
 permissions:
