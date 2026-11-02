@@ -1,0 +1,11 @@
+#!/usr/bin/env sh
+# Prints the JVM options in bin/jvm.options that apply to this machine, on one line: every line that is not a comment,
+# and the lines starting with "[arch] " only where uname -m prints arch.
+HERE="$(cd "$(dirname "$0")/.." && pwd)"
+awk -v arch="$(uname -m)" '
+	/^#/ || NF == 0 { next }
+	/^\[/ {
+		if ($1 != "[" arch "]") next
+		sub(/^\[[^]]*\] */, "")
+	}
+	{ printf "%s ", $0 }' "$HERE/bin/jvm.options"

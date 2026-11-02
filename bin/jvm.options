@@ -1,10 +1,12 @@
-# JVM options for blastp4j, one per line; lines starting with # are comments. Read by bin/blastp4j,
-# bin/compare-blastp.sh and the architecture comparison workflow, so that all of them run the same configuration.
-# Options given later on the command line (BLASTP4J_OPTS, JMH's -jvmArgsAppend) override these.
+# JVM options for blastp4j, one per line; lines starting with # are comments, and a line starting with "[arch] "
+# applies only where uname -m prints arch. bin/jvm-options prints the ones for this machine; bin/blastp4j,
+# bin/compare-blastp.sh and the architecture comparison workflow use it, so that all of them run the same
+# configuration. Options given later on the command line (BLASTP4J_OPTS, JMH's -jvmArgsAppend) override these.
 #
-# Compressed object references off: C2 then has r12 as one more register for the alignment loops (1-3% faster
-# gapped stage on x86).
--XX:-UseCompressedOops
+# Compressed object references off on x86-64 only: C2 then has r12 as one more register for the alignment loops (1-3%
+# faster gapped stage on an i7-6700HQ, no difference on GitHub's x64 runners). AArch64 reserves its heap base register
+# only when the base is not zero, so there they only double the size of references (5% slower gapped stage).
+[x86_64] -XX:-UseCompressedOops
 # No safepoints in counted loops: C2 then does not strip-mine the alignment loops, which frees registers there.
 -XX:-UseCountedLoopSafepoints
 # GappedAligner.rows inlined, so that BLAST's default gap costs are constants in it (too large to be inlined

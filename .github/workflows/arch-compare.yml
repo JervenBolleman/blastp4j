@@ -4,7 +4,7 @@
 # Per architecture:
 # 1. Spills: the stack accesses in Blast_SemiGappedAlign and GappedAligner.semiGapped, static and weighted by
 #    cpu-clock samples (.github/scripts/compare-spills.sh); C2's code is printed with hsdis.
-# 2. GappedScoreBench (JMH) with the options in bin/jvm.options plus each variant's own (the VARIANTS input), the
+# 2. GappedScoreBench (JMH) with this machine's options from bin/jvm.options plus each variant's own (the VARIANTS input), the
 #    variants interleaved over BENCH_ROUNDS rounds.
 # 3. A full search, BLAST+ and blastp4j interleaved (bin/compare-blastp.sh), with an async-profiler flame graph.
 # The database is the Phaseolus vulgaris reference proteome (UP000000226); the queries are its first QUERIES proteins.
@@ -27,7 +27,7 @@ on:
         default: "3"
       variants:
         description: "GappedScoreBench variants, label=JVM options after bin/jvm.options, separated by ;"
-        default: "launcher=;compressed-oops=-XX:+UseCompressedOops"
+        default: "launcher=;oops-on=-XX:+UseCompressedOops;oops-off=-XX:-UseCompressedOops"
       bench_rounds:
         description: GappedScoreBench rounds, the variants interleaved in each
         default: "1"
@@ -164,7 +164,7 @@ jobs:
           VARIANTS: ${{ inputs.variants }}
           BENCH_ROUNDS: ${{ inputs.bench_rounds }}
         run: |
-          base="$(grep -v '^#' bin/jvm.options | tr '\n' ' ')"
+          base="$(bin/jvm-options)"
           IFS=';' read -ra variants <<<"$VARIANTS"
           for r in $(seq 1 "$BENCH_ROUNDS"); do
             for v in "${variants[@]}"; do
@@ -179,7 +179,7 @@ jobs:
             echo
             echo "### GappedScoreBench (ms per pass over the seeds, one thread)"
             echo
-            echo "bin/jvm.options: \`$base\`"
+            echo "bin/jvm-options: \`$base\`"
             echo
             echo "| variant | options | round | CDK1_HUMAN | BRCA1_HUMAN |"
             echo "|---|---|--:|--:|--:|"

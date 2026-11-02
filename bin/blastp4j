@@ -1,8 +1,9 @@
 #!/usr/bin/env sh
 # Runs blastp4j from the jar built by "mvn package"; options as for BLAST+ blastp (see blastp4j -help).
 # Uses $JAVA_HOME/bin/java if set, otherwise java from PATH; extra JVM options can be given in $BLASTP4J_OPTS.
-# Use a HotSpot JDK (C2): the Graal JIT is much slower on this code (see README). The JVM options are in
-# bin/jvm.options; BLASTP4J_OPTS comes after them, so it can override them (-XX:+UseCompressedOops, say).
+# Use a HotSpot JDK (C2): the Graal JIT is much slower on this code (see README). The JVM options are this machine's
+# from bin/jvm.options (printed by bin/jvm-options); BLASTP4J_OPTS comes after them, so it can override them
+# (-XX:+UseCompressedOops, say).
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 JAR="$(ls "$HERE"/target/blastp4j-*.jar 2>/dev/null | grep -v -e sources -e javadoc | head -1)"
 if [ -z "$JAR" ]; then
@@ -10,5 +11,5 @@ if [ -z "$JAR" ]; then
 	exit 1
 fi
 JAVA="${JAVA_HOME:+$JAVA_HOME/bin/}java"
-OPTS="$(grep -v '^#' "$HERE/bin/jvm.options" | tr '\n' ' ')"
+OPTS="$("$HERE/bin/jvm-options")"
 exec "$JAVA" $OPTS $BLASTP4J_OPTS -jar "$JAR" "$@"
