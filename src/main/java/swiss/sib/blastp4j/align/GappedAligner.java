@@ -52,14 +52,22 @@ public final class GappedAligner {
 	public EditScript editScript;
 
 	private final EditScript left = new EditScript(), right = new EditScript();
+	/** The row loops, with this aligner's gap costs as constants where that can be done: {@link Rows#of}. */
+	private final RowLoops rowLoops;
 
 	/**
 	 * @param gapOpen   BLAST's gap open cost (11): a gap of k letters costs {@code gapOpen + k * gapExtend}
 	 * @param gapExtend BLAST's gap extension cost (1)
 	 */
 	public GappedAligner(int gapOpen, int gapExtend) {
+		this(gapOpen, gapExtend, Rows.of(gapOpen + gapExtend, gapExtend));
+	}
+
+	/** With the given row loops (the tests compare the copy with constant gap costs with {@link Rows} itself). */
+	GappedAligner(int gapOpen, int gapExtend, RowLoops rowLoops) {
 		this.gapOpen = gapOpen;
 		this.gapExtend = gapExtend;
+		this.rowLoops = rowLoops;
 		for (int a = 0; a < N; a++) {
 			for (int b = 0; b < N; b++) {
 				matrix[a * N + b] = Blosum62.score(a, b);
@@ -137,79 +145,9 @@ public final class GappedAligner {
 			dp[2 * i + 1] = score - goe;
 			score -= gapExtend;
 		}
-		// BLAST's default gap costs (11, 1) as constants: with rows inlined (bin/blastp4j asks C2 to), C2 folds them
-		// into the instructions of the inner loop, which then needs two registers less.
-		return gapOpen == 11 && gapExtend == 1
-				? rows(a, aBase, m, n, reverse, xDrop, 12, 1, i)
-				: rows(a, aBase, m, n, reverse, xDrop, goe, gapExtend, i);
+		return rowLoops.rows(this, a, aBase, m, n, reverse, xDrop, i);
 	}
 
-	/**
-	 * semiGapped's rows of A, after the initial row: the gap costs as arguments ({@code goe} = gapOpen + gapExtend, {@code ext} =
-	 * gapExtend), and the first row's band end {@code bSize}.
-	 */
-	private int rows(byte[] a, int aBase, int m, int n, boolean reverse, int xDrop, int goe, int ext, int bSize) {
-		final int[] dp = this.dp;
-		final int[] mat = matrix;
-		final byte[] bs = bLetters;
-		// The scores of A's current letter. Allocated here with a constant length, so that C2 knows an index masked
-		// with 31 is in bounds and does not check it every cell.
-		final int[] rowScores = new int[32];
-		int score;
-		int bestScore = 0, first = 0;
-		// bestScore - xDrop, kept up to date, so that the inner loop does not need xDrop.
-		int floor = -xDrop;
-		for (int ai = 1; ai <= m; ai++) {
-			System.arraycopy(mat, letterA(a, aBase, m, ai, reverse) * N, rowScores, 0, N);
-			score = MININT;
-			int gapRow = MININT, last = first;
-			for (int bi = first; bi < bSize; bi++) {
-				int gapCol = dp[2 * bi + 1];
-				int next = dp[2 * bi] + rowScores[bs[bi] & 31];
-				score = Math.max(score, Math.max(gapCol, gapRow));
-				if (score < floor) {
-					if (bi == first) {
-						first++;
-					} else {
-						dp[2 * bi] = MININT;
-					}
-				} else {
-					last = bi;
-					if (score > bestScore) {
-						bestScore = score;
-						floor = score - xDrop;
-						aOffset = ai;
-						bOffset = bi;
-					}
-					gapRow -= ext;
-					gapCol -= ext;
-					dp[2 * bi + 1] = Math.max(score - goe, gapCol);
-					gapRow = Math.max(score - goe, gapRow);
-					dp[2 * bi] = score;
-				}
-				score = next;
-			}
-			if (first == bSize) {
-				break;
-			}
-			if (last < bSize - 1) {
-				bSize = last + 1;
-			} else {
-				while (gapRow >= floor && bSize <= n) {
-					dp[2 * bSize] = gapRow;
-					dp[2 * bSize + 1] = gapRow - goe;
-					gapRow -= ext;
-					bSize++;
-				}
-			}
-			if (bSize <= n) {
-				dp[2 * bSize] = MININT;
-				dp[2 * bSize + 1] = MININT;
-				bSize++;
-			}
-		}
-		return bestScore;
-	}
 
 	/** {@code s_RestrictedGappedAlign}: as {@link #semiGapped}, but gaps only start every {@link #RESTRICT_SIZE}. */
 	int restricted(byte[] a, int aBase, int m, byte[] b, int bBase, int n, boolean reverse, int xDrop) {
@@ -420,129 +358,6 @@ public final class GappedAligner {
 				: alignExRows(a, aBase, m, bs, n, reverse, xDrop, goe, gapExtend, i, ops);
 	}
 
-	/**
-	 * alignEx's rows of A after the initial row, and the traceback: the gap costs as arguments ({@code goe} = gapOpen +
-	 * gapExtend, {@code ext} = gapExtend), and the initial row's band end {@code bSize}.
-	 */
-	private int alignExRows(byte[] a, int aBase, int m, byte[] bs, int n, boolean reverse, int xDrop, int goe, int ext,
-			int bSize, EditScript ops) {
-		final int[] best = this.best, bestGap = this.bestGap;
-		final int[] mat = matrix;
-		final int numExtraCells = ext > 0 ? xDrop / ext + 3 : n + 3;
-		byte[] tb = trace;
-		int score;
-		int used = bSize + 1;
-		int bestScore = 0, first = 0;
-		for (int ai = 1; ai <= m; ai++) {
-			// Room for this row: from 'first' to at most numExtraCells beyond the previous row's end.
-			ensureTrace(used + 2 + (bSize - first) + numExtraCells + 1);
-			tb = trace;
-			final int base = used + 1 - first; // tb[base + bi] is cell (ai, bi)
-			rowStart[ai] = base;
-			final int origFirst = first;
-			final int row = letterA(a, aBase, m, ai, reverse) * N;
-			score = MININT;
-			int gapRow = MININT, last = first;
-			int bi;
-			for (bi = first; bi < bSize; bi++) {
-				int gapCol = bestGap[bi];
-				int next = best[bi] + mat[row + bs[bi]];
-				// The best of the three moves, and which one (ties keep the earlier one), without branches on the scores.
-				int script = gapCol > score ? EditScript.INS : EditScript.SUB;
-				final int afterCol = Math.max(score, gapCol);
-				script = gapRow > afterCol ? EditScript.DEL : script;
-				score = Math.max(afterCol, gapRow);
-				if (bestScore - score > xDrop) {
-					if (first == bi) {
-						first++;
-					} else {
-						best[bi] = MININT;
-					}
-				} else {
-					last = bi;
-					if (score > bestScore) {
-						bestScore = score;
-						aOffset = ai;
-						bOffset = bi;
-					}
-					gapRow -= ext;
-					gapCol -= ext;
-					if (gapCol < score - goe) {
-						bestGap[bi] = score - goe;
-					} else {
-						bestGap[bi] = gapCol;
-						script += EXTEND_GAP_B;
-					}
-					if (gapRow < score - goe) {
-						gapRow = score - goe;
-					} else {
-						script += EXTEND_GAP_A;
-					}
-					best[bi] = score;
-				}
-				score = next;
-				tb[base + bi] = (byte) script;
-			}
-			if (first == bSize) {
-				break;
-			}
-			if (last < bSize - 1) {
-				bSize = last + 1;
-			} else {
-				while (gapRow >= bestScore - xDrop && bSize <= n) {
-					best[bSize] = gapRow;
-					bestGap[bSize] = gapRow - goe;
-					gapRow -= ext;
-					if (base + bSize >= tb.length) {
-						ensureTrace(base + bSize + numExtraCells + 2);
-						tb = trace;
-					}
-					tb[base + bSize] = EditScript.DEL;
-					bSize++;
-				}
-			}
-			used += Math.max(bi, bSize) - origFirst + 1;
-			if (bSize <= n) {
-				best[bSize] = MININT;
-				bestGap[bSize] = MININT;
-				bSize++;
-			}
-		}
-
-		// Follow the traceback from the best cell to the start.
-		int ai = aOffset, bi = bOffset;
-		int script = EditScript.SUB;
-		while (ai > 0 || bi > 0) {
-			int next = tb[rowStart[ai] + bi];
-			switch (script) {
-			case EditScript.DEL:
-				script = next & 0x07;
-				if ((next & EXTEND_GAP_A) != 0) {
-					script = EditScript.DEL;
-				}
-				break;
-			case EditScript.INS:
-				script = next & 0x07;
-				if ((next & EXTEND_GAP_B) != 0) {
-					script = EditScript.INS;
-				}
-				break;
-			default:
-				script = next & 0x07;
-				break;
-			}
-			if (script == EditScript.DEL) {
-				bi--;
-			} else if (script == EditScript.INS) {
-				ai--;
-			} else {
-				ai--;
-				bi--;
-			}
-			ops.add(script, 1);
-		}
-		return bestScore;
-	}
 
 	/**
 	 * {@code s_BlastProtGappedAlignment}: score-only extension of the query against the subject
@@ -700,5 +515,267 @@ public final class GappedAligner {
 			return new int[] { qEnd - HSP_MAX_WINDOW / 2, sEnd - HSP_MAX_WINDOW / 2 };
 		}
 		return null;
+	}
+
+	/**
+	 * alignEx's rows of A after the initial row, and the traceback: the gap costs as arguments ({@code goe} = gapOpen +
+	 * gapExtend, {@code ext} = gapExtend), and the initial row's band end {@code bSize}.
+	 */
+	private int alignExRows(byte[] a, int aBase, int m, byte[] bs, int n, boolean reverse, int xDrop, int goe, int ext,
+			int bSize, EditScript ops) {
+		final int[] best = this.best, bestGap = this.bestGap;
+		final int[] mat = matrix;
+		final int numExtraCells = ext > 0 ? xDrop / ext + 3 : n + 3;
+		byte[] tb = trace;
+		int score;
+		int used = bSize + 1;
+		int bestScore = 0, first = 0;
+		for (int ai = 1; ai <= m; ai++) {
+			// Room for this row: from 'first' to at most numExtraCells beyond the previous row's end.
+			ensureTrace(used + 2 + (bSize - first) + numExtraCells + 1);
+			tb = trace;
+			final int base = used + 1 - first; // tb[base + bi] is cell (ai, bi)
+			rowStart[ai] = base;
+			final int origFirst = first;
+			final int row = letterA(a, aBase, m, ai, reverse) * N;
+			score = MININT;
+			int gapRow = MININT, last = first;
+			int bi;
+			for (bi = first; bi < bSize; bi++) {
+				int gapCol = bestGap[bi];
+				int next = best[bi] + mat[row + bs[bi]];
+				// The best of the three moves, and which one (ties keep the earlier one), without branches on the scores.
+				int script = gapCol > score ? EditScript.INS : EditScript.SUB;
+				final int afterCol = Math.max(score, gapCol);
+				script = gapRow > afterCol ? EditScript.DEL : script;
+				score = Math.max(afterCol, gapRow);
+				if (bestScore - score > xDrop) {
+					if (first == bi) {
+						first++;
+					} else {
+						best[bi] = MININT;
+					}
+				} else {
+					last = bi;
+					if (score > bestScore) {
+						bestScore = score;
+						aOffset = ai;
+						bOffset = bi;
+					}
+					gapRow -= ext;
+					gapCol -= ext;
+					if (gapCol < score - goe) {
+						bestGap[bi] = score - goe;
+					} else {
+						bestGap[bi] = gapCol;
+						script += EXTEND_GAP_B;
+					}
+					if (gapRow < score - goe) {
+						gapRow = score - goe;
+					} else {
+						script += EXTEND_GAP_A;
+					}
+					best[bi] = score;
+				}
+				score = next;
+				tb[base + bi] = (byte) script;
+			}
+			if (first == bSize) {
+				break;
+			}
+			if (last < bSize - 1) {
+				bSize = last + 1;
+			} else {
+				while (gapRow >= bestScore - xDrop && bSize <= n) {
+					best[bSize] = gapRow;
+					bestGap[bSize] = gapRow - goe;
+					gapRow -= ext;
+					if (base + bSize >= tb.length) {
+						ensureTrace(base + bSize + numExtraCells + 2);
+						tb = trace;
+					}
+					tb[base + bSize] = EditScript.DEL;
+					bSize++;
+				}
+			}
+			used += Math.max(bi, bSize) - origFirst + 1;
+			if (bSize <= n) {
+				best[bSize] = MININT;
+				bestGap[bSize] = MININT;
+				bSize++;
+			}
+		}
+
+		// Follow the traceback from the best cell to the start.
+		int ai = aOffset, bi = bOffset;
+		int script = EditScript.SUB;
+		while (ai > 0 || bi > 0) {
+			int next = tb[rowStart[ai] + bi];
+			switch (script) {
+			case EditScript.DEL:
+				script = next & 0x07;
+				if ((next & EXTEND_GAP_A) != 0) {
+					script = EditScript.DEL;
+				}
+				break;
+			case EditScript.INS:
+				script = next & 0x07;
+				if ((next & EXTEND_GAP_B) != 0) {
+					script = EditScript.INS;
+				}
+				break;
+			default:
+				script = next & 0x07;
+				break;
+			}
+			if (script == EditScript.DEL) {
+				bi--;
+			} else if (script == EditScript.INS) {
+				ai--;
+			} else {
+				ai--;
+				bi--;
+			}
+			ops.add(script, 1);
+		}
+		return bestScore;
+	}
+
+	/** The row loop of {@link #semiGapped}: {@link Rows}, or a copy of it with constant gap costs. */
+	interface RowLoops {
+		int rows(GappedAligner g, byte[] a, int aBase, int m, int n, boolean reverse, int xDrop, int bSize);
+	}
+
+	/**
+	 * The row loops with the gap costs as fields: {@code goe} (gapOpen + gapExtend) and {@code ext} (gapExtend). The
+	 * loops read them once into locals. {@link #of} gives a copy of this class whose reads of the two fields are the
+	 * constants instead, made with the class-file API and defined as a hidden class in this nest (so it reads the
+	 * aligner's private arrays as this class does). C2 then folds the gap costs into the loops for whatever costs the
+	 * search uses.
+	 */
+	static final class Rows implements RowLoops {
+		/** One copy per pair of gap costs. */
+		private static final java.util.Map<Long, RowLoops> COPIES = new java.util.concurrent.ConcurrentHashMap<>();
+		/** A native image cannot define classes at run time: there the fields stay. */
+		private static final boolean NATIVE_IMAGE = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
+
+		private final int goe, ext;
+
+		Rows(int goe, int ext) {
+			this.goe = goe;
+			this.ext = ext;
+		}
+
+		/** The row loops for these gap costs: a copy with them as constants, or this class where that fails. */
+		static RowLoops of(int goe, int ext) {
+			if (NATIVE_IMAGE) {
+				return new Rows(goe, ext);
+			}
+			return COPIES.computeIfAbsent(((long) goe << 32) | (ext & 0xffffffffL), key -> {
+				try {
+					return specialize(goe, ext);
+				} catch (Throwable e) {
+					return new Rows(goe, ext);
+				}
+			});
+		}
+
+		/** This class with each read of {@code goe} and {@code ext} replaced by the constant. */
+		private static RowLoops specialize(int goe, int ext) throws Throwable {
+			final byte[] bytes;
+			try (java.io.InputStream in = Rows.class.getResourceAsStream("GappedAligner$Rows.class")) {
+				bytes = in.readAllBytes();
+			}
+			final java.lang.classfile.ClassFile cf = java.lang.classfile.ClassFile.of();
+			final java.lang.classfile.ClassModel model = cf.parse(bytes);
+			final java.lang.constant.ClassDesc self = model.thisClass().asSymbol();
+			final java.lang.classfile.CodeTransform constants = (code, element) -> {
+				if (element instanceof java.lang.classfile.instruction.FieldInstruction f
+						&& f.opcode() == java.lang.classfile.Opcode.GETFIELD && f.owner().asSymbol().equals(self)
+						&& (f.name().equalsString("goe") || f.name().equalsString("ext"))) {
+					code.pop(); // the receiver
+					code.loadConstant(f.name().equalsString("goe") ? goe : ext);
+				} else {
+					code.with(element);
+				}
+			};
+			// A hidden class takes its nest from the lookup, not from these attributes.
+			final byte[] copy = cf.transformClass(model, java.lang.classfile.ClassTransform
+					.dropping(e -> e instanceof java.lang.classfile.attribute.NestHostAttribute
+							|| e instanceof java.lang.classfile.attribute.InnerClassesAttribute)
+					.andThen(java.lang.classfile.ClassTransform.transformingMethodBodies(constants)));
+			final java.lang.invoke.MethodHandles.Lookup lookup = java.lang.invoke.MethodHandles.lookup()
+					.defineHiddenClass(copy, true, java.lang.invoke.MethodHandles.Lookup.ClassOption.NESTMATE);
+			return (RowLoops) lookup.findConstructor(lookup.lookupClass(),
+					java.lang.invoke.MethodType.methodType(void.class, int.class, int.class)).invoke(goe, ext);
+		}
+
+		/**
+		 * {@link GappedAligner#semiGapped}'s rows of A, after the initial row: the gap costs as arguments ({@code goe} = gapOpen + gapExtend, {@code ext} =
+		 * gapExtend), and the first row's band end {@code bSize}.
+		 */
+		public int rows(GappedAligner g, byte[] a, int aBase, int m, int n, boolean reverse, int xDrop, int bSize) {
+			final int goe = this.goe, ext = this.ext;
+			final int[] dp = g.dp;
+			final int[] mat = g.matrix;
+			final byte[] bs = g.bLetters;
+			// The scores of A's current letter. Allocated here with a constant length, so that C2 knows an index masked
+			// with 31 is in bounds and does not check it every cell.
+			final int[] rowScores = new int[32];
+			int score;
+			int bestScore = 0, first = 0;
+			// bestScore - xDrop, kept up to date, so that the inner loop does not need xDrop.
+			int floor = -xDrop;
+			for (int ai = 1; ai <= m; ai++) {
+				System.arraycopy(mat, letterA(a, aBase, m, ai, reverse) * N, rowScores, 0, N);
+				score = MININT;
+				int gapRow = MININT, last = first;
+				for (int bi = first; bi < bSize; bi++) {
+					int gapCol = dp[2 * bi + 1];
+					int next = dp[2 * bi] + rowScores[bs[bi] & 31];
+					score = Math.max(score, Math.max(gapCol, gapRow));
+					if (score < floor) {
+						if (bi == first) {
+							first++;
+						} else {
+							dp[2 * bi] = MININT;
+						}
+					} else {
+						last = bi;
+						if (score > bestScore) {
+							bestScore = score;
+							floor = score - xDrop;
+							g.aOffset = ai;
+							g.bOffset = bi;
+						}
+						gapRow -= ext;
+						gapCol -= ext;
+						dp[2 * bi + 1] = Math.max(score - goe, gapCol);
+						gapRow = Math.max(score - goe, gapRow);
+						dp[2 * bi] = score;
+					}
+					score = next;
+				}
+				if (first == bSize) {
+					break;
+				}
+				if (last < bSize - 1) {
+					bSize = last + 1;
+				} else {
+					while (gapRow >= floor && bSize <= n) {
+						dp[2 * bSize] = gapRow;
+						dp[2 * bSize + 1] = gapRow - goe;
+						gapRow -= ext;
+						bSize++;
+					}
+				}
+				if (bSize <= n) {
+					dp[2 * bSize] = MININT;
+					dp[2 * bSize + 1] = MININT;
+					bSize++;
+				}
+			}
+			return bestScore;
+		}
 	}
 }
