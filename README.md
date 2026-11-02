@@ -1,5 +1,9 @@
-# blastp4j
+# WARNING
 
+Warning on this *SLOP* this is slop driven development. Do *NOT* use it for production or anything.
+This is turning into an investigation on register use on x86 by C2 and Graal compared to GCC that has little to do with correct blast results (other than as an experimental constant).
+
+# blastp4j
 A protein database search in Java that aims to reproduce the output of NCBI BLAST+ `blastp`: the same hits, raw
 scores, bit scores, E-values and alignments, for the same parameters. It builds on
 [cssw4j](../cssw4j) (a Java Vector API port of the SSW Smith-Waterman library) and takes ideas from
