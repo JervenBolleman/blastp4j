@@ -147,7 +147,7 @@ public final class GappedAligner {
 		for (int ai = 1; ai <= m; ai++) {
 			System.arraycopy(mat, letterA(a, aBase, m, ai, reverse) * N, rowScores, 0, N);
 			score = MININT;
-			int gapRow = MININT, last = first;
+			int gapRow = MININT;
 			for (int bi = first; bi < bSize; bi++) {
 				int gapCol = dp[2 * bi + 1];
 				int next = dp[2 * bi] + rowScores[bs[bi] & 31];
@@ -159,7 +159,6 @@ public final class GappedAligner {
 						dp[2 * bi] = MININT;
 					}
 				} else {
-					last = bi;
 					if (score > bestScore) {
 						bestScore = score;
 						floor = score - xDrop;
@@ -176,6 +175,12 @@ public final class GappedAligner {
 			}
 			if (first == bSize) {
 				break;
+			}
+			// The last live cell, found here instead of tracked in the inner loop: it is the last whose dp entry is not
+			// MININT, as the dead cells after the first live one are set to MININT and live cells never are.
+			int last = bSize - 1;
+			while (dp[2 * last] == MININT) {
+				last--;
 			}
 			if (last < bSize - 1) {
 				bSize = last + 1;
