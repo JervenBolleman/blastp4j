@@ -205,7 +205,7 @@ jobs:
               for k in "${!codes[@]}"; do
                 # The benchmarks read their queries from the tree they run in.
                 (cd "${codes[$k]#*=}" &&
-                  java -cp "target/test-classes:target/classes:$(cat target/cp.txt)" \
+                  java --add-modules jdk.incubator.vector -cp "target/test-classes:target/classes:$(cat target/cp.txt)" \
                     org.openjdk.jmh.Main "$BENCHMARK" -f 1 -wi 5 -i 20 $BENCH_ARGS \
                     -jvmArgsAppend "$base-Dblastp4j.sprot=$data ${v#*=}" \
                     -rf csv -rff "$out/jmh-$k-${v%%=*}-$r.csv" >"$out/jmh-$k-${v%%=*}-$r.log" 2>&1)
