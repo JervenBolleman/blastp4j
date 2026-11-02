@@ -394,10 +394,8 @@ public final class GappedAligner {
 			rowStart = new int[Math.max(m + 1, rowStart.length * 2)];
 		}
 		final int[] best = this.best, bestGap = this.bestGap;
-		final int[] mat = matrix;
 		// B read in one direction by one loop: its index is the loop's, so C2 checks its bounds once per row.
 		final byte[] bs = bLetters(b, bBase, n, reverse);
-		final int numExtraCells = gapExtend > 0 ? xDrop / gapExtend + 3 : n + 3;
 
 		ensureTrace(n + 3);
 		byte[] tb = trace;
@@ -415,8 +413,26 @@ public final class GappedAligner {
 			score -= gapExtend;
 			tb[i] = EditScript.DEL;
 		}
-		int used = i + 1;
-		int bSize = i, bestScore = 0, first = 0;
+		// BLAST's default gap costs (11, 1) as constants: with alignExRows inlined (bin/jvm.options asks C2 to), C2 folds
+		// them into the instructions of the inner loop.
+		return gapOpen == 11 && gapExtend == 1
+				? alignExRows(a, aBase, m, bs, n, reverse, xDrop, 12, 1, i, ops)
+				: alignExRows(a, aBase, m, bs, n, reverse, xDrop, goe, gapExtend, i, ops);
+	}
+
+	/**
+	 * alignEx's rows of A after the initial row, and the traceback: the gap costs as arguments ({@code goe} = gapOpen +
+	 * gapExtend, {@code ext} = gapExtend), and the initial row's band end {@code bSize}.
+	 */
+	private int alignExRows(byte[] a, int aBase, int m, byte[] bs, int n, boolean reverse, int xDrop, int goe, int ext,
+			int bSize, EditScript ops) {
+		final int[] best = this.best, bestGap = this.bestGap;
+		final int[] mat = matrix;
+		final int numExtraCells = ext > 0 ? xDrop / ext + 3 : n + 3;
+		byte[] tb = trace;
+		int score;
+		int used = bSize + 1;
+		int bestScore = 0, first = 0;
 		for (int ai = 1; ai <= m; ai++) {
 			// Room for this row: from 'first' to at most numExtraCells beyond the previous row's end.
 			ensureTrace(used + 2 + (bSize - first) + numExtraCells + 1);
@@ -449,8 +465,8 @@ public final class GappedAligner {
 						aOffset = ai;
 						bOffset = bi;
 					}
-					gapRow -= gapExtend;
-					gapCol -= gapExtend;
+					gapRow -= ext;
+					gapCol -= ext;
 					if (gapCol < score - goe) {
 						bestGap[bi] = score - goe;
 					} else {
@@ -476,7 +492,7 @@ public final class GappedAligner {
 				while (gapRow >= bestScore - xDrop && bSize <= n) {
 					best[bSize] = gapRow;
 					bestGap[bSize] = gapRow - goe;
-					gapRow -= gapExtend;
+					gapRow -= ext;
 					if (base + bSize >= tb.length) {
 						ensureTrace(base + bSize + numExtraCells + 2);
 						tb = trace;

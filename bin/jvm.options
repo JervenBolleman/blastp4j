@@ -9,9 +9,10 @@
 [x86_64] -XX:-UseCompressedOops
 # No safepoints in counted loops: C2 then does not strip-mine the alignment loops, which frees registers there.
 -XX:-UseCountedLoopSafepoints
-# GappedAligner.rows inlined, so that BLAST's default gap costs are constants in it (too large to be inlined
+# GappedAligner.rows and alignExRows inlined, so that BLAST's default gap costs are constants in them (too large to be inlined
 # otherwise); quiet keeps C2 from printing the command on stdout.
 -XX:CompileCommand=quiet
 -XX:CompileCommand=inline,swiss.sib.blastp4j.align.GappedAligner::rows
+-XX:CompileCommand=inline,swiss.sib.blastp4j.align.GappedAligner::alignExRows
 # The word finder uses the Vector API, an incubator module, which the JVM then reports with a warning on stderr.
 --add-modules=jdk.incubator.vector
