@@ -431,7 +431,7 @@ public final class BlastpSearch {
 					continue;
 				}
 				if (lanes != null) {
-					lanes.add(0, query, cutoff, i, subject, length, seeds);
+					lanes.add(0, query, cutoff, i, Arrays.copyOf(subject, length + 2), length, seeds);
 					seeds.clear();
 					continue;
 				}
@@ -469,12 +469,17 @@ public final class BlastpSearch {
 				subject = db.withSentinels(i, subject);
 				int length = db.length(i);
 				finder.find(subject, 1, length, seeds);
+				// The lanes' jobs keep the subject: one copy for all queries.
+				byte[] residues = null;
 				for (int q = 0; q < n; q++) {
 					if (seeds[q].isEmpty()) {
 						continue;
 					}
 					if (lanes != null) {
-						lanes.add(q, queries[q], cutoffs[q], i, subject, length, seeds[q]);
+						if (residues == null) {
+							residues = Arrays.copyOf(subject, length + 2);
+						}
+						lanes.add(q, queries[q], cutoffs[q], i, residues, length, seeds[q]);
 						seeds[q].clear();
 						continue;
 					}
@@ -537,14 +542,16 @@ public final class BlastpSearch {
 
 		LaneStage(GappedAligner aligner, int longestQuery, List<List<Hit>> found) {
 			this.aligner = aligner;
-			this.lanes = new SemiGappedLanes(gapOpen, gapExtend, longestQuery, db.maxLength());
+			this.lanes = new SemiGappedLanes(gapOpen, gapExtend, longestQuery);
 			this.found = found;
 		}
 
-		/** Adds the seeds of query {@code q} in subject {@code i}, then runs the lanes while enough is queued. */
-		void add(int q, byte[] query, int cutoff, int i, byte[] subject, int length, List<UngappedHsp> seeds) {
-			final Job job = new Job(q, query, cutoff, i, Arrays.copyOf(subject, length + 2), length,
-					new ArrayList<>(seeds));
+		/**
+		 * Adds the seeds of query {@code q} in subject {@code i} ({@code residues}, which the job keeps, as
+		 * {@link SequenceDatabase#withSentinels} gives it), then runs the lanes while enough is queued.
+		 */
+		void add(int q, byte[] query, int cutoff, int i, byte[] residues, int length, List<UngappedHsp> seeds) {
+			final Job job = new Job(q, query, cutoff, i, residues, length, new ArrayList<>(seeds));
 			job.slot = slot(job);
 			run(job);
 			while (lanes.queued() >= 2 * SemiGappedLanes.L) {
