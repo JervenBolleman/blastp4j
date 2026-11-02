@@ -1,6 +1,7 @@
 package swiss.sib.blastp4j.search;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -12,6 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import swiss.sib.blastp4j.align.GappedAligner;
 import swiss.sib.blastp4j.align.Hsp;
 import swiss.sib.blastp4j.align.HspTree;
+import swiss.sib.blastp4j.align.SemiGappedLanes;
 import swiss.sib.blastp4j.compo.CompoHeap;
 import swiss.sib.blastp4j.compo.CompoRedo;
 import swiss.sib.blastp4j.db.SequenceDatabase;
@@ -413,6 +415,7 @@ public final class BlastpSearch {
 		final GappedAligner aligner = new GappedAligner(gapOpen, gapExtend);
 		final List<Hit> found = new ArrayList<>();
 		final List<UngappedHsp> seeds = new ArrayList<>();
+		final LaneStage lanes = SemiGappedLanes.AVAILABLE ? new LaneStage(aligner, query.length, List.of(found)) : null;
 		byte[] subject = null;
 		for (int chunk; (chunk = next.getAndIncrement()) * CHUNK < db.size();) {
 			int end = Math.min(db.size(), (chunk + 1) * CHUNK);
@@ -427,12 +430,20 @@ public final class BlastpSearch {
 				if (seeds.isEmpty()) {
 					continue;
 				}
+				if (lanes != null) {
+					lanes.add(0, query, cutoff, i, subject, length, seeds);
+					seeds.clear();
+					continue;
+				}
 				Hit hit = prelimHit(query, aligner, i, subject, length, seeds, cutoff);
 				seeds.clear();
 				if (hit != null) {
 					found.add(hit);
 				}
 			}
+		}
+		if (lanes != null) {
+			lanes.finish();
 		}
 		return found;
 	}
@@ -444,10 +455,13 @@ public final class BlastpSearch {
 		final int n = queries.length;
 		final List<List<Hit>> found = new ArrayList<>();
 		final List<UngappedHsp>[] seeds = new List[n];
+		int longest = 0;
 		for (int q = 0; q < n; q++) {
 			found.add(new ArrayList<>());
 			seeds[q] = new ArrayList<>();
+			longest = Math.max(longest, queries[q].length);
 		}
+		final LaneStage lanes = SemiGappedLanes.AVAILABLE ? new LaneStage(aligner, longest, found) : null;
 		byte[] subject = null;
 		for (int chunk; (chunk = next.getAndIncrement()) * CHUNK < db.size();) {
 			int end = Math.min(db.size(), (chunk + 1) * CHUNK);
@@ -459,6 +473,11 @@ public final class BlastpSearch {
 					if (seeds[q].isEmpty()) {
 						continue;
 					}
+					if (lanes != null) {
+						lanes.add(q, queries[q], cutoffs[q], i, subject, length, seeds[q]);
+						seeds[q].clear();
+						continue;
+					}
 					Hit hit = prelimHit(queries[q], aligner, i, subject, length, seeds[q], cutoffs[q]);
 					seeds[q].clear();
 					if (hit != null) {
@@ -467,7 +486,174 @@ public final class BlastpSearch {
 				}
 			}
 		}
+		if (lanes != null) {
+			lanes.finish();
+		}
 		return found;
+	}
+
+	/**
+	 * The gapped scores of the preliminary stage ({@link #gappedScores}) with the score-only extensions in vector lanes
+	 * ({@link SemiGappedLanes}). The extensions of one subject depend on each other (a seed within an HSP found
+	 * before is skipped), so the lanes take those of many subjects: each subject is a job that runs its seeds as
+	 * {@link #gappedScores} does until a seed needs its two extensions, submits them, and continues when both are
+	 * done. The restricted alignment stays scalar. Each query's hits are as {@link #prelimHit} gives them, in subject
+	 * order.
+	 */
+	private final class LaneStage implements SemiGappedLanes.Done {
+		/** One subject's seeds for one query, as {@link #gappedScores} runs them. */
+		private final class Job {
+			final int q, subject, length, cutoff, restrictedCutoff;
+			final byte[] query, residues;
+			final List<UngappedHsp> seeds;
+			final List<Hsp> hsps = new ArrayList<>();
+			final HspTree tree = new HspTree();
+			boolean restricted;
+			int index, slot;
+			// The seed being extended: its start point, extensions pending, and their results.
+			int qOff, sOff, pending, score, queryStart, queryStop, subjectStart, subjectStop;
+
+			Job(int q, byte[] query, int cutoff, int subject, byte[] residues, int length, List<UngappedHsp> seeds) {
+				this.q = q;
+				this.query = query;
+				this.cutoff = cutoff;
+				this.subject = subject;
+				this.residues = residues;
+				this.length = length;
+				this.seeds = seeds;
+				seeds.sort(SEED_ORDER);
+				restrictedCutoff = (int) (RESTRICTED_MULT * cutoff);
+				restricted = restrictedAlign && seeds.get(0).score() < restrictedCutoff;
+			}
+		}
+
+		private final GappedAligner aligner;
+		private final SemiGappedLanes lanes;
+		private final List<List<Hit>> found;
+		private Job[] jobs = new Job[64];
+		private int[] free = new int[64];
+		private int freeCount;
+		private int used;
+
+		LaneStage(GappedAligner aligner, int longestQuery, List<List<Hit>> found) {
+			this.aligner = aligner;
+			this.lanes = new SemiGappedLanes(gapOpen, gapExtend, longestQuery, db.maxLength());
+			this.found = found;
+		}
+
+		/** Adds the seeds of query {@code q} in subject {@code i}, then runs the lanes while enough is queued. */
+		void add(int q, byte[] query, int cutoff, int i, byte[] subject, int length, List<UngappedHsp> seeds) {
+			final Job job = new Job(q, query, cutoff, i, Arrays.copyOf(subject, length + 2), length,
+					new ArrayList<>(seeds));
+			job.slot = slot(job);
+			run(job);
+			while (lanes.queued() >= 2 * SemiGappedLanes.L) {
+				lanes.step(this);
+			}
+		}
+
+		/** Runs the lanes until every job is done, then puts each query's hits in subject order. */
+		void finish() {
+			while (lanes.step(this)) {
+			}
+			for (List<Hit> hits : found) {
+				hits.sort(Comparator.comparingInt(Hit::subject));
+			}
+		}
+
+		private int slot(Job job) {
+			if (freeCount > 0) {
+				final int s = free[--freeCount];
+				jobs[s] = job;
+				return s;
+			}
+			if (used == jobs.length) {
+				jobs = Arrays.copyOf(jobs, 2 * used);
+				free = Arrays.copyOf(free, 2 * used);
+			}
+			jobs[used] = job;
+			return used++;
+		}
+
+		/** {@link #gappedScores}'s loop from the job's seed on, until a seed's extensions are submitted. */
+		private void run(Job j) {
+			final int base = 1;
+			for (; j.index < j.seeds.size(); j.index++) {
+				final UngappedHsp seed = j.seeds.get(j.index);
+				final int qStart = seed.queryStart(), sStart = seed.subjectStart();
+				final int qEnd = qStart + seed.length(), sEnd = sStart + seed.length();
+				if (j.tree.contains(seed.score(), qStart, qEnd, sStart, sEnd)) {
+					continue;
+				}
+				final int qOff = aligner.startForGapped(j.query, j.residues, base, qStart, seed.length(), sStart,
+						seed.length());
+				final int sOff = seed.subjectSeed() + qOff - seed.querySeed();
+				if (j.restricted) {
+					aligner.extendScoreOnly(j.query, j.residues, base, j.length, qOff, sOff, true, xDrop);
+					if (aligner.score < j.cutoff && aligner.score >= j.restrictedCutoff) {
+						// Inconclusive: start again with exact alignments for this subject.
+						j.restricted = false;
+						j.hsps.clear();
+						j.tree.clear();
+						j.index = -1;
+						continue;
+					}
+					if (aligner.score >= j.cutoff) {
+						final Hsp h = new Hsp(aligner.score, aligner.queryStart, aligner.queryStop,
+								aligner.subjectStart, aligner.subjectStop, qOff, sOff);
+						j.hsps.add(h);
+						j.tree.add(h);
+					}
+					continue;
+				}
+				// GappedAligner.extendScoreOnly's two extensions: left including the start point, then right.
+				final int qLength = qOff + 1, sLength = sOff + 1;
+				j.qOff = qOff;
+				j.sOff = sOff;
+				j.score = 0;
+				j.queryStop = qOff;
+				j.subjectStop = sOff;
+				j.pending = 1;
+				lanes.submit(j.query, 0, qLength, j.residues, base, sLength, true, xDrop, 2 * j.slot);
+				if (qLength < j.query.length && sLength < j.length) {
+					j.pending = 2;
+					lanes.submit(j.query, qOff, j.query.length - qLength, j.residues, base + sOff,
+							j.length - sLength, false, xDrop, 2 * j.slot + 1);
+				}
+				return;
+			}
+			// All seeds done.
+			jobs[j.slot] = null;
+			free[freeCount++] = j.slot;
+			final Hit hit = prelimHit(j.query, j.subject, j.length, j.hsps);
+			if (hit != null) {
+				found.get(j.q).add(hit);
+			}
+		}
+
+		@Override
+		public void done(int id, int score, int aOffset, int bOffset) {
+			final Job j = jobs[id >> 1];
+			if ((id & 1) == 0) {
+				j.queryStart = j.qOff + 1 - aOffset;
+				j.subjectStart = j.sOff + 1 - bOffset;
+			} else {
+				j.queryStop = aOffset + j.qOff + 1;
+				j.subjectStop = bOffset + j.sOff + 1;
+			}
+			j.score += score;
+			if (--j.pending > 0) {
+				return;
+			}
+			if (j.score >= j.cutoff) {
+				final Hsp h = new Hsp(j.score, j.queryStart, j.queryStop, j.subjectStart, j.subjectStop, j.qOff,
+						j.sOff);
+				j.hsps.add(h);
+				j.tree.add(h);
+			}
+			j.index++;
+			run(j);
+		}
 	}
 
 	/**
@@ -476,7 +662,11 @@ public final class BlastpSearch {
 	 */
 	private Hit prelimHit(byte[] query, GappedAligner aligner, int i, byte[] subject, int length,
 			List<UngappedHsp> seeds, int cutoff) {
-		List<Hsp> hsps = gappedScores(query, aligner, subject, length, seeds, cutoff);
+		return prelimHit(query, i, length, gappedScores(query, aligner, subject, length, seeds, cutoff));
+	}
+
+	/** The HSPs the preliminary stage keeps of the gapped scores {@code hsps} of subject {@code i}, as a hit. */
+	private Hit prelimHit(byte[] query, int i, int length, List<Hsp> hsps) {
 		if (hsps.isEmpty()) {
 			return null;
 		}
