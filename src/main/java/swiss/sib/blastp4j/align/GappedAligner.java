@@ -148,21 +148,16 @@ public final class GappedAligner {
 			System.arraycopy(mat, letterA(a, aBase, m, ai, reverse) * N, rowScores, 0, N);
 			score = MININT;
 			int gapRow = MININT, last = first;
-			// The row's leading dead cells move the band's start on. gapRow is still MININT there (dead cells leave it
-			// alone), and their dp entries are not written. The main loop starts at the first live cell, so the inner
-			// loop no longer tests for the band's start.
-			int bi = first;
-			while (bi < bSize && Math.max(score, dp[2 * bi + 1]) < floor) {
-				score = dp[2 * bi] + rowScores[bs[bi] & 31];
-				bi++;
-			}
-			first = bi;
-			for (; bi < bSize; bi++) {
+			for (int bi = first; bi < bSize; bi++) {
 				int gapCol = dp[2 * bi + 1];
 				int next = dp[2 * bi] + rowScores[bs[bi] & 31];
 				score = Math.max(score, Math.max(gapCol, gapRow));
 				if (score < floor) {
-					dp[2 * bi] = MININT;
+					if (bi == first) {
+						first++;
+					} else {
+						dp[2 * bi] = MININT;
+					}
 				} else {
 					last = bi;
 					if (score > bestScore) {
