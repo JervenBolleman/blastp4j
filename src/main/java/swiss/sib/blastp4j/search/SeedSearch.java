@@ -63,7 +63,11 @@ public final class SeedSearch {
 			int end = Math.min(db.size(), (chunk + 1) * CHUNK);
 			for (int i = chunk * CHUNK; i < end; i++) {
 				subject = db.withSentinels(i, subject);
-				finder.find(subject, 1, db.length(i), hsps);
+				if (finder.vectorScan()) {
+					finder.findBlocks(subject, 1, db.length(i), hsps);
+				} else {
+					finder.find(subject, 1, db.length(i), hsps);
+				}
 				if (!hsps.isEmpty()) {
 					hsps.sort(Comparator.comparingInt(UngappedHsp::score).reversed());
 					found.add(new Seeds(i, List.copyOf(hsps)));

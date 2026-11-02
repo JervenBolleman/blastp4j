@@ -366,7 +366,11 @@ public final class BlastpSearch {
 			for (int i = chunk * CHUNK; i < end; i++) {
 				subject = db.withSentinels(i, subject);
 				int length = db.length(i);
-				finder.find(subject, 1, length, seeds);
+				if (finder.vectorScan()) {
+					finder.findBlocks(subject, 1, length, seeds);
+				} else {
+					finder.find(subject, 1, length, seeds);
+				}
 				if (seeds.isEmpty()) {
 					continue;
 				}

@@ -13,7 +13,14 @@ import swiss.sib.blastp4j.db.Alphabet;
 class WordFinderTest {
 	static final SeedParameters PARAMS = new SeedParameters(11, 40, 16, 41, 41);
 
+	/** The alignments of both scans, {@link WordFinder#find} and {@link WordFinder#findBlocks}, which must agree. */
 	static List<UngappedHsp> find(String query, String... subjects) {
+		List<UngappedHsp> one = find(false, query, subjects), blocks = find(true, query, subjects);
+		assertEquals(one, blocks);
+		return one;
+	}
+
+	static List<UngappedHsp> find(boolean blocks, String query, String... subjects) {
 		byte[] q = Alphabet.encode(query);
 		WordFinder finder = new WordFinder(q, LookupTable.of(q, PARAMS.threshold()), PARAMS);
 		List<UngappedHsp> out = new ArrayList<>();
@@ -21,7 +28,11 @@ class WordFinderTest {
 			// In the database layout: a sentinel before and after.
 			byte[] residues = new byte[s.length() + 2];
 			System.arraycopy(Alphabet.encode(s), 0, residues, 1, s.length());
-			finder.find(residues, 1, s.length(), out);
+			if (blocks) {
+				finder.findBlocks(residues, 1, s.length(), out);
+			} else {
+				finder.find(residues, 1, s.length(), out);
+			}
 		}
 		return out;
 	}

@@ -83,15 +83,16 @@ public final class WordFinder {
 	/** The first two letters of the words of the current block, to index the presence table. */
 	private final int[] blockPairs = new int[BLOCK];
 	/**
-	 * The lookup table coverage (expected fraction of subject positions with neighbours) from which {@link #find} scans
-	 * one position at a time instead of a block of positions with vectors. The vectors pay by skipping positions without
-	 * neighbours, so the fewer of those, the less they gain, and the narrower the vectors, the sooner they lose. With
+	 * The lookup table coverage (expected fraction of subject positions with neighbours) from which {@link #find}, one
+	 * position at a time, is faster than {@link #findBlocks}, a block of positions with vectors. The vectors pay by
+	 * skipping positions without neighbours, so the fewer of those, the less they gain, and the narrower the vectors,
+	 * the sooner they lose. With
 	 * SeedSearchBench on GitHub's runners (run 41454777233), against the vector scan: with 8 lanes (x64, AVX2) EGFR
 	 * (coverage 0.81) was 1.5% slower and BRCA1 (0.88) 2.0% faster one position at a time; with 4 lanes (AArch64, NEON)
 	 * EGFR 5.7% and BRCA1 4.0% faster, FBF1 (0.71) the same.
 	 */
 	static final double VECTOR_MAX_COVERAGE = LANES >= 8 ? 0.85 : 0.75;
-	/** Whether {@link #find} scans with vectors: the query's table has a coverage below {@link #VECTOR_MAX_COVERAGE}. */
+	/** Whether {@link #findBlocks} is for this query: its table has a coverage below {@link #VECTOR_MAX_COVERAGE}. */
 	private final boolean vectorScan;
 
 	public WordFinder(byte[] query, LookupTable table, SeedParameters p) {
@@ -115,26 +116,19 @@ public final class WordFinder {
 	}
 
 	/**
-	 * Finds the ungapped alignments of the subject {@code residues[start .. start + length)} and adds them to
-	 * {@code out}, in the order BLAST finds them (BLAST later sorts them by score).
+	 * Whether to call {@link #findBlocks} rather than {@link #find} for this query: its table has a coverage below
+	 * {@link #VECTOR_MAX_COVERAGE}. The caller chooses, so that C2 inlines {@link #find} into the caller as before the
+	 * vector scan: a find that chose between the scans was not inlined, and its scalar scan ran 5% more instructions.
 	 */
-	public void find(byte[] residues, int start, int length, List<UngappedHsp> out) {
-		if (vectorScan) {
-			scanBlocks(residues, start, length, out);
-		} else {
-			scan(residues, start, length, out);
-		}
-		// The next subject's positions start beyond everything stored so far.
-		if (diagOffset >= Integer.MAX_VALUE / 4) {
-			diagOffset = window;
-			java.util.Arrays.fill(diagState, 0);
-		} else {
-			diagOffset += length + window;
-		}
+	public boolean vectorScan() {
+		return vectorScan;
 	}
 
-	/** The scan one position at a time, for queries whose words have neighbours at most positions. */
-	private void scan(byte[] residues, int start, int length, List<UngappedHsp> out) {
+	/**
+	 * Finds the ungapped alignments of the subject {@code residues[start .. start + length)} and adds them to
+	 * {@code out}, in the order BLAST finds them (BLAST later sorts them by score). Scans one position at a time.
+	 */
+	public void find(byte[] residues, int start, int length, List<UngappedHsp> out) {
 		final int[] cellStart = table.start(), offsets = table.offsets();
 		final int wordSize = LookupTable.WORD_SIZE;
 		final int mask = LookupTable.WORDS - 1;
@@ -157,10 +151,17 @@ public final class WordFinder {
 				}
 			}
 		}
+		// The next subject's positions start beyond everything stored so far.
+		if (diagOffset >= Integer.MAX_VALUE / 4) {
+			diagOffset = window;
+			java.util.Arrays.fill(diagState, 0);
+		} else {
+			diagOffset += length + window;
+		}
 	}
 
-	/** The scan of blocks of positions, finding those whose words have neighbours with vectors. */
-	private void scanBlocks(byte[] residues, int start, int length, List<UngappedHsp> out) {
+	/** As {@link #find}, scanning blocks of positions and finding those whose words have neighbours with vectors. */
+	public void findBlocks(byte[] residues, int start, int length, List<UngappedHsp> out) {
 		final int[] cellStart = table.start(), offsets = table.offsets(), presence = table.presence();
 		final int[] words = blockWords, pairs = blockPairs;
 		final int positions = length - LookupTable.WORD_SIZE + 1;
@@ -222,6 +223,13 @@ public final class WordFinder {
 					}
 				}
 			}
+		}
+		// The next subject's positions start beyond everything stored so far.
+		if (diagOffset >= Integer.MAX_VALUE / 4) {
+			diagOffset = window;
+			java.util.Arrays.fill(diagState, 0);
+		} else {
+			diagOffset += length + window;
 		}
 	}
 

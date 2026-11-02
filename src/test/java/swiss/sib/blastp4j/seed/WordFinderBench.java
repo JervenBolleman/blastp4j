@@ -76,7 +76,11 @@ public class WordFinderBench {
 		byte[] subject = null;
 		for (int i = 0; i < db.size(); i++) {
 			subject = db.withSentinels(i, subject);
-			finder.find(subject, 1, db.length(i), out);
+			if (finder.vectorScan()) {
+				finder.findBlocks(subject, 1, db.length(i), out);
+			} else {
+				finder.find(subject, 1, db.length(i), out);
+			}
 			count += out.size();
 			out.clear();
 		}
