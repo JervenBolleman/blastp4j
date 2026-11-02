@@ -397,6 +397,9 @@ public final class GappedAligner {
 		final int[] mat = matrix;
 		// B read in one direction by one loop: its index is the loop's, so C2 checks its bounds once per row.
 		final byte[] bs = bLetters(b, bBase, n, reverse);
+		// The scores of A's current letter. Allocated here with a constant length, so that C2 knows an index masked
+		// with 31 is in bounds and does not check it every cell.
+		final int[] rowScores = new int[32];
 		final int numExtraCells = gapExtend > 0 ? xDrop / gapExtend + 3 : n + 3;
 
 		ensureTrace(n + 3);
@@ -424,13 +427,13 @@ public final class GappedAligner {
 			final int base = used + 1 - first; // tb[base + bi] is cell (ai, bi)
 			rowStart[ai] = base;
 			final int origFirst = first;
-			final int row = letterA(a, aBase, m, ai, reverse) * N;
+			System.arraycopy(mat, letterA(a, aBase, m, ai, reverse) * N, rowScores, 0, N);
 			score = MININT;
 			int gapRow = MININT, last = first;
 			int bi;
 			for (bi = first; bi < bSize; bi++) {
 				int gapCol = bestGap[bi];
-				int next = best[bi] + mat[row + bs[bi]];
+				int next = best[bi] + rowScores[bs[bi] & 31];
 				// The best of the three moves, and which one (ties keep the earlier one), without branches on the scores.
 				int script = gapCol > score ? EditScript.INS : EditScript.SUB;
 				final int afterCol = Math.max(score, gapCol);
