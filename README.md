@@ -129,11 +129,19 @@ blastp4j including reading the FASTA file):
 | 1 thread | 143 s | 80 s |
 | 8 threads | 36 s | 19 s |
 
-blastp4j is about 1.8 times slower over a whole run. On JDK 27 (OpenJDK 27+35, C2, through `bin/blastp4j`, three
-interleaved rounds), blastp4j took 1.80 times BLAST+'s user-mode cycles on 8 threads (724.7 G against 402.7 G), the
-same as on Temurin 25.0.4 (727.2 G). JDK 27's compact object headers, on by default, save about 1% (730.8 G without). The single-query benchmarks above (`BlastpSearchBench`) showed a
+blastp4j is about 1.8 times slower over a whole run. The single-query benchmarks above (`BlastpSearchBench`) showed a
 smaller gap, 10 to 30%. They repeat one warmed-up query, and the blastp times they are compared with include starting
-the program, so they understated the difference. This is the next thing to work on.
+the program, so they understated the difference.
+
+On JDK 27 (OpenJDK 27+35, C2, through `bin/blastp4j`, three interleaved rounds), blastp4j took 1.80 times BLAST+'s
+user-mode cycles on 8 threads (724.7 G against 402.7 G), the same as on Temurin 25.0.4 (727.2 G). JDK 27's compact
+object headers, on by default, save about 1% (730.8 G without).
+
+With the vector word finder and the gapped-stage changes since then (main at 7888777, three interleaved rounds),
+blastp4j on the JVM took 1.53 times BLAST+'s cycles (615.9 G against 403.2 G). A native image built with
+profile-guided optimisation (Oracle GraalVM 25.4.4, `bin/build-native-pgo.sh`, trained on 50 bean proteins) took 1.67
+times (672.5 G, with 35% more instructions than the JVM; not profiled yet). In a native image the word finder reads
+the presence table with scalar loads.
 
 ## BLAST databases
 
