@@ -16,5 +16,10 @@
 # The target-frequency optimizer's helpers not inlined: inlined, C2 took about 0.7 s per compile of
 # OptimizeTargetFreq.optimize (8 compiles, 5.7 of 20.5 s of C2 time in a full search), and the code was slower.
 -XX:CompileCommand=dontinline,swiss.sib.blastp4j.compo.OptimizeTargetFreq::*
+# CompositionAdjustment not inlined into CompoRedo.redo (1.4 s of C2 time), and the output and header code compiled
+# by C2 after ten times the usual counts: it runs only for the output lines.
+-XX:CompileCommand=dontinline,swiss.sib.blastp4j.compo.CompositionAdjustment::*
+-XX:CompileCommand=CompileThresholdScaling,swiss.sib.blastp4j.output.*::*,10.0
+-XX:CompileCommand=CompileThresholdScaling,swiss.sib.blastp4j.db.BlastDbReader*::*,10.0
 # The word finder uses the Vector API, an incubator module, which the JVM then reports with a warning on stderr.
 --add-modules=jdk.incubator.vector
