@@ -92,6 +92,9 @@ commit.
   `-window_size 40` and `-seg no` are accepted with these values only. Anything else is rejected with a message.
 * Use a HotSpot JDK. `bin/blastp4j` uses `$JAVA_HOME` and passes this machine's options from `bin/jvm.options`, then
   `$BLASTP4J_OPTS`, to the JVM.
+  * `-XX:+TrustFinalNonStaticFields`, which lets C2 treat every final instance field as a constant (by default only
+    those of records, hidden classes and some JDK classes), was tried (9ee5ac4, reverted): within the noise on the
+    GitHub runners (1.4% less wall time on AArch64, 0.2% on x86-64) and here.
 * The word finder uses the Vector API, still the incubator module `jdk.incubator.vector`: `bin/jvm.options` adds it,
   and the JVM then prints a warning about incubator modules on stderr. Other ways of running blastp4j need
   `--add-modules jdk.incubator.vector` too.
