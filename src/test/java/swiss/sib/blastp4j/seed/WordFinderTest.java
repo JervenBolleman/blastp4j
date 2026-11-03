@@ -66,6 +66,48 @@ class WordFinderTest {
 		assertNotEquals(a.getClass(), WordFinder.of(q, table, other).getClass());
 	}
 
+	/** A batch scan, plain and copied ({@link BatchWordFinder#of}), gives each query what its own word finder gives. */
+	@Test
+	@SuppressWarnings("unchecked")
+	void aBatchGivesEachQueryItsOwnAlignments() {
+		String[] queries = { HBA, HBA.substring(30, 120), "MKTAYIAKQRQISFVKSHFSRQ" + HBA.substring(10, 70),
+				HBA.substring(0, 50) };
+		String[] subjects = { HBA, "GGGGGGGGGG" + HBA.substring(20, 80) + "PPPPPPPPPP", "PPPPPPPPPPWGKPPPPPPPPPP",
+				HBA.substring(40) + HBA.substring(0, 40), HBA };
+		byte[][] qs = new byte[queries.length][];
+		LookupTable[] tables = new LookupTable[queries.length];
+		SeedParameters[] params = new SeedParameters[queries.length];
+		for (int i = 0; i < queries.length; i++) {
+			qs[i] = Alphabet.encode(queries[i]);
+			tables[i] = LookupTable.of(qs[i], PARAMS.threshold());
+			params[i] = i % 2 == 0 ? PARAMS : new SeedParameters(11, 40, 15, 41, 41);
+		}
+		BatchWordFinder.Table table = BatchWordFinder.Table.of(tables);
+		BatchScan copy = BatchWordFinder.of(qs, tables, params, table);
+		assertTrue(copy.getClass().isHidden(), copy.getClass().toString());
+		for (BatchScan batch : new BatchScan[] { new BatchWordFinder(qs, tables, params, table), copy }) {
+			List<UngappedHsp>[] out = new List[queries.length];
+			for (int i = 0; i < out.length; i++) {
+				out[i] = new ArrayList<>();
+			}
+			for (String s : subjects) {
+				byte[] residues = new byte[s.length() + 2];
+				System.arraycopy(Alphabet.encode(s), 0, residues, 1, s.length());
+				batch.find(residues, 1, s.length(), out);
+			}
+			for (int i = 0; i < queries.length; i++) {
+				WordFinder alone = new WordFinder(qs[i], tables[i], params[i]);
+				List<UngappedHsp> expected = new ArrayList<>();
+				for (String s : subjects) {
+					byte[] residues = new byte[s.length() + 2];
+					System.arraycopy(Alphabet.encode(s), 0, residues, 1, s.length());
+					alone.find(residues, 1, s.length(), expected);
+				}
+				assertEquals(expected, out[i], "query " + i);
+			}
+		}
+	}
+
 	@Test
 	void identicalSequencesGiveOneFullLengthAlignment() {
 		List<UngappedHsp> hsps = find(HBA, HBA);
