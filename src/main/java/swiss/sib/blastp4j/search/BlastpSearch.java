@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import swiss.sib.blastp4j.align.GappedAligner;
 import swiss.sib.blastp4j.align.Hsp;
 import swiss.sib.blastp4j.align.HspTree;
+import swiss.sib.blastp4j.align.ScoreMatrix;
 import swiss.sib.blastp4j.align.SemiGappedLanes;
 import swiss.sib.blastp4j.compo.CompoHeap;
 import swiss.sib.blastp4j.compo.CompoRedo;
@@ -368,12 +369,7 @@ public final class BlastpSearch {
 
 		CompoHeap<Hit> heap = new CompoHeap<>(hitlistSize, INCLUSION_ETHRESH);
 		// BLAST's thread-local matrix: unscaled BLOSUM62 until the first successful adjustment.
-		int[][] current = new int[swiss.sib.blastp4j.stats.Blosum62.SIZE][swiss.sib.blastp4j.stats.Blosum62.SIZE];
-		for (int a = 0; a < current.length; a++) {
-			for (int b = 0; b < current.length; b++) {
-				current[a][b] = swiss.sib.blastp4j.stats.Blosum62.score(a, b);
-			}
-		}
+		ScoreMatrix current = ScoreMatrix.BLOSUM62;
 		CompoRedo sequential = null;
 		for (int i = 0; i < ordered.size(); i++) {
 			Hit h = ordered.get(i);

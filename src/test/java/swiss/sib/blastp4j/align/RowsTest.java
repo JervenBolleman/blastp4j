@@ -39,8 +39,8 @@ class RowsTest {
 			}
 			for (int round = 0; round < 50; round++) {
 				if (round == 25) {
-					copy.setMatrix(other);
-					fields.setMatrix(other);
+					copy.setMatrix(ScoreMatrix.of(other));
+					fields.setMatrix(ScoreMatrix.of(other));
 				}
 				// A random query, and a mutated copy of it as the subject, between sentinels as in the database.
 				int len = 60 + random.nextInt(200);

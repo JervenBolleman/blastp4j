@@ -31,8 +31,8 @@ public final class GappedAligner {
 	static final int HSP_MAX_WINDOW = 11;
 
 	private static final int N = Blosum62.SIZE;
-	/** The scores, {@code matrix[query * N + subject]}; BLOSUM62 unless set otherwise. */
-	private final int[] matrix = new int[N * N];
+	/** The score matrix; BLOSUM62 unless set otherwise. */
+	private ScoreMatrix matrix = ScoreMatrix.BLOSUM62;
 	private final int gapOpen, gapExtend;
 
 	private int[] best = new int[256], bestGap = new int[256];
@@ -53,12 +53,12 @@ public final class GappedAligner {
 
 	private final EditScript left = new EditScript(), right = new EditScript();
 	/**
-	 * The row loop, with this aligner's gap costs as constants where that can be done ({@link Rows#of}): with BLOSUM62
-	 * as constants too, while the matrix is BLOSUM62, and with the matrix field once {@link #setMatrix} changed it.
+	 * The row loops, with this aligner's gap costs as constants where that can be done ({@link Rows#of}): with BLOSUM62
+	 * as constants too, and reading the matrix field for any other matrix.
 	 */
 	private final RowLoops rowLoops, rowLoopsBlosum62;
-	/** Whether {@link #matrix} is still BLOSUM62. */
-	private boolean blosum62 = true;
+	/** The row loop for {@link #matrix}. */
+	private RowLoops rows;
 
 	/**
 	 * @param gapOpen   BLAST's gap open cost (11): a gap of k letters costs {@code gapOpen + k * gapExtend}
@@ -75,19 +75,13 @@ public final class GappedAligner {
 		this.gapExtend = gapExtend;
 		this.rowLoops = rowLoops;
 		this.rowLoopsBlosum62 = rowLoopsBlosum62;
-		for (int a = 0; a < N; a++) {
-			for (int b = 0; b < N; b++) {
-				matrix[a * N + b] = Blosum62.score(a, b);
-			}
-		}
+		this.rows = rowLoopsBlosum62;
 	}
 
-	/** Uses {@code m[query][subject]} (28 x 28) as the score matrix from now on. */
-	public void setMatrix(int[][] m) {
-		blosum62 = false;
-		for (int a = 0; a < N; a++) {
-			System.arraycopy(m[a], 0, matrix, a * N, N);
-		}
+	/** Uses {@code m} as the score matrix from now on. */
+	public void setMatrix(ScoreMatrix m) {
+		matrix = m;
+		rows = m == ScoreMatrix.BLOSUM62 ? rowLoopsBlosum62 : rowLoops;
 	}
 
 	private void ensureDp(int n) {
@@ -153,7 +147,7 @@ public final class GappedAligner {
 			dp[2 * i + 1] = score - goe;
 			score -= gapExtend;
 		}
-		return (blosum62 ? rowLoopsBlosum62 : rowLoops).rows(this, a, aBase, m, n, reverse, xDrop, i);
+		return rows.rows(this, a, aBase, m, n, reverse, xDrop, i);
 	}
 
 
@@ -168,7 +162,7 @@ public final class GappedAligner {
 		}
 		ensureDp(n + 2);
 		final int[] best = this.best, bestGap = this.bestGap;
-		final int[] mat = matrix;
+		final int[] mat = matrix.scores;
 		int score = -goe;
 		best[0] = 0;
 		bestGap[0] = -goe;
@@ -453,7 +447,7 @@ public final class GappedAligner {
 		if (qLength <= HSP_MAX_WINDOW) {
 			return qStart + qLength / 2;
 		}
-		final int[] mat = matrix;
+		final int[] mat = matrix.scores;
 		int hspEnd = qStart + HSP_MAX_WINDOW;
 		int q = qStart, s = subjectBase + sStart;
 		int score = 0;
@@ -483,7 +477,7 @@ public final class GappedAligner {
 	 */
 	public int[] offsetsForGapped(byte[] query, byte[] residues, int subjectBase, int qOffset, int qEnd, int sOffset,
 			int sEnd) {
-		final int[] mat = matrix;
+		final int[] mat = matrix.scores;
 		int qLength = qEnd - qOffset, sLength = sEnd - sOffset;
 		if (qLength <= HSP_MAX_WINDOW) {
 			return new int[] { qOffset + qLength / 2, sOffset + qLength / 2 };
@@ -532,7 +526,7 @@ public final class GappedAligner {
 	private int alignExRows(byte[] a, int aBase, int m, byte[] bs, int n, boolean reverse, int xDrop, int goe, int ext,
 			int bSize, EditScript ops) {
 		final int[] best = this.best, bestGap = this.bestGap;
-		final int[] mat = matrix;
+		final int[] mat = matrix.scores;
 		final int numExtraCells = ext > 0 ? xDrop / ext + 3 : n + 3;
 		byte[] tb = trace;
 		int score;
@@ -765,7 +759,7 @@ public final class GappedAligner {
 		public int rows(GappedAligner g, byte[] a, int aBase, int m, int n, boolean reverse, int xDrop, int bSize) {
 			final int goe = this.goe, ext = this.ext;
 			final int[] dp = g.dp;
-			final int[] mat = g.matrix, fixed = MATRIX;
+			final int[] mat = g.matrix.scores, fixed = MATRIX;
 			final byte[] bs = g.bLetters;
 			// The scores of A's current letter. Allocated here with a constant length, so that C2 knows an index masked
 			// with 31 is in bounds and does not check it every cell.

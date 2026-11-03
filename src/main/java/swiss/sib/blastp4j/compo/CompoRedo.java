@@ -5,6 +5,7 @@ import java.util.List;
 
 import swiss.sib.blastp4j.align.GappedAligner;
 import swiss.sib.blastp4j.align.Hsp;
+import swiss.sib.blastp4j.align.ScoreMatrix;
 import swiss.sib.blastp4j.stats.Statistics;
 import swiss.sib.blastp4j.stats.UngappedKarlin;
 
@@ -56,7 +57,7 @@ public final class CompoRedo {
 	 * subject, and the last matrix adjusted for this subject (null if none).
 	 */
 	public record Result(List<Hsp> hsps, double bestEvalue, int bestScaledScore, boolean usedInheritedMatrix,
-			int[][] finalMatrix) {
+			ScoreMatrix finalMatrix) {
 	}
 
 	private final Query query;
@@ -106,7 +107,7 @@ public final class CompoRedo {
 	 * matrix; when null, such alignments use the matrix this instance used last, and the result reports it.
 	 */
 	public Result redo(List<Hsp> prelim, byte[] residues, int base, int length, double evalueCutoff,
-			int[][] inherited) {
+			ScoreMatrix inherited) {
 		if (inherited != null) {
 			aligner.setMatrix(inherited);
 		}
@@ -115,7 +116,7 @@ public final class CompoRedo {
 		List<Align> alignments = new ArrayList<>(); // head first
 		byte[] subject = null;
 		boolean subjectMaybeBiased = true, nearIdentical = true, oldNearIdentical = false, stale = false;
-		boolean adjusted = false; // whether the matrix holds an adjustment for this subject
+		ScoreMatrix adjustedMatrix = null; // the last adjustment for this subject
 		int numAdjustments = 0;
 		Align first = toAlign(prelim.get(0));
 		for (int h = 0; h < prelim.size(); h++) {
@@ -141,13 +142,13 @@ public final class CompoRedo {
 							query.composition, queryLength, sc, length, query.matrixInfo, workspace);
 					failed = adj.status() != 0;
 					if (!failed) {
-						aligner.setMatrix(matrix);
-						adjusted = true;
+						adjustedMatrix = ScoreMatrix.of(matrix);
+						aligner.setMatrix(adjustedMatrix);
 					}
 					numAdjustments++;
 				}
 				if (!failed) {
-					if (!adjusted) {
+					if (adjustedMatrix == null) {
 						stale = true; // BLAST would use the matrix of an earlier subject here
 					}
 					Hsp p = in.hsp;
@@ -164,13 +165,7 @@ public final class CompoRedo {
 			}
 			oldNearIdentical = nearIdentical;
 		}
-		int[][] finalMatrix = null;
-		if (adjusted) {
-			finalMatrix = new int[matrix.length][];
-			for (int i = 0; i < matrix.length; i++) {
-				finalMatrix[i] = matrix[i].clone();
-			}
-		}
+		final ScoreMatrix finalMatrix = adjustedMatrix;
 		if (alignments.isEmpty()) {
 			return new Result(List.of(), Double.MAX_VALUE, 0, stale, finalMatrix);
 		}
