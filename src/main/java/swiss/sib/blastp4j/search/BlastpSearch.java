@@ -368,11 +368,10 @@ public final class BlastpSearch {
 
 		CompoHeap<Hit> heap = new CompoHeap<>(hitlistSize, INCLUSION_ETHRESH);
 		// BLAST's thread-local matrix: unscaled BLOSUM62 until the first successful adjustment.
-		final int n = swiss.sib.blastp4j.stats.Blosum62.SIZE;
-		int[] current = new int[n * n];
-		for (int a = 0; a < n; a++) {
-			for (int b = 0; b < n; b++) {
-				current[a * n + b] = swiss.sib.blastp4j.stats.Blosum62.score(a, b);
+		int[][] current = new int[swiss.sib.blastp4j.stats.Blosum62.SIZE][swiss.sib.blastp4j.stats.Blosum62.SIZE];
+		for (int a = 0; a < current.length; a++) {
+			for (int b = 0; b < current.length; b++) {
+				current[a][b] = swiss.sib.blastp4j.stats.Blosum62.score(a, b);
 			}
 		}
 		CompoRedo sequential = null;

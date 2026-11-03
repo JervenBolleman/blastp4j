@@ -56,7 +56,7 @@ public final class CompoRedo {
 	 * subject, and the last matrix adjusted for this subject (null if none).
 	 */
 	public record Result(List<Hsp> hsps, double bestEvalue, int bestScaledScore, boolean usedInheritedMatrix,
-			int[] finalMatrix) {
+			int[][] finalMatrix) {
 	}
 
 	private final Query query;
@@ -66,8 +66,7 @@ public final class CompoRedo {
 	private final double nearIdenticalCutoff;
 	private final GappedAligner aligner;
 	private final CompositionAdjustment.Workspace workspace = new CompositionAdjustment.Workspace();
-	/** The adjusted matrix, row-major. */
-	private final int[] matrix = new int[CompositionAdjustment.ALPHSIZE * CompositionAdjustment.ALPHSIZE];
+	private final int[][] matrix = new int[CompositionAdjustment.ALPHSIZE][CompositionAdjustment.ALPHSIZE];
 	private final Seg seg = Seg.forCompositionBasedStatistics();
 
 	/**
@@ -107,7 +106,7 @@ public final class CompoRedo {
 	 * matrix; when null, such alignments use the matrix this instance used last, and the result reports it.
 	 */
 	public Result redo(List<Hsp> prelim, byte[] residues, int base, int length, double evalueCutoff,
-			int[] inherited) {
+			int[][] inherited) {
 		if (inherited != null) {
 			aligner.setMatrix(inherited);
 		}
@@ -165,7 +164,13 @@ public final class CompoRedo {
 			}
 			oldNearIdentical = nearIdentical;
 		}
-		final int[] finalMatrix = adjusted ? matrix.clone() : null;
+		int[][] finalMatrix = null;
+		if (adjusted) {
+			finalMatrix = new int[matrix.length][];
+			for (int i = 0; i < matrix.length; i++) {
+				finalMatrix[i] = matrix[i].clone();
+			}
+		}
 		if (alignments.isEmpty()) {
 			return new Result(List.of(), Double.MAX_VALUE, 0, stale, finalMatrix);
 		}

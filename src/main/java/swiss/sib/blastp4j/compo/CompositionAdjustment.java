@@ -75,8 +75,8 @@ public final class CompositionAdjustment {
 
 	/** The scaled starting matrix and its frequency ratios ({@code Blast_MatrixInfo}). */
 	public static final class MatrixInfo {
-		/** 29 rows of {@link #ALPHSIZE}, row-major: the last is all SCORE_MIN. */
-		final int[] startMatrix = new int[(ALPHSIZE + 1) * ALPHSIZE];
+		/** 29 rows: the last is all SCORE_MIN. */
+		final int[][] startMatrix = new int[ALPHSIZE + 1][ALPHSIZE];
 		final double[][] startFreqRatios = new double[ALPHSIZE + 1][ALPHSIZE];
 		final double ungappedLambda;
 
@@ -88,7 +88,7 @@ public final class CompositionAdjustment {
 		 */
 		public MatrixInfo(double idealLambda, double scale) {
 			for (int i = 0; i < ALPHSIZE; i++) {
-				startMatrix[ALPHSIZE * ALPHSIZE + i] = SCORE_MIN;
+				startMatrix[ALPHSIZE][i] = SCORE_MIN;
 				startFreqRatios[ALPHSIZE][i] = SCORE_MIN;
 			}
 			ungappedLambda = idealLambda / scale;
@@ -100,14 +100,18 @@ public final class CompositionAdjustment {
 				double[] row = startFreqRatios[i].clone();
 				freqRatioToScore(row, ungappedLambda);
 				for (int j = 0; j < ALPHSIZE; j++) {
-					startMatrix[i * ALPHSIZE + j] = round(row[j]);
+					startMatrix[i][j] = round(row[j]);
 				}
 			}
 		}
 
-		/** The starting (unadjusted) matrix, scaled: {@link #ALPHSIZE} x {@link #ALPHSIZE}, row-major. */
-		public int[] startMatrix() {
-			return java.util.Arrays.copyOf(startMatrix, ALPHSIZE * ALPHSIZE);
+		/** The starting (unadjusted) matrix, scaled. */
+		public int[][] startMatrix() {
+			int[][] m = new int[ALPHSIZE][];
+			for (int i = 0; i < ALPHSIZE; i++) {
+				m[i] = startMatrix[i].clone();
+			}
+			return m;
 		}
 	}
 
@@ -162,10 +166,10 @@ public final class CompositionAdjustment {
 
 	/**
 	 * {@code Blast_AdjustScores} with composition mode 2 and no composition p-value: fills {@code matrix} (28 x 28,
-	 * row-major, scaled) with the adjusted matrix. Status 0 on success, 1 when no adjustment is possible (the matrix is then
+	 * scaled) with the adjusted matrix. Status 0 on success, 1 when no adjustment is possible (the matrix is then
 	 * unchanged).
 	 */
-	public static Adjustment adjustScores(int[] matrix, Composition query, int queryLength, Composition subject,
+	public static Adjustment adjustScores(int[][] matrix, Composition query, int queryLength, Composition subject,
 			int subjectLength, MatrixInfo info, Workspace ws) {
 		if (query.numTrueAminoAcids() == 0 || subject.numTrueAminoAcids() == 0) {
 			return new Adjustment(1, Rule.DONT_ADJUST, 0);
@@ -256,7 +260,7 @@ public final class CompositionAdjustment {
 	}
 
 	/** {@code Blast_CompositionMatrixAdj}. */
-	static int compositionMatrixAdj(int[] matrix, Rule rule, int length1, int length2, double[] stdRowProbs,
+	static int compositionMatrixAdj(int[][] matrix, Rule rule, int length1, int length2, double[] stdRowProbs,
 			double[] stdColProbs, int pseudocounts, double specifiedRE, Workspace ws, MatrixInfo info) {
 		double[] rowProbs = gather(stdRowProbs), colProbs = gather(stdColProbs);
 		double desiredRe;
@@ -297,7 +301,7 @@ public final class CompositionAdjustment {
 	}
 
 	/** {@code s_ScoresStdAlphabet}. */
-	private static void scoresStdAlphabet(int[] matrix, double[][] targetFreq, int[] startMatrix,
+	private static void scoresStdAlphabet(int[][] matrix, double[][] targetFreq, int[][] startMatrix,
 			double[] rowProb, double[] colProb, double lambda) {
 		double[] rowStd = unpack(rowProb), colStd = unpack(colProb);
 		double[][] scores = new double[ALPHSIZE][ALPHSIZE];
@@ -347,24 +351,18 @@ public final class CompositionAdjustment {
 		}
 		setXUOScores(scores, rowStd, colStd);
 		roundInto(matrix, scores);
-		stopScores(matrix, startMatrix);
+		for (int i = 0; i < ALPHSIZE; i++) {
+			matrix[i][STOP] = startMatrix[i][STOP];
+			matrix[STOP][i] = startMatrix[STOP][i];
+		}
 	}
 
-	private static void roundInto(int[] matrix, double[][] scores) {
+	private static void roundInto(int[][] matrix, double[][] scores) {
 		for (int p = 0; p < ALPHSIZE; p++) {
-			final double[] row = scores[p];
 			for (int c = 0; c < ALPHSIZE; c++) {
-				matrix[p * ALPHSIZE + c] = round(row[c]);
+				matrix[p][c] = round(scores[p][c]);
 			}
 		}
-	}
-
-	/** The stop codon's row and column of {@code matrix} from the starting matrix. */
-	private static void stopScores(int[] matrix, int[] startMatrix) {
-		for (int i = 0; i < ALPHSIZE; i++) {
-			matrix[i * ALPHSIZE + STOP] = startMatrix[i * ALPHSIZE + STOP];
-		}
-		System.arraycopy(startMatrix, STOP * ALPHSIZE, matrix, STOP * ALPHSIZE, ALPHSIZE);
 	}
 
 	/** {@code s_CalcAvgScore} over row {@code i} (or column, when {@code column}). */
@@ -414,12 +412,12 @@ public final class CompositionAdjustment {
 	 * {@code Blast_CompositionBasedStats}: scales the starting matrix so that its ungapped lambda in the context of the
 	 * two compositions equals the standard one; returns the lambda ratio.
 	 */
-	static double compositionBasedStats(int[] matrix, MatrixInfo info, double[] queryProb, double[] resProb) {
+	static double compositionBasedStats(int[][] matrix, MatrixInfo info, double[] queryProb, double[] resProb) {
 		// s_GetMatrixScoreProbs
 		int minScore = 0, maxScore = 0;
 		for (int irow = 0; irow < ALPHSIZE; irow++) {
 			for (int aa = 0; aa < NUM_TRUE_AA; aa++) {
-				int v = info.startMatrix[irow * ALPHSIZE + TRUE_CHAR_POSITIONS[aa]];
+				int v = info.startMatrix[irow][TRUE_CHAR_POSITIONS[aa]];
 				if (v < minScore && v > SCORE_MIN) {
 					minScore = v;
 				}
@@ -432,7 +430,7 @@ public final class CompositionAdjustment {
 		for (int irow = 0; irow < ALPHSIZE; irow++) {
 			for (int aa = 0; aa < NUM_TRUE_AA; aa++) {
 				int jcol = TRUE_CHAR_POSITIONS[aa];
-				int v = info.startMatrix[irow * ALPHSIZE + jcol];
+				int v = info.startMatrix[irow][jcol];
 				if (v >= minScore) {
 					scoreProb[v - minScore] += queryProb[irow] * resProb[jcol];
 				}
@@ -457,7 +455,10 @@ public final class CompositionAdjustment {
 			}
 			setXUOScores(scores, queryProb, resProb);
 			roundInto(matrix, scores);
-			stopScores(matrix, info.startMatrix);
+			for (int i = 0; i < ALPHSIZE; i++) {
+				matrix[i][STOP] = info.startMatrix[i][STOP];
+				matrix[STOP][i] = info.startMatrix[STOP][i];
+			}
 		}
 		return ratio;
 	}
