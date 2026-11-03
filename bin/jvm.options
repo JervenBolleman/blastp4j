@@ -18,7 +18,3 @@
 -XX:CompileCommand=dontinline,swiss.sib.blastp4j.compo.OptimizeTargetFreq::*
 # The word finder uses the Vector API, an incubator module, which the JVM then reports with a warning on stderr.
 --add-modules=jdk.incubator.vector
-# Final instance fields trusted as constants by the JIT (experimental): HotSpot otherwise trusts only those of records,
-# hidden classes and some JDK classes, until JEP 500's successor makes final mean final.
--XX:+UnlockExperimentalVMOptions
--XX:+TrustFinalNonStaticFields
