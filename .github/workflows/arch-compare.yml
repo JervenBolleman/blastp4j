@@ -14,8 +14,8 @@
 # The database is the Phaseolus vulgaris reference proteome (UP000000226); the queries are its first QUERIES proteins.
 #
 # The report: each job's sections and machine (CPU model included) go to its step summary and to report/ (the
-# report-<arch> artifact); the report job builds an HTML page from them (.github/scripts/report.py) and deploys it to
-# GitHub Pages.
+# report-<arch> artifact); the report job builds an HTML page from them (.github/scripts/report.py), adds it to the
+# reports branch as runs/<run id>/ with an index of all runs, and deploys that branch to GitHub Pages.
 #
 # Hosted runners are virtual machines: hardware counters are usually missing and wall times are noisy, so compare
 # the ratios between BLAST+ and blastp4j within one job, not times across jobs. ARM runners are free for public
@@ -303,8 +303,12 @@ jobs:
     needs: compare
     if: always()
     runs-on: ubuntu-24.04
+    # One at a time: each run adds its report to the reports branch.
+    concurrency:
+      group: reports
+      cancel-in-progress: false
     permissions:
-      contents: read
+      contents: write
       pages: write
       id-token: write
     environment:
@@ -314,14 +318,39 @@ jobs:
       - uses: actions/checkout@v7
         with:
           sparse-checkout: .github/scripts
+          path: code
       - uses: actions/download-artifact@v8
         with:
           pattern: report-*
           path: reports
-      - name: Build the page
+      # The reports branch holds every run's report (runs/<run id>/) and the index; it is created on the first run.
+      - name: Reports branch
         env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          url="https://x-access-token:$GH_TOKEN@github.com/${{ github.repository }}.git"
+          if git ls-remote --exit-code --heads "$url" reports >/dev/null; then
+            git clone -q --depth 1 --branch reports "$url" site
+          else
+            git init -q -b reports site
+            git -C site remote add origin "$url"
+          fi
+      - name: Build the pages
+        env:
+          RUN_ID: ${{ github.run_id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: python3 .github/scripts/report.py site reports/*
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          python3 code/.github/scripts/report.py run "site/runs/$RUN_ID" reports/*
+          python3 code/.github/scripts/report.py index site
+      - name: Push the reports branch
+        working-directory: site
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Report of run ${{ github.run_id }} ($(git -C ../code rev-parse --short HEAD))"
+          git push -q origin reports
       - uses: actions/upload-pages-artifact@v5
         with:
           path: site

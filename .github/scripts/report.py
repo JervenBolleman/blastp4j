@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
-"""Builds the HTML report of an architecture comparison run (.github/workflows/arch-compare.yml).
+"""Builds the HTML reports of the architecture comparison runs (.github/workflows/arch-compare.yml).
 
-Usage: report.py OUT_DIR JOB_DIR...
+Usage: report.py run OUT_DIR JOB_DIR...
+       report.py index SITE_DIR
 
-Each JOB_DIR is one job's report directory:
+"run" builds one run's report. Each JOB_DIR is one job's report directory:
   machine.txt      key: value lines (architecture, CPU model, cores, memory, runner image, JDK, BLAST+, commits)
   report.md        the job's Markdown sections, as written to the step summary
   full-search.txt  the output of bin/compare-blastp.sh
   jvm-profile.html the async-profiler flame graph (optional)
+It writes OUT_DIR/index.html, with a summary table of the full searches on top, OUT_DIR/summary.json with that table's
+numbers, and each flame graph as OUT_DIR/<architecture>/jvm-profile.html. The Markdown is the small subset the
+workflow writes (headings, paragraphs, fenced code, pipe tables, inline code), so no Markdown library is needed.
 
-Writes OUT_DIR/index.html, with a summary table of the full searches on top, and copies each flame graph to
-OUT_DIR/<architecture>/jvm-profile.html. The Markdown is the small subset the workflow writes (headings, paragraphs,
-fenced code, pipe tables, inline code), so no Markdown library is needed.
+"index" writes SITE_DIR/index.html: every run in SITE_DIR/runs/*/summary.json, newest first.
+
+Settings (environment, for "run"): RUN_ID, RUN_URL, REPO_URL (for links to the commits), RUN_DATE (default now).
 """
+import datetime
+import json
 import html
 import os
 import re
@@ -20,6 +26,7 @@ import shutil
 import sys
 
 RUN_URL = os.environ.get("RUN_URL", "")
+REPO_URL = os.environ.get("REPO_URL", "")
 
 
 def read(path):
@@ -111,13 +118,72 @@ def full_search(text):
 
 
 def ratio(a, b):
-    return f"{a / b:.2f}×" if a and b else "–"
+    return a / b if a and b else None
 
 
-def main():
-    out, jobs = sys.argv[1], sys.argv[2:]
+def times(r):
+    return f"{r:.2f}×" if r else "–"
+
+
+STYLE = """
+:root { --bg: #fdfdfc; --fg: #1d1d1b; --muted: #66645e; --line: #dddad3; --head: #f1efe9; --accent: #2f5d8a; --bad: #b3261e; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #17181a; --fg: #e6e4df; --muted: #a09d96; --line: #34363a; --head: #222428; --accent: #8db7e0; --bad: #f2867d; }
+}
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 1100px; padding: 24px 16px 64px; }
+h1 { font-size: 1.6rem; margin: 0 0 4px; }
+h2 { font-size: 1.3rem; margin-top: 2.5rem; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+h3, h4 { font-size: 1.05rem; margin-top: 1.6rem; }
+a { color: var(--accent); }
+.muted { color: var(--muted); }
+.bad { color: var(--bad); }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; font-size: 13px; margin: 8px 0; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--head); }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+pre { background: var(--head); border: 1px solid var(--line); padding: 8px 10px; overflow-x: auto; font-size: 12px; }
+code { font-size: 0.9em; }
+dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px 16px; font-size: 13px; }
+dl.facts dt { color: var(--muted); }
+dl.facts dd { margin: 0; overflow-wrap: anywhere; }
+"""
+
+
+def page(title, body):
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{html.escape(title)}</title>
+<style>{STYLE}</style>
+</head>
+<body>
+{body}
+</body>
+</html>
+"""
+
+
+def write(path, text):
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def commit_link(code):
+    """The Code line of machine.txt ("`abc1234` (subject)") with the hash linked to the commit."""
+    m = re.match(r"`([0-9a-f]+)`\s*(.*)", code)
+    if not m:
+        return inline(code)
+    sha = html.escape(m.group(1))
+    link = f'<a href="{html.escape(REPO_URL)}/commit/{sha}"><code>{sha}</code></a>' if REPO_URL else f"<code>{sha}</code>"
+    return f"{link} {html.escape(m.group(2))}"
+
+
+def run(out, jobs):
     os.makedirs(out, exist_ok=True)
-    summary, sections, commits = [], [], set()
+    rows, summary, sections, commits = [], [], [], set()
     for job in sorted(jobs):
         m = machine(read(os.path.join(job, "machine.txt")))
         arch = m.get("Architecture", os.path.basename(job))
@@ -128,58 +194,39 @@ def main():
         if os.path.exists(os.path.join(job, "jvm-profile.html")):
             os.makedirs(os.path.join(out, arch), exist_ok=True)
             shutil.copy(os.path.join(job, "jvm-profile.html"), os.path.join(out, arch, "jvm-profile.html"))
-            profile = f'<a href="{html.escape(arch)}/jvm-profile.html">flame graph</a>'
+            profile = f"{arch}/jvm-profile.html"
+        row = {
+            "architecture": arch, "cpu": m.get("CPU model", "?"), "cpus": m.get("CPUs", "?"),
+            "blast_wall": wall.get("blast"), "jvm_wall": wall.get("jvm"), "ref_wall": wall.get("ref"),
+            "wall": ratio(wall.get("jvm"), wall.get("blast")),
+            "cycles": ratio(jvm.get("cycles"), blast.get("cycles")),
+            "instructions": ratio(jvm.get("instructions"), blast.get("instructions")),
+            "identical": identical, "profile": profile,
+        }
+        rows.append(row)
+        link = f'<a href="{html.escape(profile)}">flame graph</a>' if profile else ""
         summary.append(
             "<tr>"
-            f"<td>{html.escape(arch)}</td><td>{html.escape(m.get('CPU model', '?'))}</td>"
-            f"<td class=num>{html.escape(m.get('CPUs', '?'))}</td>"
-            f"<td class=num>{wall.get('blast', '–')}</td><td class=num>{wall.get('jvm', '–')}</td>"
-            f"<td class=num><b>{ratio(wall.get('jvm'), wall.get('blast'))}</b></td>"
-            f"<td class=num>{ratio(jvm.get('cycles'), blast.get('cycles'))}</td>"
-            f"<td class=num>{ratio(jvm.get('instructions'), blast.get('instructions'))}</td>"
-            + (f"<td class=num>{wall.get('ref', '–')}</td>" if "ref" in wall else "")
-            + f"<td>{'identical' if identical else '<b class=bad>different</b>'}</td><td>{profile}</td></tr>")
+            f"<td>{html.escape(arch)}</td><td>{html.escape(row['cpu'])}</td>"
+            f"<td class=num>{html.escape(row['cpus'])}</td>"
+            f"<td class=num>{row['blast_wall'] or '–'}</td><td class=num>{row['jvm_wall'] or '–'}</td>"
+            f"<td class=num><b>{times(row['wall'])}</b></td>"
+            f"<td class=num>{times(row['cycles'])}</td><td class=num>{times(row['instructions'])}</td>"
+            + (f"<td class=num>{row['ref_wall'] or '–'}</td>" if "ref" in wall else "")
+            + f"<td>{'identical' if identical else '<b class=bad>different</b>'}</td>"
+            f"<td>{link}</td></tr>")
         facts = "".join(f"<dt>{html.escape(k)}</dt><dd>{inline(v)}</dd>" for k, v in m.items())
         sections.append(
-            f'<section><h2 id="{html.escape(arch)}">{html.escape(arch)}: {html.escape(m.get("CPU model", ""))}</h2>'
+            f'<section><h2 id="{html.escape(arch)}">{html.escape(arch)}: {html.escape(row["cpu"])}</h2>'
             f'<dl class="facts">{facts}</dl>'
             + markdown(read(os.path.join(job, "report.md")), shift=1)
             + "</section>")
-    has_ref = any("ref median wall" in read(os.path.join(j, "full-search.txt")) for j in jobs)
-    commit = ", ".join(sorted(c for c in commits if c)) or "?"
-    page = f"""<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>blastp4j vs BLAST+</title>
-<style>
-:root {{ --bg: #fdfdfc; --fg: #1d1d1b; --muted: #66645e; --line: #dddad3; --head: #f1efe9; --accent: #2f5d8a; --bad: #b3261e; }}
-@media (prefers-color-scheme: dark) {{
-  :root {{ --bg: #17181a; --fg: #e6e4df; --muted: #a09d96; --line: #34363a; --head: #222428; --accent: #8db7e0; --bad: #f2867d; }}
-}}
-body {{ background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 1100px; padding: 24px 16px 64px; }}
-h1 {{ font-size: 1.6rem; margin: 0 0 4px; }}
-h2 {{ font-size: 1.3rem; margin-top: 2.5rem; border-bottom: 1px solid var(--line); padding-bottom: 4px; }}
-h3, h4 {{ font-size: 1.05rem; margin-top: 1.6rem; }}
-a {{ color: var(--accent); }}
-.muted {{ color: var(--muted); }}
-.bad {{ color: var(--bad); }}
-.scroll {{ overflow-x: auto; }}
-table {{ border-collapse: collapse; font-size: 13px; margin: 8px 0; }}
-th, td {{ border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }}
-th {{ background: var(--head); }}
-.num {{ text-align: right; font-variant-numeric: tabular-nums; }}
-pre {{ background: var(--head); border: 1px solid var(--line); padding: 8px 10px; overflow-x: auto; font-size: 12px; }}
-code {{ font-size: 0.9em; }}
-dl.facts {{ display: grid; grid-template-columns: max-content 1fr; gap: 2px 16px; font-size: 13px; }}
-dl.facts dt {{ color: var(--muted); }}
-dl.facts dd {{ margin: 0; overflow-wrap: anywhere; }}
-</style>
-</head>
-<body>
+    has_ref = any(r["ref_wall"] is not None for r in rows)
+    code = sorted(c for c in commits if c)
+    date = os.environ.get("RUN_DATE") or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    body = f"""<p class="muted"><a href="../../">All runs</a></p>
 <h1>blastp4j against BLAST+</h1>
-<p class="muted">Code {inline(commit)}{f' · <a href="{html.escape(RUN_URL)}">workflow run</a>' if RUN_URL else ''}.
+<p class="muted">{date} · code {", ".join(commit_link(c) for c in code) or "?"}{f' · <a href="{html.escape(RUN_URL)}">workflow run</a>' if RUN_URL else ''}.
 Hosted runners are virtual machines and differ from run to run: compare the ratios within one row, not times across runs.</p>
 <div class="scroll"><table>
 <thead><tr><th>architecture</th><th>CPU model</th><th class=num>CPUs</th><th class=num>BLAST+ wall s</th>
@@ -188,13 +235,51 @@ Hosted runners are virtual machines and differ from run to run: compare the rati
 <tbody>{''.join(summary)}</tbody>
 </table></div>
 <p class="muted">Wall times are medians of the full-search rounds; the ratios are blastp4j over BLAST+.</p>
-{''.join(sections)}
-</body>
-</html>
-"""
-    with open(os.path.join(out, "index.html"), "w", encoding="utf-8") as f:
-        f.write(page)
+{''.join(sections)}"""
+    write(os.path.join(out, "index.html"), page("blastp4j vs BLAST+, " + date, body))
+    write(os.path.join(out, "summary.json"), json.dumps(
+        {"run_id": os.environ.get("RUN_ID", os.path.basename(os.path.normpath(out))), "run_url": RUN_URL,
+         "date": date, "code": code, "rows": rows}, indent=1))
+
+
+def index(site):
+    runs = []
+    for d in os.listdir(os.path.join(site, "runs")) if os.path.isdir(os.path.join(site, "runs")) else []:
+        text = read(os.path.join(site, "runs", d, "summary.json"))
+        if text:
+            runs.append((d, json.loads(text)))
+    runs.sort(key=lambda r: r[1].get("date", ""), reverse=True)
+    trs = []
+    for d, s in runs:
+        rows = s.get("rows") or [{}]
+        for k, r in enumerate(rows):
+            tr = "<tr>"
+            if k == 0:
+                n = len(rows)
+                tr += (f'<td rowspan={n}><a href="runs/{html.escape(d)}/">{html.escape(s.get("date", d))}</a></td>'
+                       f'<td rowspan={n}>{", ".join(commit_link(c) for c in s.get("code", []))}</td>')
+            tr += (f"<td>{html.escape(r.get('architecture', '?'))}</td><td>{html.escape(r.get('cpu', '?'))}</td>"
+                   f"<td class=num>{html.escape(str(r.get('cpus', '?')))}</td>"
+                   f"<td class=num><b>{times(r.get('wall'))}</b></td><td class=num>{times(r.get('cycles'))}</td>"
+                   f"<td class=num>{times(r.get('instructions'))}</td>"
+                   f"<td>{'identical' if r.get('identical') else '<b class=bad>different</b>'}</td></tr>")
+            trs.append(tr)
+    body = f"""<h1>blastp4j against BLAST+</h1>
+<p class="muted">Every run of the architecture comparison workflow, newest first. The ratios are blastp4j over BLAST+ in
+the full search, measured in the same job. Hosted runners are virtual machines on varying CPUs, so compare runs on the
+same CPU model.</p>
+<div class="scroll"><table>
+<thead><tr><th>run</th><th>code</th><th>architecture</th><th>CPU model</th><th class=num>CPUs</th><th class=num>wall</th>
+<th class=num>cycles</th><th class=num>instructions</th><th>output</th></tr></thead>
+<tbody>{''.join(trs)}</tbody>
+</table></div>"""
+    write(os.path.join(site, "index.html"), page("blastp4j vs BLAST+", body))
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) >= 3 and sys.argv[1] == "run":
+        run(sys.argv[2], sys.argv[3:])
+    elif len(sys.argv) == 3 and sys.argv[1] == "index":
+        index(sys.argv[2])
+    else:
+        sys.exit(__doc__)

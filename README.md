@@ -496,7 +496,7 @@ Requires JDK 25 or newer and cssw4j installed in the local Maven repository (`mv
 classes are compiled for Java 25, so that GraalVM 25's native-image can build the native blastp4j. Runs and benchmarks
 use JDK 27 (C2) as the reference, as does the architecture comparison workflow; numbers measured on Temurin 25 say so.
 That workflow (`.github/workflows/arch-compare.yml`) runs BLAST+ and blastp4j on x86-64 and AArch64 runners and
-publishes its latest report, with each runner's CPU model, at <https://www.jerven.eu/blastp4j/>.
+publishes a report of each run, with each runner's CPU model, at <https://www.jerven.eu/blastp4j/>.
 
     mvn test
 
