@@ -15,3 +15,5 @@
 -XX:CompileCommand=inline,swiss.sib.blastp4j.align.GappedAligner::alignExRows
 # The word finder uses the Vector API, an incubator module, which the JVM then reports with a warning on stderr.
 --add-modules=jdk.incubator.vector
+# The composition classes compiled after a twentieth of the usual invocations: their stage starts late in a run.
+-XX:CompileCommand=CompileThresholdScaling,swiss.sib.blastp4j.compo.*::*,0.05
