@@ -388,6 +388,12 @@ site, where copies would make each hit a virtual call.
 that query's copy, held as a constant (class data) (bb46e1d, reverted). C2 does not inline the 24 cases into the scan,
 so every hit became a call to a separately compiled `probe`: 37% more cycles in the full search.
 
+*Kept:* the merged table's entries as one int each, query number and offset packed, as BLAST's table for a batch holds
+them (7eedf0a). Before, the query and the offset were in two arrays, so a hit could touch two cache lines: 3.6% fewer
+cycles in the full search (median of eight interleaved rounds). *Not built:* BLAST's backbone, with up to three entries
+inline in each word's cell. In the merged table of the 24 queries a non-empty word has 22.7 entries on average, and
+only 493 of 15,666 have three or fewer, so the inline entries would rarely be used.
+
 ## Gapped extension and traceback
 
 `align.GappedAligner`, `align.HspTree` and `search.BlastpSearch` follow BLAST+'s `blast_gapalign.c`, `blast_itree.c`,
@@ -477,6 +483,9 @@ The port, in `swiss.sib.blastp4j.compo`:
   20,000 Swiss-Prot sequences (`SegTest` uses a sample of 400).
 * `CompositionAdjustment` and `OptimizeTargetFreq` compute the adjusted matrices. `Blosum62Data` holds BLAST's
   BLOSUM62 joint probabilities and frequency ratios.
+  * *Tried, no difference:* the adjusted matrix as one `int[]` in the aligner's layout instead of `int[28][28]`
+    (12e552d, reverted). The code that fills it is about 0.15% of a full search's cycles; `CompoRedoBench` did not
+    change.
   * BLAST's own C code was compiled into a test harness: `reference/compo/build_harness.sh` downloads the library and
     builds `harness.c`.
   * Of 6,006 query/subject compositions, every adjusted matrix is identical to the C code's. One λ ratio differs in
