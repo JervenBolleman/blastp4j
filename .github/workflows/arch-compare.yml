@@ -4,7 +4,7 @@
 # Per architecture:
 # 1. Spills: the stack accesses in Blast_SemiGappedAlign and GappedAligner.semiGapped, static and weighted by
 #    cpu-clock samples (.github/scripts/compare-spills.sh); C2's code is printed with hsdis.
-# 2. A JMH benchmark (the BENCHMARK input, default GappedScoreBench) with this machine's options from bin/jvm.options
+# 2. The JMH benchmarks (the BENCHMARK input, default all) with this machine's options from bin/jvm.options
 #    plus each variant's own (the VARIANTS input), the variants interleaved over BENCH_ROUNDS rounds.
 # 3. A full search, BLAST+ and blastp4j interleaved (bin/compare-blastp.sh), with an async-profiler flame graph.
 # The code measured is the CODE input (a branch, tag or commit; default the ref the workflow runs from). With a
@@ -53,10 +53,10 @@ on:
         description: blastp4j branch, tag or commit (full 40-character SHA) to compare with in the same job; empty for none
         default: ""
       benchmark:
-        description: JMH benchmark (a regular expression) for the benchmark step
-        default: GappedScoreBench.gapped
+        description: JMH benchmarks (a regular expression) for the benchmark step; . for all
+        default: "."
       bench_args:
-        description: "Further JMH arguments for the benchmark step, such as -p query=HBA_HUMAN,BRCA1_HUMAN"
+        description: "Further JMH arguments for the benchmark step, such as -p query=HBA_HUMAN or -wi 5 -i 20 (default: each benchmark's own)"
         default: ""
 
 permissions:
@@ -68,7 +68,7 @@ env:
   ROUNDS: ${{ inputs.rounds || '3' }}
   VARIANTS: ${{ inputs.variants || 'launcher=;oops-on=-XX:+UseCompressedOops;oops-off=-XX:-UseCompressedOops' }}
   BENCH_ROUNDS: ${{ inputs.bench_rounds || '1' }}
-  BENCHMARK: ${{ inputs.benchmark || 'GappedScoreBench.gapped' }}
+  BENCHMARK: ${{ inputs.benchmark || '.' }}
   BENCH_ARGS: ${{ inputs.bench_args }}
   # The reference: the input, or for a push the commit main pointed to before it.
   REFERENCE: ${{ inputs.reference || (github.event_name == 'push' && github.event.before) || '' }}
@@ -90,7 +90,7 @@ jobs:
             blast: aarch64-linux
             profiler: linux-arm64
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 120
+    timeout-minutes: 180
     env:
       REPORT: ${{ github.workspace }}/report
     steps:
@@ -138,6 +138,9 @@ jobs:
             echo "Kernel: $(uname -r)"
             echo "Runner: ${{ matrix.runner }}, image $ImageOS $ImageVersion"
             echo "JDK: $(java -version 2>&1 | sed -n 2p)"
+            # What C2 vectorizes with here: AVX level or SVE, and the widest vector (bytes).
+            echo "JVM vectors: $(java -XX:+PrintFlagsFinal -version 2>/dev/null |
+              awk '$2 ~ /^(UseAVX|UseSVE|MaxVectorSize)$/ { printf "%s%s=%s", s, $2, $4; s = " " }')"
             echo "BLAST+: $BLAST_VERSION"
             echo "Code: \`$(git -C blastp4j rev-parse --short HEAD)\` ($(git -C blastp4j log -1 --format=%s | cut -c1-100))"
             if [ -d reference ]; then echo "Reference: \`$(git -C reference rev-parse --short HEAD)\`"; fi
@@ -210,9 +213,10 @@ jobs:
         run: |
           mkdir -p data/blastdb
           curl -sSfL "$PROTEOME_URL" | gunzip >data/proteome.fasta
-          # The benchmarks read <dir>/blastdb/sprot (GappedScoreBench) or <dir>/uniprot_sprot.fasta (SeedSearchBench).
+          # The benchmarks read <dir>/blastdb/sprot, <dir>/uniprot_sprot.fasta and (DatabaseLoadBench) its .gz.
           makeblastdb -in data/proteome.fasta -dbtype prot -parse_seqids -out data/blastdb/sprot >/dev/null
           ln -s proteome.fasta data/uniprot_sprot.fasta
+          gzip -c data/proteome.fasta >data/uniprot_sprot.fasta.gz
           awk -v n="$QUERIES" '/^>/ { if (++k > n) exit } { print }' data/proteome.fasta >data/queries.fasta
           echo "database: $(grep -c '^>' data/proteome.fasta) sequences; queries: $(grep -c '^>' data/queries.fasta)"
 
@@ -238,36 +242,32 @@ jobs:
                 # The benchmarks read their queries from the tree they run in.
                 (cd "${codes[$k]#*=}" &&
                   java --add-modules jdk.incubator.vector -cp "target/test-classes:target/classes:$(cat target/cp.txt)" \
-                    org.openjdk.jmh.Main "$BENCHMARK" -f 1 -wi 5 -i 20 $BENCH_ARGS \
+                    org.openjdk.jmh.Main "$BENCHMARK" $BENCH_ARGS \
                     -jvmArgsAppend "$(bin/jvm-options)-Dblastp4j.sprot=$data ${v#*=}" \
                     -rf csv -rff "$out/jmh-$k-${v%%=*}-$r.csv" >"$out/jmh-$k-${v%%=*}-$r.log" 2>&1)
               done
             done
           done
-          # One column per query, in the order of the first result.
-          queries="$(awk -F, 'NR > 1 { gsub(/["\r]/, ""); printf "%s ", $8 }' "target/jmh-0-${variants[0]%%=*}-1.csv")"
+          # One column per code, variant and round.
+          runs=()
+          for r in $(seq 1 "$BENCH_ROUNDS"); do
+            for v in "${variants[@]}"; do
+              for k in "${!codes[@]}"; do
+                label="${codes[$k]%%=*} ${v%%=*}"
+                [ "$BENCH_ROUNDS" -gt 1 ] && label+=" $r"
+                runs+=("$label=target/jmh-$k-${v%%=*}-$r.csv")
+              done
+            done
+          done
           {
             echo
-            echo "### $BENCHMARK (ms/op, one thread)"
+            echo "### Benchmarks: $BENCHMARK $BENCH_ARGS (one thread; score ± 99.9% error)"
             echo
             echo "bin/jvm-options: \`$base\`"
             echo
-            echo "| code | variant | options | round | ${queries// / | }"
-            echo "|---|---|---|--:|$(for q in $queries; do printf -- '--:|'; done)"
-            for r in $(seq 1 "$BENCH_ROUNDS"); do
-              for v in "${variants[@]}"; do
-                for k in "${!codes[@]}"; do
-                  awk -F, -v c="${codes[$k]%%=*}" -v l="${v%%=*}" -v o="${v#*=}" -v r="$r" -v q="$queries" '
-                    NR > 1 { gsub(/["\r]/, ""); s[$8] = sprintf("%.1f ± %.1f", $5, $6) }
-                    END {
-                      printf "| %s | %s | `%s` | %s |", c, l, o, r
-                      n = split(q, qs, " ")
-                      for (i = 1; i <= n; i++) printf " %s |", s[qs[i]]
-                      print ""
-                    }' "target/jmh-$k-${v%%=*}-$r.csv"
-                done
-              done
-            done
+            echo "Variants: $(for v in "${variants[@]}"; do printf '%s `%s`; ' "${v%%=*}" "${v#*=}"; done)"
+            echo
+            python3 .github/scripts/jmh-table.py "${runs[@]}"
           } | tee -a "$GITHUB_STEP_SUMMARY" "$REPORT/report.md"
 
       - name: Full search
