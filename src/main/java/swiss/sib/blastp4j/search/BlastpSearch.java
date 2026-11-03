@@ -64,6 +64,7 @@ public final class BlastpSearch {
 	 */
 	public static final int MIN_SUBJECT_LENGTH = 10;
 	private static final int CHUNK = 2048;
+	private static final int WARM_UP_CHUNKS = 2, WARM_UP_HITS = 1000;
 	private static final double LN2 = 0.69314718055994530941723212145818;
 
 	private final SequenceDatabase db;
@@ -240,6 +241,9 @@ public final class BlastpSearch {
 			cutoffs[i] = cutoff(qs[i]);
 		}
 		final BatchWordFinder.Table table = BatchWordFinder.Table.of(tables);
+		if (compositionBased) {
+			Thread.ofPlatform().daemon().name("blastp4j-warm-up").start(() -> warmUp(qs, seeds, tables, cutoffs));
+		}
 		AtomicInteger next = new AtomicInteger();
 		List<Callable<List<List<Hit>>>> prelimTasks = new ArrayList<>();
 		for (int t = 0; t < tasks; t++) {
@@ -260,6 +264,27 @@ public final class BlastpSearch {
 			kept.add(prelim.subList(0, Math.min(prelimHitlistSize, prelim.size())));
 		}
 		return kept;
+	}
+
+	/**
+	 * Gets the JIT to compile the composition-based stage while the preliminary stage runs, on a thread of its own:
+	 * otherwise that stage starts at the end of the run, and most of it runs before its code is compiled. Searches the
+	 * last {@link #WARM_UP_CHUNKS} chunks of the database for queries in turn, and redoes the hits with
+	 * composition-based statistics, up to {@link #WARM_UP_HITS} of them; the results are dropped.
+	 */
+	private void warmUp(byte[][] queries, SeedParameters[] seeds, LookupTable[] tables, int[] cutoffs) {
+		int left = WARM_UP_HITS;
+		byte[] subject = null;
+		for (int q = 0; q < queries.length && left > 0; q++) {
+			AtomicInteger next = new AtomicInteger(Math.max(0, (db.size() - 1) / CHUNK + 1 - WARM_UP_CHUNKS));
+			List<Hit> hits = prelim(queries[q], new WordFinder(queries[q], tables[q], seeds[q]), cutoffs[q], next);
+			CompoRedo redo = new CompoRedo(new CompoRedo.Query(queries[q]), statistics);
+			for (int k = 0; k < hits.size() && left > 0; k++, left--) {
+				Hit h = hits.get(k);
+				subject = db.withSentinels(h.subject(), subject);
+				redo.redo(h.hsps(), subject, 1, db.length(h.subject()), evalue, null);
+			}
+		}
 	}
 
 	/**
