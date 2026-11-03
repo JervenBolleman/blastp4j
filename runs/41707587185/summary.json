@@ -1,0 +1,37 @@
+{
+ "run_id": "41707587185",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/41707587185",
+ "date": "2026-11-03 20:10 UTC",
+ "event": "workflow_dispatch",
+ "code": [
+  "`5b96a04` (Experiment: the target-frequency optimizer inlined again, with its arrays flat)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 28.64,
+   "jvm_wall": 38.89,
+   "ref_wall": 38.38,
+   "wall": 1.357891061452514,
+   "cycles": 1.3079080201906896,
+   "instructions": 1.4322102581915015,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html"
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 9V74 80-Core Processor",
+   "cpus": "4",
+   "blast_wall": 41.67,
+   "jvm_wall": 50.43,
+   "ref_wall": 49.62,
+   "wall": 1.2102231821454283,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html"
+  }
+ ]
+}
