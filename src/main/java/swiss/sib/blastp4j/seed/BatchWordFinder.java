@@ -13,30 +13,37 @@ import java.util.List;
  */
 public final class BatchWordFinder {
 	/**
-	 * The queries' lookup tables merged: the hits of word {@code w} are entries {@code [start[w], start[w + 1])}, query
-	 * {@code query[k]} at offset {@code offset[k]}, by query and then as in that query's table.
+	 * The queries' lookup tables merged: the hits of word {@code w} are entries {@code [start[w], start[w + 1])}, by
+	 * query and then as in that query's table. An entry is one int, as in BLAST's table for a batch: the query number
+	 * shifted left by {@code shift}, or'ed with the query offset.
 	 */
-	public record Table(int[] start, int[] query, int[] offset) {
+	public record Table(int[] start, int[] entry, int shift) {
 		public static Table of(LookupTable[] tables) {
-			int total = 0;
+			int total = 0, longest = 1;
 			for (LookupTable t : tables) {
 				total += t.offsets().length;
+				for (int q : t.offsets()) {
+					longest = Math.max(longest, q + 1);
+				}
 			}
-			final int[] start = new int[LookupTable.WORDS + 1], query = new int[total], offset = new int[total];
+			final int shift = 32 - Integer.numberOfLeadingZeros(longest - 1);
+			if (tables.length > 1 && 31 - shift < 32 - Integer.numberOfLeadingZeros(tables.length - 1)) {
+				throw new IllegalArgumentException("a batch of " + tables.length + " queries with offsets up to "
+						+ longest + " does not fit an int entry");
+			}
+			final int[] start = new int[LookupTable.WORDS + 1], entry = new int[total];
 			int k = 0;
 			for (int w = 0; w < LookupTable.WORDS; w++) {
 				start[w] = k;
 				for (int i = 0; i < tables.length; i++) {
 					final int[] ts = tables[i].start(), to = tables[i].offsets();
 					for (int j = ts[w]; j < ts[w + 1]; j++) {
-						query[k] = i;
-						offset[k] = to[j];
-						k++;
+						entry[k++] = i << shift | to[j];
 					}
 				}
 			}
 			start[LookupTable.WORDS] = k;
-			return new Table(start, query, offset);
+			return new Table(start, entry, shift);
 		}
 	}
 
@@ -57,7 +64,8 @@ public final class BatchWordFinder {
 	 * those of query {@code i} to {@code out[i]}, as {@link WordFinder#find} does for one query.
 	 */
 	public void find(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
-		final int[] cellStart = table.start(), query = table.query(), offset = table.offset();
+		final int[] cellStart = table.start(), entry = table.entry();
+		final int shift = table.shift(), offsetMask = (1 << shift) - 1;
 		final WordFinder[] f = finders;
 		final int mask = LookupTable.WORDS - 1;
 		if (length >= LookupTable.WORD_SIZE) {
@@ -65,8 +73,8 @@ public final class BatchWordFinder {
 			for (int s = 0; s <= length - LookupTable.WORD_SIZE; s++) {
 				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
 				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
-					final int i = query[k];
-					f[i].probe(residues, start, length, offset[k], s, out[i]);
+					final int e = entry[k], i = e >>> shift;
+					f[i].probe(residues, start, length, e & offsetMask, s, out[i]);
 				}
 			}
 		}
