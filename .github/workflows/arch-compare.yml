@@ -25,6 +25,9 @@
 name: Architecture comparison
 
 on:
+  # Daily, on main with the default inputs, to build up a series of runs on the runners' varying CPUs.
+  schedule:
+    - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
       queries:
@@ -56,6 +59,13 @@ permissions:
   contents: read
 
 env:
+  # The inputs, with their defaults for the scheduled runs, which have no inputs.
+  QUERIES: ${{ inputs.queries || '500' }}
+  ROUNDS: ${{ inputs.rounds || '3' }}
+  VARIANTS: ${{ inputs.variants || 'launcher=;oops-on=-XX:+UseCompressedOops;oops-off=-XX:-UseCompressedOops' }}
+  BENCH_ROUNDS: ${{ inputs.bench_rounds || '1' }}
+  BENCHMARK: ${{ inputs.benchmark || 'GappedScoreBench.gapped' }}
+  BENCH_ARGS: ${{ inputs.bench_args }}
   BLAST_VERSION: 2.17.0
   JAVA_VERSION: "27"
   ASYNC_PROFILER_VERSION: "4.5"
@@ -83,7 +93,7 @@ jobs:
           ref: ${{ inputs.code }}
           path: blastp4j
       - uses: actions/checkout@v7
-        if: inputs.reference != ''
+        if: inputs.reference
         with:
           ref: ${{ inputs.reference }}
           path: reference
@@ -125,7 +135,7 @@ jobs:
             echo "BLAST+: $BLAST_VERSION"
             echo "Code: \`$(git -C blastp4j rev-parse --short HEAD)\` ($(git -C blastp4j log -1 --format=%s | cut -c1-100))"
             if [ -d reference ]; then echo "Reference: \`$(git -C reference rev-parse --short HEAD)\`"; fi
-            echo "Queries: ${{ inputs.queries }}; rounds: ${{ inputs.rounds }}"
+            echo "Queries: $QUERIES; rounds: $ROUNDS"
           } >"$REPORT/machine.txt"
           {
             echo "## $(uname -m) on ${{ matrix.runner }}"
@@ -197,7 +207,7 @@ jobs:
           # The benchmarks read <dir>/blastdb/sprot (GappedScoreBench) or <dir>/uniprot_sprot.fasta (SeedSearchBench).
           makeblastdb -in data/proteome.fasta -dbtype prot -parse_seqids -out data/blastdb/sprot >/dev/null
           ln -s proteome.fasta data/uniprot_sprot.fasta
-          awk -v n="${{ inputs.queries }}" '/^>/ { if (++k > n) exit } { print }' data/proteome.fasta >data/queries.fasta
+          awk -v n="$QUERIES" '/^>/ { if (++k > n) exit } { print }' data/proteome.fasta >data/queries.fasta
           echo "database: $(grep -c '^>' data/proteome.fasta) sequences; queries: $(grep -c '^>' data/queries.fasta)"
 
       - name: Spills
@@ -208,11 +218,6 @@ jobs:
 
       - name: Benchmark
         working-directory: blastp4j
-        env:
-          BENCHMARK: ${{ inputs.benchmark }}
-          BENCH_ARGS: ${{ inputs.bench_args }}
-          VARIANTS: ${{ inputs.variants }}
-          BENCH_ROUNDS: ${{ inputs.bench_rounds }}
         run: |
           base="$(bin/jvm-options)"
           data="$(cd ../data && pwd)"
@@ -275,7 +280,7 @@ jobs:
               export REF_JAR="$(ls "$PWD"/../reference/target/blastp4j-*.jar | grep -v -e sources -e javadoc | head -1)"
               echo "jvm: $(git rev-parse --short HEAD), ref: $(git -C ../reference rev-parse --short HEAD)"
             fi
-            QUERY=../data/queries.fasta DB=../data/blastdb/sprot THREADS="$(nproc)" ROUNDS="${{ inputs.rounds }}" OUT=target/compare \
+            QUERY=../data/queries.fasta DB=../data/blastdb/sprot THREADS="$(nproc)" ROUNDS="$ROUNDS" OUT=target/compare \
               ASYNC_PROFILER="$(ls "$PWD"/../async-profiler-*/lib/libasyncProfiler.so)" bin/compare-blastp.sh "${systems[@]}"
             } | tee "$REPORT/full-search.txt"
             echo '```'
@@ -338,6 +343,7 @@ jobs:
       - name: Build the pages
         env:
           RUN_ID: ${{ github.run_id }}
+          RUN_EVENT: ${{ github.event_name }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
         run: |

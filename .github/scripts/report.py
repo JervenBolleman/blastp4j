@@ -15,7 +15,8 @@ workflow writes (headings, paragraphs, fenced code, pipe tables, inline code), s
 
 "index" writes SITE_DIR/index.html: every run in SITE_DIR/runs/*/summary.json, newest first.
 
-Settings (environment, for "run"): RUN_ID, RUN_URL, REPO_URL (for links to the commits), RUN_DATE (default now).
+Settings (environment, for "run"): RUN_ID, RUN_URL, REPO_URL (for links to the commits), RUN_DATE (default now),
+RUN_EVENT (what started the run: schedule or workflow_dispatch).
 """
 import datetime
 import json
@@ -239,7 +240,7 @@ Hosted runners are virtual machines and differ from run to run: compare the rati
     write(os.path.join(out, "index.html"), page("blastp4j vs BLAST+, " + date, body))
     write(os.path.join(out, "summary.json"), json.dumps(
         {"run_id": os.environ.get("RUN_ID", os.path.basename(os.path.normpath(out))), "run_url": RUN_URL,
-         "date": date, "code": code, "rows": rows}, indent=1))
+         "date": date, "event": os.environ.get("RUN_EVENT", ""), "code": code, "rows": rows}, indent=1))
 
 
 def index(site):
@@ -256,7 +257,9 @@ def index(site):
             tr = "<tr>"
             if k == 0:
                 n = len(rows)
+                event = {"schedule": "daily", "workflow_dispatch": "manual"}.get(s.get("event", ""), "")
                 tr += (f'<td rowspan={n}><a href="runs/{html.escape(d)}/">{html.escape(s.get("date", d))}</a></td>'
+                       f'<td rowspan={n}>{event}</td>'
                        f'<td rowspan={n}>{", ".join(commit_link(c) for c in s.get("code", []))}</td>')
             tr += (f"<td>{html.escape(r.get('architecture', '?'))}</td><td>{html.escape(r.get('cpu', '?'))}</td>"
                    f"<td class=num>{html.escape(str(r.get('cpus', '?')))}</td>"
@@ -269,7 +272,7 @@ def index(site):
 the full search, measured in the same job. Hosted runners are virtual machines on varying CPUs, so compare runs on the
 same CPU model.</p>
 <div class="scroll"><table>
-<thead><tr><th>run</th><th>code</th><th>architecture</th><th>CPU model</th><th class=num>CPUs</th><th class=num>wall</th>
+<thead><tr><th>run</th><th>trigger</th><th>code</th><th>architecture</th><th>CPU model</th><th class=num>CPUs</th><th class=num>wall</th>
 <th class=num>cycles</th><th class=num>instructions</th><th>output</th></tr></thead>
 <tbody>{''.join(trs)}</tbody>
 </table></div>"""
