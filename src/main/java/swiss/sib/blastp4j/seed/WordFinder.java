@@ -40,7 +40,7 @@ import swiss.sib.blastp4j.stats.Blosum62;
  * <p>
  * Not thread safe: use one per thread.
  */
-public final class WordFinder implements WordScan, Probe {
+public final class WordFinder implements WordScan {
 	/** The copies by their constants. */
 	private static final Map<Key, MethodHandle> COPIES = new ConcurrentHashMap<>();
 
@@ -97,7 +97,7 @@ public final class WordFinder implements WordScan, Probe {
 	 * time). Graal does not compile a Vector API gather to a gather instruction, so there the table is read with scalar
 	 * loads; C2 does, and is faster with it.
 	 */
-	static final boolean NATIVE_IMAGE = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
+	private static final boolean NATIVE_IMAGE = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
 	/** Positions per block: one bit each in a long. */
 	private static final int BLOCK = 64;
 	/** The words of the current block of subject positions. */
@@ -321,8 +321,7 @@ public final class WordFinder implements WordScan, Probe {
 	 * One word hit of a scan done elsewhere ({@link BatchWordFinder}): query offset {@code q} at subject position
 	 * {@code s}, handled as {@link #find} handles each.
 	 */
-	@Override
-	public void probe(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
+	void probe(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
 		final int diag = (q - s) & diagMask;
 		final int state = diagState[diag];
 		if ((state & EXTENDED) == 0 && s - (state - diagOffset) >= window) {
@@ -333,8 +332,7 @@ public final class WordFinder implements WordScan, Probe {
 	}
 
 	/** The end of a subject of {@code length} letters scanned elsewhere, as at the end of {@link #find}. */
-	@Override
-	public void endSubject(int length) {
+	void endSubject(int length) {
 		// The next subject's positions start beyond everything stored so far.
 		if (diagOffset >= Integer.MAX_VALUE / 4) {
 			diagOffset = window;
