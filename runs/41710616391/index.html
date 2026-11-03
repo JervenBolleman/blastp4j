@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>blastp4j vs BLAST+, 2026-11-03 20:23 UTC</title>
+<style>
+:root { --bg: #fdfdfc; --fg: #1d1d1b; --muted: #66645e; --line: #dddad3; --head: #f1efe9; --accent: #2f5d8a; --bad: #b3261e; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #17181a; --fg: #e6e4df; --muted: #a09d96; --line: #34363a; --head: #222428; --accent: #8db7e0; --bad: #f2867d; }
+}
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 1100px; padding: 24px 16px 64px; }
+h1 { font-size: 1.6rem; margin: 0 0 4px; }
+h2 { font-size: 1.3rem; margin-top: 2.5rem; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+h3, h4 { font-size: 1.05rem; margin-top: 1.6rem; }
+a { color: var(--accent); }
+.muted { color: var(--muted); }
+.bad { color: var(--bad); }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; font-size: 13px; margin: 8px 0; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--head); }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+pre { background: var(--head); border: 1px solid var(--line); padding: 8px 10px; overflow-x: auto; font-size: 12px; }
+code { font-size: 0.9em; }
+dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px 16px; font-size: 13px; }
+dl.facts dt { color: var(--muted); }
+dl.facts dd { margin: 0; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<p class="muted"><a href="../../">All runs</a></p>
+<h1>blastp4j against BLAST+</h1>
+<p class="muted">2026-11-03 20:23 UTC · code <a href="https://github.com/JervenBolleman/blastp4j/commit/b6486ec"><code>b6486ec</code></a> (README: the composition matrices flat, and the optimizer still not inlined) · <a href="https://github.com/JervenBolleman/blastp4j/actions/runs/41710616391">workflow run</a>.
+Hosted runners are virtual machines and differ from run to run: compare the ratios within one row, not times across runs.</p>
+<div class="scroll"><table>
+<thead><tr><th>architecture</th><th>CPU model</th><th class=num>CPUs</th><th class=num>BLAST+ wall s</th>
+<th class=num>blastp4j wall s</th><th class=num>wall</th><th class=num>cycles</th><th class=num>instructions</th>
+<th>output</th><th></th></tr></thead>
+<tbody><tr><td>aarch64</td><td>Neoverse-N2</td><td class=num>4</td><td class=num>28.81</td><td class=num>38.8</td><td class=num><b>1.35×</b></td><td class=num>1.34×</td><td class=num>1.41×</td><td>identical</td><td><a href="aarch64/jvm-profile.html">flame graph</a></td></tr><tr><td>x86_64</td><td>AMD EPYC 9V74 80-Core Processor</td><td class=num>4</td><td class=num>42.24</td><td class=num>49.48</td><td class=num><b>1.17×</b></td><td class=num>–</td><td class=num>–</td><td>identical</td><td><a href="x86_64/jvm-profile.html">flame graph</a></td></tr></tbody>
+</table></div>
+<p class="muted">Wall times are medians of the full-search rounds; the ratios are blastp4j over BLAST+.</p>
+<section><h2 id="aarch64">aarch64: Neoverse-N2</h2><dl class="facts"><dt>Architecture</dt><dd>aarch64</dd><dt>CPU model</dt><dd>Neoverse-N2</dd><dt>Vendor</dt><dd>ARM</dd><dt>CPUs</dt><dd>4</dd><dt>Memory</dt><dd>15 GB</dd><dt>Kernel</dt><dd>7.0.0-1017-azure</dd><dt>Runner</dt><dd>ubuntu-24.04-arm, image ubuntu24-arm64 20261026.166.1</dd><dt>JDK</dt><dd>OpenJDK Runtime Environment Temurin-27.0.1.0.2+1 (build 27.0.1.0.2+1)</dd><dt>BLAST+</dt><dd>2.17.0</dd><dt>Code</dt><dd><code>b6486ec</code> (README: the composition matrices flat, and the optimizer still not inlined)</dd><dt>Queries</dt><dd>500; rounds: 3</dd></dl><p>Search outputs: identical. Stack accesses in the X-drop alignment function (aarch64):</p>
+<div class="scroll"><table><thead><tr><th>code</th><th class=num>instructions</th><th class=num>stack loads / stores</th><th class=num>in loops: instructions</th><th class=num>stack loads / stores</th><th class=num>samples</th><th class=num>on stack loads</th><th class=num>on stack stores</th></tr></thead><tbody><tr><td>BLAST+ Blast_SemiGappedAlign (GCC: (GNU) 11.5.0)</td><td class=num>319</td><td class=num>38 / 27</td><td class=num>204</td><td class=num>18 / 5</td><td class=num>92827</td><td class=num>1.5%</td><td class=num>0.1%</td></tr><tr><td>blastp4j semiGapped (C2, 27.0.1.0.2)</td><td class=num>806</td><td class=num>32 / 67</td><td class=num>238</td><td class=num>9 / 18</td><td class=num>9</td><td class=num>0.0%</td><td class=num>0.0%</td></tr></tbody></table></div>
+<h4>GappedScoreBench.gapped (ms/op, one thread)</h4>
+<p>bin/jvm-options: <code>-XX:-UseCountedLoopSafepoints -XX:CompileCommand=quiet -XX:CompileCommand=inline,swiss.sib.blastp4j.align.GappedAligner::alignExRows -XX:CompileCommand=dontinline,swiss.sib.blastp4j.compo.OptimizeTargetFreq::* --add-modules=jdk.incubator.vector </code></p>
+<div class="scroll"><table><thead><tr><th>code</th><th>variant</th><th>options</th><th class=num>round</th><th class=num>CDK1_HUMAN</th><th class=num>BRCA1_HUMAN</th></tr></thead><tbody><tr><td>main b6486ec</td><td>launcher</td><td><code></code></td><td class=num>1</td><td class=num>51.6 ± 0.1</td><td class=num>165.3 ± 0.5</td></tr><tr><td>main b6486ec</td><td>oops-on</td><td><code>-XX:+UseCompressedOops</code></td><td class=num>1</td><td class=num>51.6 ± 0.1</td><td class=num>165.2 ± 0.5</td></tr><tr><td>main b6486ec</td><td>oops-off</td><td><code>-XX:-UseCompressedOops</code></td><td class=num>1</td><td class=num>51.8 ± 0.3</td><td class=num>165.1 ± 0.5</td></tr></tbody></table></div>
+<h4>Full search, 4 threads</h4>
+<pre>systems: blast jvm; query ../data/queries.fasta; db ../data/blastdb/sprot; 4 threads; output in target/compare
+== timing, 3 rounds (wall s, user s, sys s)
+round 1 blast: 27.66 104.14 0.32 (reference)
+round 1 jvm: 38.80 137.69 0.37 (identical)
+round 2 blast: 29.06 106.49 0.30 (identical)
+round 2 jvm: 39.70 140.58 0.35 (identical)
+round 3 blast: 28.81 105.27 0.30 (identical)
+round 3 jvm: 38.02 135.22 0.33 (identical)
+blast median wall: 28.81 s
+jvm median wall: 38.80 s
+== perf stat
+blast: instructions:u=862.7G cycles:u=355.2G branches:u=159.8G branch-misses:u=7.6G (identical)
+jvm: instructions:u=1219.6G cycles:u=474.7G branches:u=152.5G branch-misses:u=6.0G (identical)
+== async-profiler (JVM)
+flame graph: target/compare/jvm-profile.html (identical)</pre></section><section><h2 id="x86_64">x86_64: AMD EPYC 9V74 80-Core Processor</h2><dl class="facts"><dt>Architecture</dt><dd>x86_64</dd><dt>CPU model</dt><dd>AMD EPYC 9V74 80-Core Processor</dd><dt>Vendor</dt><dd>AuthenticAMD</dd><dt>CPUs</dt><dd>4</dd><dt>Memory</dt><dd>15 GB</dd><dt>Kernel</dt><dd>7.0.0-1017-azure</dd><dt>Runner</dt><dd>ubuntu-24.04, image ubuntu24 20261026.354.1</dd><dt>JDK</dt><dd>OpenJDK Runtime Environment Temurin-27.0.1.0.2+1 (build 27.0.1.0.2+1)</dd><dt>BLAST+</dt><dd>2.17.0</dd><dt>Code</dt><dd><code>b6486ec</code> (README: the composition matrices flat, and the optimizer still not inlined)</dd><dt>Queries</dt><dd>500; rounds: 3</dd></dl><h4>GappedScoreBench.gapped (ms/op, one thread)</h4>
+<p>bin/jvm-options: <code>-XX:-UseCompressedOops -XX:-UseCountedLoopSafepoints -XX:CompileCommand=quiet -XX:CompileCommand=inline,swiss.sib.blastp4j.align.GappedAligner::alignExRows -XX:CompileCommand=dontinline,swiss.sib.blastp4j.compo.OptimizeTargetFreq::* --add-modules=jdk.incubator.vector </code></p>
+<div class="scroll"><table><thead><tr><th>code</th><th>variant</th><th>options</th><th class=num>round</th><th class=num>CDK1_HUMAN</th><th class=num>BRCA1_HUMAN</th></tr></thead><tbody><tr><td>main b6486ec</td><td>launcher</td><td><code></code></td><td class=num>1</td><td class=num>59.0 ± 0.2</td><td class=num>188.4 ± 0.9</td></tr><tr><td>main b6486ec</td><td>oops-on</td><td><code>-XX:+UseCompressedOops</code></td><td class=num>1</td><td class=num>57.2 ± 0.3</td><td class=num>184.2 ± 1.1</td></tr><tr><td>main b6486ec</td><td>oops-off</td><td><code>-XX:-UseCompressedOops</code></td><td class=num>1</td><td class=num>59.3 ± 0.2</td><td class=num>188.2 ± 0.9</td></tr></tbody></table></div>
+<h4>Full search, 4 threads</h4>
+<pre>systems: blast jvm; query ../data/queries.fasta; db ../data/blastdb/sprot; 4 threads; output in target/compare
+== timing, 3 rounds (wall s, user s, sys s)
+round 1 blast: 42.28 158.92 0.38 (reference)
+round 1 jvm: 49.43 180.00 0.98 (identical)
+round 2 blast: 42.03 159.35 0.36 (identical)
+round 2 jvm: 49.48 180.54 0.91 (identical)
+round 3 blast: 42.24 159.31 0.36 (identical)
+round 3 jvm: 49.87 181.71 0.89 (identical)
+blast median wall: 42.24 s
+jvm median wall: 49.48 s
+== perf stat
+skipped: no hardware counters (perf stat -e cycles:u)
+== async-profiler (JVM)
+flame graph: target/compare/jvm-profile.html (identical)</pre></section>
+</body>
+</html>

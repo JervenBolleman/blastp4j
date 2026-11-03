@@ -1,0 +1,37 @@
+{
+ "run_id": "41710616391",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/41710616391",
+ "date": "2026-11-03 20:23 UTC",
+ "event": "workflow_dispatch",
+ "code": [
+  "`b6486ec` (README: the composition matrices flat, and the optimizer still not inlined)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 28.81,
+   "jvm_wall": 38.8,
+   "ref_wall": null,
+   "wall": 1.3467545990975356,
+   "cycles": 1.3364301801801801,
+   "instructions": 1.4137011707430158,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html"
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 9V74 80-Core Processor",
+   "cpus": "4",
+   "blast_wall": 42.24,
+   "jvm_wall": 49.48,
+   "ref_wall": null,
+   "wall": 1.171401515151515,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html"
+  }
+ ]
+}
