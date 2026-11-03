@@ -8,7 +8,8 @@
 #    plus each variant's own (the VARIANTS input), the variants interleaved over BENCH_ROUNDS rounds.
 # 3. A full search, BLAST+ and blastp4j interleaved (bin/compare-blastp.sh), with an async-profiler flame graph.
 # The code measured is the CODE input (a branch, tag or commit; default the ref the workflow runs from). With a
-# REFERENCE, that blastp4j is built too and run in the same rounds of 2 and 3 with the same options: runners differ
+# REFERENCE (for a push to main, main before the push), that blastp4j is built too and run in the same rounds of 2
+# and 3, each with its own bin/jvm.options plus the same variant options: runners differ
 # from run to run (BLAST+ itself took 12% more cycles on one ARM runner than on another), so code is compared within
 # one job.
 # The database is the Phaseolus vulgaris reference proteome (UP000000226); the queries are its first QUERIES proteins.
@@ -28,6 +29,9 @@ on:
   # Daily, on main with the default inputs, to build up a series of runs on the runners' varying CPUs.
   schedule:
     - cron: "17 3 * * *"
+  # Each push to main, compared with main before the push.
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       queries:
@@ -66,6 +70,8 @@ env:
   BENCH_ROUNDS: ${{ inputs.bench_rounds || '1' }}
   BENCHMARK: ${{ inputs.benchmark || 'GappedScoreBench.gapped' }}
   BENCH_ARGS: ${{ inputs.bench_args }}
+  # The reference: the input, or for a push the commit main pointed to before it.
+  REFERENCE: ${{ inputs.reference || (github.event_name == 'push' && github.event.before) || '' }}
   BLAST_VERSION: 2.17.0
   JAVA_VERSION: "27"
   ASYNC_PROFILER_VERSION: "4.5"
@@ -93,9 +99,9 @@ jobs:
           ref: ${{ inputs.code }}
           path: blastp4j
       - uses: actions/checkout@v7
-        if: inputs.reference
+        if: env.REFERENCE
         with:
-          ref: ${{ inputs.reference }}
+          ref: ${{ env.REFERENCE }}
           path: reference
       - uses: actions/checkout@v7
         with:
@@ -223,7 +229,7 @@ jobs:
           data="$(cd ../data && pwd)"
           out="$PWD/target"
           IFS=';' read -ra variants <<<"$VARIANTS"
-          # The code: this checkout, and the reference when there is one, with the same options.
+          # The code: this checkout, and the reference when there is one, each with its own bin/jvm-options.
           codes=("$(git rev-parse --abbrev-ref HEAD | sed 's/^HEAD$/code/') $(git rev-parse --short HEAD)=$PWD")
           [ -d ../reference ] && codes+=("reference $(git -C ../reference rev-parse --short HEAD)=$(cd ../reference && pwd)")
           for r in $(seq 1 "$BENCH_ROUNDS"); do
@@ -233,7 +239,7 @@ jobs:
                 (cd "${codes[$k]#*=}" &&
                   java --add-modules jdk.incubator.vector -cp "target/test-classes:target/classes:$(cat target/cp.txt)" \
                     org.openjdk.jmh.Main "$BENCHMARK" -f 1 -wi 5 -i 20 $BENCH_ARGS \
-                    -jvmArgsAppend "$base-Dblastp4j.sprot=$data ${v#*=}" \
+                    -jvmArgsAppend "$(bin/jvm-options)-Dblastp4j.sprot=$data ${v#*=}" \
                     -rf csv -rff "$out/jmh-$k-${v%%=*}-$r.csv" >"$out/jmh-$k-${v%%=*}-$r.log" 2>&1)
               done
             done

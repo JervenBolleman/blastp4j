@@ -16,7 +16,7 @@ workflow writes (headings, paragraphs, fenced code, pipe tables, inline code), s
 "index" writes SITE_DIR/index.html: every run in SITE_DIR/runs/*/summary.json, newest first.
 
 Settings (environment, for "run"): RUN_ID, RUN_URL, REPO_URL (for links to the commits), RUN_DATE (default now),
-RUN_EVENT (what started the run: schedule or workflow_dispatch).
+RUN_EVENT (what started the run: schedule, push or workflow_dispatch).
 """
 import datetime
 import json
@@ -257,7 +257,7 @@ def index(site):
             tr = "<tr>"
             if k == 0:
                 n = len(rows)
-                event = {"schedule": "daily", "workflow_dispatch": "manual"}.get(s.get("event", ""), "")
+                event = {"schedule": "daily", "push": "push", "workflow_dispatch": "manual"}.get(s.get("event", ""), "")
                 tr += (f'<td rowspan={n}><a href="runs/{html.escape(d)}/">{html.escape(s.get("date", d))}</a></td>'
                        f'<td rowspan={n}>{event}</td>'
                        f'<td rowspan={n}>{", ".join(commit_link(c) for c in s.get("code", []))}</td>')
