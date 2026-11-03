@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>blastp4j vs BLAST+</title>
+<style>
+:root { --bg: #fdfdfc; --fg: #1d1d1b; --muted: #66645e; --line: #dddad3; --head: #f1efe9; --accent: #2f5d8a; --bad: #b3261e; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #17181a; --fg: #e6e4df; --muted: #a09d96; --line: #34363a; --head: #222428; --accent: #8db7e0; --bad: #f2867d; }
+}
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 1100px; padding: 24px 16px 64px; }
+h1 { font-size: 1.6rem; margin: 0 0 4px; }
+h2 { font-size: 1.3rem; margin-top: 2.5rem; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+h3, h4 { font-size: 1.05rem; margin-top: 1.6rem; }
+a { color: var(--accent); }
+.muted { color: var(--muted); }
+.bad { color: var(--bad); }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; font-size: 13px; margin: 8px 0; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--head); }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+pre { background: var(--head); border: 1px solid var(--line); padding: 8px 10px; overflow-x: auto; font-size: 12px; }
+code { font-size: 0.9em; }
+dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px 16px; font-size: 13px; }
+dl.facts dt { color: var(--muted); }
+dl.facts dd { margin: 0; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<h1>blastp4j against BLAST+</h1>
+<p class="muted">Every run of the architecture comparison workflow, newest first. The ratios are blastp4j over BLAST+ in
+the full search, measured in the same job. Hosted runners are virtual machines on varying CPUs, so compare runs on the
+same CPU model.</p>
+<div class="scroll"><table>
+<thead><tr><th>run</th><th>code</th><th>architecture</th><th>CPU model</th><th class=num>CPUs</th><th class=num>wall</th>
+<th class=num>cycles</th><th class=num>instructions</th><th>output</th></tr></thead>
+<tbody><tr><td rowspan=2><a href="runs/41588542426/">2026-11-03 06:13 UTC</a></td><td rowspan=2><code>6cfc5dd</code> (README: the warm-up once per JVM; the comparison report on GitHub Pages)</td><td>aarch64</td><td>Neoverse-N2</td><td class=num>4</td><td class=num><b>1.42×</b></td><td class=num>1.37×</td><td class=num>1.44×</td><td>identical</td></tr><tr><td>x86_64</td><td>AMD EPYC 9V74 80-Core Processor</td><td class=num>4</td><td class=num><b>1.21×</b></td><td class=num>–</td><td class=num>–</td><td>identical</td></tr></tbody>
+</table></div>
+</body>
+</html>

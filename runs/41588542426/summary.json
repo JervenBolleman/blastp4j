@@ -1,0 +1,36 @@
+{
+ "run_id": "41588542426",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/41588542426",
+ "date": "2026-11-03 06:13 UTC",
+ "code": [
+  "`6cfc5dd` (README: the warm-up once per JVM; the comparison report on GitHub Pages)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 28.51,
+   "jvm_wall": 40.37,
+   "ref_wall": null,
+   "wall": 1.415994387934058,
+   "cycles": 1.37056988942444,
+   "instructions": 1.4410148485911376,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html"
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 9V74 80-Core Processor",
+   "cpus": "4",
+   "blast_wall": 42.28,
+   "jvm_wall": 51.33,
+   "ref_wall": null,
+   "wall": 1.2140491958372752,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html"
+  }
+ ]
+}
