@@ -82,12 +82,10 @@ public final class GappedAligner {
 		}
 	}
 
-	/** Uses {@code m[query][subject]} (28 x 28) as the score matrix from now on. */
-	public void setMatrix(int[][] m) {
+	/** Uses {@code m[query * 28 + subject]} (28 x 28, row-major) as the score matrix from now on. */
+	public void setMatrix(int[] m) {
 		blosum62 = false;
-		for (int a = 0; a < N; a++) {
-			System.arraycopy(m[a], 0, matrix, a * N, N);
-		}
+		System.arraycopy(m, 0, matrix, 0, N * N);
 	}
 
 	private void ensureDp(int n) {

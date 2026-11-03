@@ -51,7 +51,7 @@ class CompositionAdjustmentTest {
 			String[] q = cases.get(2 + 2 * c).trim().split(" "), s = cases.get(3 + 2 * c).trim().split(" ");
 			var qc = new CompositionAdjustment.Composition(doubles(q, 28), Integer.parseInt(q[28]));
 			var sc = new CompositionAdjustment.Composition(doubles(s, 28), Integer.parseInt(s[28]));
-			int[][] m = new int[28][28];
+			int[] m = new int[28 * 28];
 			var adj = CompositionAdjustment.adjustScores(m, qc, Integer.parseInt(q[29]), sc, Integer.parseInt(s[29]),
 					info, ws);
 
@@ -63,7 +63,7 @@ class CompositionAdjustmentTest {
 			for (int i = 0; i < 28; i++) {
 				int[] expected = Arrays.stream(blast.get(29 * c + 1 + i).trim().split(" "))
 						.mapToInt(Integer::parseInt).toArray();
-				assertEquals(Arrays.toString(expected), Arrays.toString(m[i]), "case " + c + " row " + i);
+				assertEquals(Arrays.toString(expected), Arrays.toString(Arrays.copyOfRange(m, 28 * i, 28 * (i + 1))), "case " + c + " row " + i);
 			}
 			rules[adj.rule().ordinal()]++;
 		}
