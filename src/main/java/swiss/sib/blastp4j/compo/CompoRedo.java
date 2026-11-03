@@ -67,7 +67,8 @@ public final class CompoRedo {
 	private final double nearIdenticalCutoff;
 	private final GappedAligner aligner;
 	private final CompositionAdjustment.Workspace workspace = new CompositionAdjustment.Workspace();
-	private final int[][] matrix = new int[CompositionAdjustment.ALPHSIZE][CompositionAdjustment.ALPHSIZE];
+	/** The adjusted matrix, row-major. */
+	private final int[] matrix = new int[CompositionAdjustment.ALPHSIZE * CompositionAdjustment.ALPHSIZE];
 	private final Seg seg = Seg.forCompositionBasedStatistics();
 
 	/**

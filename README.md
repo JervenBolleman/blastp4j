@@ -483,9 +483,10 @@ The port, in `swiss.sib.blastp4j.compo`:
   20,000 Swiss-Prot sequences (`SegTest` uses a sample of 400).
 * `CompositionAdjustment` and `OptimizeTargetFreq` compute the adjusted matrices. `Blosum62Data` holds BLAST's
   BLOSUM62 joint probabilities and frequency ratios.
-  * *Tried, no difference:* the adjusted matrix as one `int[]` in the aligner's layout instead of `int[28][28]`
-    (12e552d, reverted). The code that fills it is about 0.15% of a full search's cycles; `CompoRedoBench` did not
-    change.
+  * The adjusted and starting matrices are one `int[]` each, row-major, the aligner's layout, rather than
+    `int[28][28]`, for the simpler code: tried first as 12e552d (reverted), it made no measurable difference, since
+    the code that fills them is about 0.15% of a full search's cycles. `ScoreMatrix` holds a matrix for the aligner,
+    immutable, so a subject's adjusted matrix is handed on without copying.
   * BLAST's own C code was compiled into a test harness: `reference/compo/build_harness.sh` downloads the library and
     builds `harness.c`.
   * Of 6,006 query/subject compositions, every adjusted matrix is identical to the C code's. One λ ratio differs in

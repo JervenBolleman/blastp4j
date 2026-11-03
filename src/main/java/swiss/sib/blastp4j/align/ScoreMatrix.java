@@ -28,13 +28,9 @@ public final class ScoreMatrix {
 		this.scores = scores;
 	}
 
-	/** A copy of {@code m[query][subject]} (28 x 28). */
-	public static ScoreMatrix of(int[][] m) {
-		final int[] s = new int[N * N];
-		for (int a = 0; a < N; a++) {
-			System.arraycopy(m[a], 0, s, a * N, N);
-		}
-		return new ScoreMatrix(s);
+	/** A copy of {@code m[query * 28 + subject]} (28 x 28, row-major). */
+	public static ScoreMatrix of(int[] m) {
+		return new ScoreMatrix(java.util.Arrays.copyOf(m, N * N));
 	}
 
 	public int score(int query, int subject) {

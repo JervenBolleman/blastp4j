@@ -31,10 +31,10 @@ class RowsTest {
 			GappedAligner.Rows plain = new GappedAligner.Rows(costs[0] + costs[1], costs[1]);
 			GappedAligner fields = new GappedAligner(costs[0], costs[1], plain, plain);
 			// Half the rounds with another matrix, as the composition-based stage sets: the copy without the matrix.
-			int[][] other = new int[28][28];
+			int[] other = new int[28 * 28];
 			for (int x = 0; x < 28; x++) {
 				for (int y = 0; y < 28; y++) {
-					other[x][y] = swiss.sib.blastp4j.stats.Blosum62.score(x, y) + (x == y ? 1 : 0);
+					other[x * 28 + y] = swiss.sib.blastp4j.stats.Blosum62.score(x, y) + (x == y ? 1 : 0);
 				}
 			}
 			for (int round = 0; round < 50; round++) {
