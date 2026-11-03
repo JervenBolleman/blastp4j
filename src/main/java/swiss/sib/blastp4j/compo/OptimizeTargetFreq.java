@@ -12,45 +12,45 @@ final class OptimizeTargetFreq {
 	private OptimizeTargetFreq() {
 	}
 
-	/** {@code ScaledSymmetricProductA}: the lower triangle of A D A^T into W. */
-	private static void scaledSymmetricProductA(double[][] w, double[] diagonal, int alphsize) {
+	// A lower triangle packed by rows: row i starts at i * (i + 1) / 2. Written out where used, not as a method:
+	// bin/jvm.options keeps C2 from inlining this class's methods.
+
+	/** {@code ScaledSymmetricProductA}: the lower triangle of A D A^T into W (packed by rows). */
+	private static void scaledSymmetricProductA(double[] w, double[] diagonal, int alphsize) {
 		int m = 2 * alphsize - 1;
-		for (int r = 0; r < m; r++) {
-			for (int c = 0; c <= r; c++) {
-				w[r][c] = 0.0;
-			}
-		}
+		java.util.Arrays.fill(w, 0, m * (m + 1) / 2, 0.0);
 		for (int i = 0; i < alphsize; i++) {
+			final int r = (i + alphsize - 1) * (i + alphsize) / 2;
 			for (int j = 0; j < alphsize; j++) {
 				double dd = diagonal[i * alphsize + j];
-				w[j][j] += dd;
+				w[j * (j + 3) / 2] += dd;
 				if (i > 0) {
-					w[i + alphsize - 1][j] += dd;
-					w[i + alphsize - 1][i + alphsize - 1] += dd;
+					w[r + j] += dd;
+					w[r + i + alphsize - 1] += dd;
 				}
 			}
 		}
 	}
 
-	/** {@code MultiplyByA}: y = beta y + alpha A x. */
-	private static void multiplyByA(double beta, double[] y, int alphsize, double alpha, double[] x) {
+	/** {@code MultiplyByA}: y = beta y + alpha A x, with y at {@code y[yOff ..]}. */
+	private static void multiplyByA(double beta, double[] y, int yOff, int alphsize, double alpha, double[] x) {
 		if (beta == 0.0) {
 			for (int i = 0; i < 2 * alphsize - 1; i++) {
-				y[i] = 0.0;
+				y[yOff + i] = 0.0;
 			}
 		} else if (beta != 1.0) {
 			for (int i = 0; i < 2 * alphsize - 1; i++) {
-				y[i] *= beta;
+				y[yOff + i] *= beta;
 			}
 		}
 		for (int i = 0; i < alphsize; i++) {
 			for (int j = 0; j < alphsize; j++) {
-				y[j] += alpha * x[i * alphsize + j];
+				y[yOff + j] += alpha * x[i * alphsize + j];
 			}
 		}
 		for (int i = 1; i < alphsize; i++) {
 			for (int j = 0; j < alphsize; j++) {
-				y[i + alphsize - 1] += alpha * x[i * alphsize + j];
+				y[yOff + i + alphsize - 1] += alpha * x[i * alphsize + j];
 			}
 		}
 	}
@@ -86,20 +86,21 @@ final class OptimizeTargetFreq {
 		for (int i = 1; i < alphsize; i++) {
 			rA[i + alphsize - 1] = rowSums[i];
 		}
-		multiplyByA(1.0, rA, alphsize, -1.0, x);
+		multiplyByA(1.0, rA, 0, alphsize, -1.0, x);
 	}
 
-	private static void dualResiduals(double[] residsX, int alphsize, double[][] grads, double[] z,
+	/** {@code grads}: the two gradients, of n entries each, one after the other. */
+	private static void dualResiduals(double[] residsX, int alphsize, double[] grads, double[] z,
 			boolean constrainRelEntropy) {
 		int n = alphsize * alphsize;
 		if (constrainRelEntropy) {
 			double eta = z[2 * alphsize - 1];
 			for (int i = 0; i < n; i++) {
-				residsX[i] = -grads[0][i] + eta * grads[1][i];
+				residsX[i] = -grads[i] + eta * grads[n + i];
 			}
 		} else {
 			for (int i = 0; i < n; i++) {
-				residsX[i] = -grads[0][i];
+				residsX[i] = -grads[i];
 			}
 		}
 		multiplyByAtranspose(1.0, residsX, alphsize, 1.0, z);
@@ -122,37 +123,41 @@ final class OptimizeTargetFreq {
 		return scale * Math.sqrt(sum);
 	}
 
-	/** {@code Nlm_FactorLtriangPosDef}: Cholesky factorization in place of the lower triangle. */
-	private static void factorLtriangPosDef(double[][] a, int n) {
+	/** {@code Nlm_FactorLtriangPosDef}: Cholesky factorization in place of the lower triangle (packed by rows). */
+	private static void factorLtriangPosDef(double[] a, int n) {
 		for (int i = 0; i < n; i++) {
+			final int ri = i * (i + 1) / 2;
 			for (int j = 0; j < i; j++) {
-				double temp = a[i][j];
+				final int rj = j * (j + 1) / 2;
+				double temp = a[ri + j];
 				for (int k = 0; k < j; k++) {
-					temp -= a[i][k] * a[j][k];
+					temp -= a[ri + k] * a[rj + k];
 				}
-				a[i][j] = temp / a[j][j];
+				a[ri + j] = temp / a[rj + j];
 			}
-			double temp = a[i][i];
+			double temp = a[ri + i];
 			for (int k = 0; k < i; k++) {
-				temp -= a[i][k] * a[i][k];
+				temp -= a[ri + k] * a[ri + k];
 			}
-			a[i][i] = Math.sqrt(temp);
+			a[ri + i] = Math.sqrt(temp);
 		}
 	}
 
-	/** {@code Nlm_SolveLtriangPosDef}: solves L L^T y = x in place. */
-	private static void solveLtriangPosDef(double[] x, int n, double[][] l) {
+	/** {@code Nlm_SolveLtriangPosDef}: solves L L^T y = x in place; L packed by rows. */
+	private static void solveLtriangPosDef(double[] x, int n, double[] l) {
 		for (int i = 0; i < n; i++) {
+			final int ri = i * (i + 1) / 2;
 			double temp = x[i];
 			for (int j = 0; j < i; j++) {
-				temp -= l[i][j] * x[j];
+				temp -= l[ri + j] * x[j];
 			}
-			x[i] = temp / l[i][i];
+			x[i] = temp / l[ri + i];
 		}
 		for (int j = n - 1; j >= 0; j--) {
-			x[j] /= l[j][j];
+			final int rj = j * (j + 1) / 2;
+			x[j] /= l[rj + j];
 			for (int i = 0; i < j; i++) {
-				x[i] -= l[j][i] * x[j];
+				x[i] -= l[rj + i] * x[j];
 			}
 		}
 	}
@@ -177,15 +182,13 @@ final class OptimizeTargetFreq {
 			boolean constrainRelEntropy, double relativeEntropy, double tol, int maxits) {
 		final int n = alphsize * alphsize, mA = 2 * alphsize - 1, m = constrainRelEntropy ? mA + 1 : mA;
 		double[] values = new double[2];
-		double[][] grads = new double[2][n];
+		// The gradients of the two functions, of n entries each, one after the other.
+		double[] grads = new double[2 * n];
 		double[] z = new double[mA + 1];
 		double[] residsX = new double[n], residsZ = new double[mA + 1];
 		double[] oldScores = new double[n], workspace = new double[n];
-		// Newton system: W lower triangular (rows of length i + 1), Dinv, grad_re
-		double[][] w = new double[2 * alphsize][];
-		for (int i = 0; i < w.length; i++) {
-			w[i] = new double[i + 1];
-		}
+		// Newton system: W lower triangular, packed by rows (row i has i + 1 entries), Dinv, grad_re
+		double[] w = new double[alphsize * (2 * alphsize + 1)];
 		double[] dinv = new double[n], gradRe = new double[n];
 
 		for (int i = 0; i < alphsize; i++) {
@@ -204,11 +207,11 @@ final class OptimizeTargetFreq {
 			for (int k = 0; k < n; k++) {
 				double temp = Math.log(x[k] / q[k]);
 				values[0] += x[k] * temp;
-				grads[0][k] = temp + 1;
+				grads[k] = temp + 1;
 				if (constrainRelEntropy) {
 					temp += oldScores[k];
 					values[1] += x[k] * temp;
-					grads[1][k] = temp + 1;
+					grads[n + k] = temp + 1;
 				}
 			}
 			// CalculateResiduals
@@ -241,20 +244,21 @@ final class OptimizeTargetFreq {
 			}
 			scaledSymmetricProductA(w, dinv, alphsize);
 			if (constrainRelEntropy) {
-				System.arraycopy(grads[1], 0, gradRe, 0, n);
-				w[m - 1][m - 1] = 0.0;
+				System.arraycopy(grads, n, gradRe, 0, n);
+				final int last = (m - 1) * m / 2;
+				w[last + m - 1] = 0.0;
 				for (int i = 0; i < n; i++) {
 					workspace[i] = dinv[i] * gradRe[i];
-					w[m - 1][m - 1] += gradRe[i] * workspace[i];
+					w[last + m - 1] += gradRe[i] * workspace[i];
 				}
-				multiplyByA(0.0, w[m - 1], alphsize, 1.0, workspace);
+				multiplyByA(0.0, w, last, alphsize, 1.0, workspace);
 			}
 			factorLtriangPosDef(w, m);
 			// SolveReNewtonSystem(residsX, residsZ)
 			for (int i = 0; i < n; i++) {
 				workspace[i] = residsX[i] * dinv[i];
 			}
-			multiplyByA(1.0, residsZ, alphsize, -1.0, workspace);
+			multiplyByA(1.0, residsZ, 0, alphsize, -1.0, workspace);
 			if (constrainRelEntropy) {
 				for (int i = 0; i < n; i++) {
 					residsZ[m - 1] -= gradRe[i] * workspace[i];

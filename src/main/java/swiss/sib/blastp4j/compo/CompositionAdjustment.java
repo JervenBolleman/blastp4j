@@ -77,7 +77,8 @@ public final class CompositionAdjustment {
 	public static final class MatrixInfo {
 		/** 29 rows of {@link #ALPHSIZE}, row-major: the last is all SCORE_MIN. */
 		final int[] startMatrix = new int[(ALPHSIZE + 1) * ALPHSIZE];
-		final double[][] startFreqRatios = new double[ALPHSIZE + 1][ALPHSIZE];
+		/** 29 rows of {@link #ALPHSIZE}, row-major: the last is all SCORE_MIN. */
+		final double[] startFreqRatios = new double[(ALPHSIZE + 1) * ALPHSIZE];
 		final double ungappedLambda;
 
 		/**
@@ -89,19 +90,15 @@ public final class CompositionAdjustment {
 		public MatrixInfo(double idealLambda, double scale) {
 			for (int i = 0; i < ALPHSIZE; i++) {
 				startMatrix[ALPHSIZE * ALPHSIZE + i] = SCORE_MIN;
-				startFreqRatios[ALPHSIZE][i] = SCORE_MIN;
+				startFreqRatios[ALPHSIZE * ALPHSIZE + i] = SCORE_MIN;
 			}
 			ungappedLambda = idealLambda / scale;
-			for (int i = 0; i < ALPHSIZE; i++) {
-				System.arraycopy(Blosum62Data.FREQ_RATIOS[i], 0, startFreqRatios[i], 0, ALPHSIZE);
-			}
+			System.arraycopy(Blosum62Data.FREQ_RATIOS, 0, startFreqRatios, 0, ALPHSIZE * ALPHSIZE);
 			// Blast_Int4MatrixFromFreq
-			for (int i = 0; i < ALPHSIZE; i++) {
-				double[] row = startFreqRatios[i].clone();
-				freqRatioToScore(row, ungappedLambda);
-				for (int j = 0; j < ALPHSIZE; j++) {
-					startMatrix[i * ALPHSIZE + j] = round(row[j]);
-				}
+			double[] scores = java.util.Arrays.copyOf(startFreqRatios, ALPHSIZE * ALPHSIZE);
+			freqRatioToScore(scores, ungappedLambda);
+			for (int k = 0; k < ALPHSIZE * ALPHSIZE; k++) {
+				startMatrix[k] = round(scores[k]);
 			}
 		}
 
@@ -111,10 +108,10 @@ public final class CompositionAdjustment {
 		}
 	}
 
-	/** {@code Blast_FreqRatioToScore} on one row. */
-	private static void freqRatioToScore(double[] row, double lambda) {
-		for (int j = 0; j < row.length; j++) {
-			row[j] = 0.0 == row[j] ? SCORE_MIN : Math.log(row[j]) / lambda;
+	/** {@code Blast_FreqRatioToScore} on every entry of {@code ratios}. */
+	private static void freqRatioToScore(double[] ratios, double lambda) {
+		for (int k = 0; k < ratios.length; k++) {
+			ratios[k] = 0.0 == ratios[k] ? SCORE_MIN : Math.log(ratios[k]) / lambda;
 		}
 	}
 
@@ -140,7 +137,8 @@ public final class CompositionAdjustment {
 
 	/** Workspace with BLOSUM62's joint probabilities ({@code Blast_CompositionWorkspace}). */
 	public static final class Workspace {
-		final double[][] matB = new double[NUM_TRUE_AA][NUM_TRUE_AA];
+		/** BLOSUM62's joint probabilities, 20 x 20, row-major. */
+		final double[] matB = Blosum62Data.JOINT_PROBS.clone();
 		final double[] firstStandardFreq = new double[NUM_TRUE_AA];
 		final double[] secondStandardFreq = new double[NUM_TRUE_AA];
 		final double[] matFinal = new double[NUM_TRUE_AA * NUM_TRUE_AA];
@@ -148,9 +146,8 @@ public final class CompositionAdjustment {
 		public Workspace() {
 			for (int i = 0; i < NUM_TRUE_AA; i++) {
 				for (int j = 0; j < NUM_TRUE_AA; j++) {
-					matB[i][j] = Blosum62Data.JOINT_PROBS[i][j];
-					firstStandardFreq[i] += matB[i][j];
-					secondStandardFreq[j] += matB[i][j];
+					firstStandardFreq[i] += matB[i * NUM_TRUE_AA + j];
+					secondStandardFreq[j] += matB[i * NUM_TRUE_AA + j];
 				}
 			}
 		}
@@ -267,20 +264,12 @@ public final class CompositionAdjustment {
 		}
 		applyPseudocounts(rowProbs, length1, ws.firstStandardFreq, pseudocounts);
 		applyPseudocounts(colProbs, length2, ws.secondStandardFreq, pseudocounts);
-		double[] q = new double[NUM_TRUE_AA * NUM_TRUE_AA];
-		for (int i = 0; i < NUM_TRUE_AA; i++) {
-			System.arraycopy(ws.matB[i], 0, q, i * NUM_TRUE_AA, NUM_TRUE_AA);
-		}
-		int status = OptimizeTargetFreq.optimize(ws.matFinal, NUM_TRUE_AA, q, rowProbs, colProbs, desiredRe > 0.0,
+		int status = OptimizeTargetFreq.optimize(ws.matFinal, NUM_TRUE_AA, ws.matB, rowProbs, colProbs, desiredRe > 0.0,
 				desiredRe, COMPO_ADJUST_ERR_TOLERANCE, COMPO_ADJUST_ITERATION_LIMIT);
 		if (status != 0) {
 			return status;
 		}
-		double[][] targetFreq = new double[NUM_TRUE_AA][NUM_TRUE_AA];
-		for (int i = 0; i < NUM_TRUE_AA; i++) {
-			System.arraycopy(ws.matFinal, i * NUM_TRUE_AA, targetFreq[i], 0, NUM_TRUE_AA);
-		}
-		scoresStdAlphabet(matrix, targetFreq, info.startMatrix, rowProbs, colProbs, info.ungappedLambda);
+		scoresStdAlphabet(matrix, ws.matFinal, info.startMatrix, rowProbs, colProbs, info.ungappedLambda);
 		return 0;
 	}
 
@@ -296,66 +285,56 @@ public final class CompositionAdjustment {
 		return std;
 	}
 
-	/** {@code s_ScoresStdAlphabet}. */
-	private static void scoresStdAlphabet(int[] matrix, double[][] targetFreq, int[] startMatrix,
-			double[] rowProb, double[] colProb, double lambda) {
+	/** {@code s_ScoresStdAlphabet}; {@code targetFreq} is 20 x 20, row-major. */
+	private static void scoresStdAlphabet(int[] matrix, double[] targetFreq, int[] startMatrix, double[] rowProb,
+			double[] colProb, double lambda) {
+		final int n = ALPHSIZE;
 		double[] rowStd = unpack(rowProb), colStd = unpack(colProb);
-		double[][] scores = new double[ALPHSIZE][ALPHSIZE];
+		double[] scores = new double[n * n];
 		// Blast_TrueAaToStdTargetFreqs
 		double sum = 0.0;
-		for (int a = 0; a < NUM_TRUE_AA; a++) {
-			for (int b = 0; b < NUM_TRUE_AA; b++) {
-				sum += targetFreq[a][b];
+		for (int k = 0; k < NUM_TRUE_AA * NUM_TRUE_AA; k++) {
+			sum += targetFreq[k];
+		}
+		for (int a = 0; a < n; a++) {
+			if (ALPHA_CONVERT[a] >= 0) {
+				final int ai = ALPHA_CONVERT[a] * NUM_TRUE_AA, row = a * n;
+				for (int b = 0; b < n; b++) {
+					scores[row + b] = ALPHA_CONVERT[b] < 0 ? 0.0 : targetFreq[ai + ALPHA_CONVERT[b]] / sum;
+				}
+				scores[row + B] = scores[row + D] + scores[row + N];
+				scores[row + Z] = scores[row + E] + scores[row + Q];
+				scores[row + J] = scores[row + I] + scores[row + L];
 			}
 		}
-		for (int a = 0; a < ALPHSIZE; a++) {
-			if (ALPHA_CONVERT[a] < 0) {
-				for (int b = 0; b < ALPHSIZE; b++) {
-					scores[a][b] = 0.0;
-				}
-			} else {
-				int ai = ALPHA_CONVERT[a];
-				for (int b = 0; b < ALPHSIZE; b++) {
-					scores[a][b] = ALPHA_CONVERT[b] < 0 ? 0.0 : targetFreq[ai][ALPHA_CONVERT[b]] / sum;
-				}
-				scores[a][B] = scores[a][D] + scores[a][N];
-				scores[a][Z] = scores[a][E] + scores[a][Q];
-				scores[a][J] = scores[a][I] + scores[a][L];
-			}
+		for (int b = 0; b < n; b++) {
+			scores[B * n + b] = scores[D * n + b] + scores[N * n + b];
 		}
-		for (int b = 0; b < ALPHSIZE; b++) {
-			scores[B][b] = scores[D][b] + scores[N][b];
+		for (int b = 0; b < n; b++) {
+			scores[Z * n + b] = scores[E * n + b] + scores[Q * n + b];
 		}
-		for (int b = 0; b < ALPHSIZE; b++) {
-			scores[Z][b] = scores[E][b] + scores[Q][b];
-		}
-		for (int b = 0; b < ALPHSIZE; b++) {
-			scores[J][b] = scores[I][b] + scores[L][b];
+		for (int b = 0; b < n; b++) {
+			scores[J * n + b] = scores[I * n + b] + scores[L * n + b];
 		}
 		// Blast_CalcFreqRatios
-		for (int i = 0; i < ALPHSIZE; i++) {
+		for (int i = 0; i < n; i++) {
 			if (rowStd[i] > 0) {
-				for (int j = 0; j < ALPHSIZE; j++) {
+				for (int j = 0; j < n; j++) {
 					if (colStd[j] > 0) {
-						scores[i][j] /= rowStd[i] * colStd[j];
+						scores[i * n + j] /= rowStd[i] * colStd[j];
 					}
 				}
 			}
 		}
-		for (int i = 0; i < ALPHSIZE; i++) {
-			freqRatioToScore(scores[i], lambda);
-		}
+		freqRatioToScore(scores, lambda);
 		setXUOScores(scores, rowStd, colStd);
 		roundInto(matrix, scores);
 		stopScores(matrix, startMatrix);
 	}
 
-	private static void roundInto(int[] matrix, double[][] scores) {
-		for (int p = 0; p < ALPHSIZE; p++) {
-			final double[] row = scores[p];
-			for (int c = 0; c < ALPHSIZE; c++) {
-				matrix[p * ALPHSIZE + c] = round(row[c]);
-			}
+	private static void roundInto(int[] matrix, double[] scores) {
+		for (int k = 0; k < ALPHSIZE * ALPHSIZE; k++) {
+			matrix[k] = round(scores[k]);
 		}
 	}
 
@@ -367,46 +346,47 @@ public final class CompositionAdjustment {
 		System.arraycopy(startMatrix, STOP * ALPHSIZE, matrix, STOP * ALPHSIZE, ALPHSIZE);
 	}
 
-	/** {@code s_CalcAvgScore} over row {@code i} (or column, when {@code column}). */
-	private static double avgScore(double[][] m, int index, boolean column, double[] probs) {
+	/** {@code s_CalcAvgScore} over row {@code i} (or column, when {@code column}) of {@code m} (28 x 28). */
+	private static double avgScore(double[] m, int index, boolean column, double[] probs) {
 		double score = 0.0;
 		for (int j = 0; j < ALPHSIZE; j++) {
 			if (ALPHA_CONVERT[j] >= 0) {
-				score += (column ? m[j][index] : m[index][j]) * probs[j];
+				score += (column ? m[j * ALPHSIZE + index] : m[index * ALPHSIZE + j]) * probs[j];
 			}
 		}
 		return score;
 	}
 
-	private static double xScore(double[][] m, int index, boolean column, double[] probs) {
+	private static double xScore(double[] m, int index, boolean column, double[] probs) {
 		return Math.min(avgScore(m, index, column, probs), MAXIMUM_X_SCORE);
 	}
 
-	/** {@code s_SetXUOScores}. */
-	private static void setXUOScores(double[][] m, double[] rowProbs, double[] colProbs) {
+	/** {@code s_SetXUOScores} on {@code m} (28 x 28, row-major). */
+	private static void setXUOScores(double[] m, double[] rowProbs, double[] colProbs) {
+		final int n = ALPHSIZE;
 		double scoreXX = 0.0;
-		for (int i = 0; i < ALPHSIZE; i++) {
+		for (int i = 0; i < n; i++) {
 			if (ALPHA_CONVERT[i] >= 0) {
 				double avgIX = avgScore(m, i, false, colProbs);
-				m[i][X] = Math.min(avgIX, MAXIMUM_X_SCORE);
+				m[i * n + X] = Math.min(avgIX, MAXIMUM_X_SCORE);
 				scoreXX += avgIX * rowProbs[i];
-				m[X][i] = xScore(m, i, true, rowProbs);
+				m[X * n + i] = xScore(m, i, true, rowProbs);
 			}
 		}
-		m[X][X] = Math.min(scoreXX, MAXIMUM_X_SCORE);
-		m[B][X] = xScore(m, B, false, colProbs);
-		m[X][B] = xScore(m, B, true, rowProbs);
-		m[Z][X] = xScore(m, Z, false, colProbs);
-		m[X][Z] = xScore(m, Z, true, rowProbs);
-		m[J][X] = xScore(m, J, false, colProbs);
-		m[X][J] = xScore(m, J, true, rowProbs);
-		System.arraycopy(m[C], 0, m[U], 0, ALPHSIZE);
-		for (int i = 0; i < ALPHSIZE; i++) {
-			m[i][U] = m[i][C];
+		m[X * n + X] = Math.min(scoreXX, MAXIMUM_X_SCORE);
+		m[B * n + X] = xScore(m, B, false, colProbs);
+		m[X * n + B] = xScore(m, B, true, rowProbs);
+		m[Z * n + X] = xScore(m, Z, false, colProbs);
+		m[X * n + Z] = xScore(m, Z, true, rowProbs);
+		m[J * n + X] = xScore(m, J, false, colProbs);
+		m[X * n + J] = xScore(m, J, true, rowProbs);
+		System.arraycopy(m, C * n, m, U * n, n);
+		for (int i = 0; i < n; i++) {
+			m[i * n + U] = m[i * n + C];
 		}
-		System.arraycopy(m[X], 0, m[O], 0, ALPHSIZE);
-		for (int i = 0; i < ALPHSIZE; i++) {
-			m[i][O] = m[i][X];
+		System.arraycopy(m, X * n, m, O * n, n);
+		for (int i = 0; i < n; i++) {
+			m[i * n + O] = m[i * n + X];
 		}
 	}
 
@@ -450,11 +430,8 @@ public final class CompositionAdjustment {
 		if (ratio > 0) {
 			double scaledLambda = info.ungappedLambda / ratio;
 			// s_ScaleSquareMatrix
-			double[][] scores = new double[ALPHSIZE][];
-			for (int i = 0; i < ALPHSIZE; i++) {
-				scores[i] = info.startFreqRatios[i].clone();
-				freqRatioToScore(scores[i], scaledLambda);
-			}
+			double[] scores = java.util.Arrays.copyOf(info.startFreqRatios, ALPHSIZE * ALPHSIZE);
+			freqRatioToScore(scores, scaledLambda);
 			setXUOScores(scores, queryProb, resProb);
 			roundInto(matrix, scores);
 			stopScores(matrix, info.startMatrix);
