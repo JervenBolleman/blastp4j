@@ -13,6 +13,10 @@
 # one job.
 # The database is the Phaseolus vulgaris reference proteome (UP000000226); the queries are its first QUERIES proteins.
 #
+# The report: each job's sections and machine (CPU model included) go to its step summary and to report/ (the
+# report-<arch> artifact); the report job builds an HTML page from them (.github/scripts/report.py) and deploys it to
+# GitHub Pages.
+#
 # Hosted runners are virtual machines: hardware counters are usually missing and wall times are noisy, so compare
 # the ratios between BLAST+ and blastp4j within one job, not times across jobs. ARM runners are free for public
 # repositories only.
@@ -71,6 +75,8 @@ jobs:
             profiler: linux-arm64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    env:
+      REPORT: ${{ github.workspace }}/report
     steps:
       - uses: actions/checkout@v7
         with:
@@ -106,12 +112,27 @@ jobs:
 
       - name: Machine
         run: |
+          mkdir -p "$REPORT"
+          {
+            echo "Architecture: $(uname -m)"
+            echo "CPU model: $(lscpu | sed -n 's/^Model name: *//p' | head -1)"
+            echo "Vendor: $(lscpu | sed -n 's/^Vendor ID: *//p' | head -1)"
+            echo "CPUs: $(nproc)"
+            echo "Memory: $(free -g | awk '/^Mem:/ { print $2 " GB" }')"
+            echo "Kernel: $(uname -r)"
+            echo "Runner: ${{ matrix.runner }}, image $ImageOS $ImageVersion"
+            echo "JDK: $(java -version 2>&1 | sed -n 2p)"
+            echo "BLAST+: $BLAST_VERSION"
+            echo "Code: \`$(git -C blastp4j rev-parse --short HEAD)\` ($(git -C blastp4j log -1 --format=%s | cut -c1-100))"
+            if [ -d reference ]; then echo "Reference: \`$(git -C reference rev-parse --short HEAD)\`"; fi
+            echo "Queries: ${{ inputs.queries }}; rounds: ${{ inputs.rounds }}"
+          } >"$REPORT/machine.txt"
           {
             echo "## $(uname -m) on ${{ matrix.runner }}"
             echo
             echo '```'
-            lscpu | grep -E 'Model name|^CPU\(s\)|Vendor|Flags' | cut -c1-200
-            java -version 2>&1
+            cat "$REPORT/machine.txt"
+            lscpu | grep -E 'Flags' | cut -c1-200
             echo '```'
           } >>"$GITHUB_STEP_SUMMARY"
 
@@ -183,7 +204,7 @@ jobs:
         working-directory: blastp4j
         run: |
           QUERY=../data/queries.fasta DB=../data/blastdb/sprot OUT=target/spills .github/scripts/compare-spills.sh |
-            tee -a "$GITHUB_STEP_SUMMARY"
+            tee -a "$GITHUB_STEP_SUMMARY" "$REPORT/report.md"
 
       - name: Benchmark
         working-directory: blastp4j
@@ -236,7 +257,7 @@ jobs:
                 done
               done
             done
-          } | tee -a "$GITHUB_STEP_SUMMARY"
+          } | tee -a "$GITHUB_STEP_SUMMARY" "$REPORT/report.md"
 
       - name: Full search
         working-directory: blastp4j
@@ -247,6 +268,7 @@ jobs:
             echo
             echo "### Full search, $(nproc) threads"
             echo '```'
+            {
             systems=(blast jvm)
             if [ -d ../reference ]; then
               systems+=(ref)
@@ -255,8 +277,10 @@ jobs:
             fi
             QUERY=../data/queries.fasta DB=../data/blastdb/sprot THREADS="$(nproc)" ROUNDS="${{ inputs.rounds }}" OUT=target/compare \
               ASYNC_PROFILER="$(ls "$PWD"/../async-profiler-*/lib/libasyncProfiler.so)" bin/compare-blastp.sh "${systems[@]}"
+            } | tee "$REPORT/full-search.txt"
             echo '```'
-          } | tee -a "$GITHUB_STEP_SUMMARY"
+          } | tee -a "$GITHUB_STEP_SUMMARY" "$REPORT/report.md"
+          cp target/compare/jvm-profile.html "$REPORT/" 2>/dev/null || true
 
       - uses: actions/upload-artifact@v7
         if: always()
@@ -269,3 +293,37 @@ jobs:
             blastp4j/target/compare/*.log
             blastp4j/target/compare/*.txt
             blastp4j/target/compare/jvm-profile.html
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: report-${{ runner.arch }}
+          path: report
+
+  report:
+    needs: compare
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/scripts
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: report-*
+          path: reports
+      - name: Build the page
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 .github/scripts/report.py site reports/*
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v5
