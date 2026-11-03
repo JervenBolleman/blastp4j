@@ -7,15 +7,11 @@ import java.util.List;
 /**
  * Headers of a FASTA file, kept as bytes and interpreted as {@code makeblastdb -parse_seqids} does: the first word
  * holds the identifiers ({@link SeqId#parseFasta}) and the rest is the title.
+ *
+ * @param text    the header lines, one after the other
+ * @param offsets header {@code i} is {@code text[offsets[i] .. offsets[i + 1])}
  */
-final class FastaHeaders implements Headers {
-	private final byte[] text;
-	private final int[] offsets; // header i is text[offsets[i] .. offsets[i + 1])
-
-	FastaHeaders(byte[] text, int[] offsets) {
-		this.text = text;
-		this.offsets = offsets;
-	}
+record FastaHeaders(byte[] text, int[] offsets) implements Headers {
 
 	/** Collects header lines (without the '>'). */
 	static final class Builder {

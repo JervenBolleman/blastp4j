@@ -85,18 +85,7 @@ public final class CompoRedo {
 	}
 
 	/** An alignment in the composition library's terms ({@code BlastCompo_Alignment}); ends exclusive. */
-	private static final class Align {
-		final int score, queryStart, queryEnd, matchStart, matchEnd;
-		final Hsp hsp;
-
-		Align(int score, int queryStart, int queryEnd, int matchStart, int matchEnd, Hsp hsp) {
-			this.score = score;
-			this.queryStart = queryStart;
-			this.queryEnd = queryEnd;
-			this.matchStart = matchStart;
-			this.matchEnd = matchEnd;
-			this.hsp = hsp;
-		}
+	private record Align(int score, int queryStart, int queryEnd, int matchStart, int matchEnd, Hsp hsp) {
 	}
 
 	/**
@@ -152,7 +141,7 @@ public final class CompoRedo {
 					if (adjustedMatrix == null) {
 						stale = true; // BLAST would use the matrix of an earlier subject here
 					}
-					Hsp p = in.hsp;
+					Hsp p = in.hsp();
 					aligner.extendWithTraceback(q, subject, 1, length, p.queryGappedStart, p.subjectGappedStart,
 							xDrop);
 					if (aligner.score >= 1) {
@@ -173,7 +162,7 @@ public final class CompoRedo {
 		// s_HSPListFromDistinctAlignments, s_HitlistReapContained, s_HitlistEvaluateAndPurge
 		List<Hsp> hsps = new ArrayList<>();
 		for (Align a : alignments) {
-			hsps.add(a.hsp);
+			hsps.add(a.hsp());
 		}
 		hsps.sort(Hsp.BY_SCORE);
 		reapContained(hsps);
@@ -209,11 +198,11 @@ public final class CompoRedo {
 
 	/** {@code s_IsContained}: inside an alignment that scores at least 2 bits more. */
 	private boolean isContained(Align in, List<Align> alignments) {
-		double threshold = in.score + KAPPA_BIT_TOL * LN2 / lambda;
+		double threshold = in.score() + KAPPA_BIT_TOL * LN2 / lambda;
 		for (Align a : alignments) {
-			if (containedIn(a.queryStart, a.queryEnd, in.queryStart, a.matchStart, a.matchEnd, in.matchStart)
-					&& containedIn(a.queryStart, a.queryEnd, in.queryEnd, a.matchStart, a.matchEnd, in.matchEnd)
-					&& threshold <= a.score) {
+			if (containedIn(a.queryStart(), a.queryEnd(), in.queryStart(), a.matchStart(), a.matchEnd(), in.matchStart())
+					&& containedIn(a.queryStart(), a.queryEnd(), in.queryEnd(), a.matchStart(), a.matchEnd(), in.matchEnd())
+					&& threshold <= a.score()) {
 				return true;
 			}
 		}
@@ -224,7 +213,7 @@ public final class CompoRedo {
 	private static void withDistinctEnds(Align n, List<Align> alignments, boolean sameAdjustment) {
 		for (Align a : alignments) {
 			boolean matches = sameAdjustment ? sameEndPoint(n, a) : similarEndPoint(n, a);
-			if (matches && n.score <= a.score) {
+			if (matches && n.score() <= a.score()) {
 				return;
 			}
 		}
@@ -233,18 +222,18 @@ public final class CompoRedo {
 	}
 
 	private static boolean sameEndPoint(Align n, Align a) {
-		return (a.queryStart == n.queryStart && a.matchStart == n.matchStart)
-				|| (a.queryEnd == n.queryEnd && a.matchEnd == n.matchEnd);
+		return (a.queryStart() == n.queryStart() && a.matchStart() == n.matchStart())
+				|| (a.queryEnd() == n.queryEnd() && a.matchEnd() == n.matchEnd());
 	}
 
 	/** {@code s_IsSimilarEndPoint}. */
 	private static boolean similarEndPoint(Align n, Align a) {
-		boolean startContained = containedIn(a.queryStart, a.queryEnd, n.queryStart, a.matchStart, a.matchEnd,
-				n.matchStart);
-		boolean endContained = containedIn(a.queryStart, a.queryEnd, n.queryEnd, a.matchStart, a.matchEnd,
-				n.matchEnd);
-		return (startContained && n.queryStart - n.matchStart == a.queryStart - a.matchStart)
-				|| (endContained && n.queryEnd - n.matchEnd == a.queryEnd - a.matchEnd);
+		boolean startContained = containedIn(a.queryStart(), a.queryEnd(), n.queryStart(), a.matchStart(), a.matchEnd(),
+				n.matchStart());
+		boolean endContained = containedIn(a.queryStart(), a.queryEnd(), n.queryEnd(), a.matchStart(), a.matchEnd(),
+				n.matchEnd());
+		return (startContained && n.queryStart() - n.matchStart() == a.queryStart() - a.matchStart())
+				|| (endContained && n.queryEnd() - n.matchEnd() == a.queryEnd() - a.matchEnd());
 	}
 
 	/** {@code s_HitlistReapContained}: removes HSPs inside an earlier one with at least their score. */
@@ -276,11 +265,11 @@ public final class CompoRedo {
 
 	/** {@code s_preliminaryTestNearIdentical}. */
 	private boolean preliminaryTestNearIdentical(Align a, int queryLength) {
-		if (a.matchEnd - a.matchStart + 1 < Math.min(queryLength, MINIMUM_LENGTH_NEAR_IDENTICAL)) {
+		if (a.matchEnd() - a.matchStart() + 1 < Math.min(queryLength, MINIMUM_LENGTH_NEAR_IDENTICAL)) {
 			return false;
 		}
-		int alignLength = Math.min(a.queryEnd - a.queryStart, a.matchEnd - a.matchStart);
-		return (double) a.score / alignLength >= nearIdenticalCutoff;
+		int alignLength = Math.min(a.queryEnd() - a.queryStart(), a.matchEnd() - a.matchStart());
+		return (double) a.score() / alignLength >= nearIdenticalCutoff;
 	}
 
 	// ---------------------------------------------------------------- near identical test (blast_kappa.c)

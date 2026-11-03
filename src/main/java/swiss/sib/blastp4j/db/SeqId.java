@@ -18,34 +18,18 @@ import java.util.Locale;
  * its version: {@code P69905}, {@code NP_000509}, {@code 1ABC_A} for a PDB chain, {@code db:tag} for a general
  * identifier.</li>
  * </ul>
+ *
+ * @param kind      the kind of identifier
+ * @param accession accession, local string, PDB molecule or general database
+ * @param name      locus name, PDB chain or general tag; may be null
+ * @param number    version of an accession, or a number (gi, numeric local id); -1 if none
+ * @param release   release ({@code reviewed} or {@code unreviewed} for UniProt); may be null
  */
-public final class SeqId {
+public record SeqId(Kind kind, String accession, String name, long number, String release) {
 	/** The choices of {@code Seq-id}, in ASN.1 tag order. */
 	public enum Kind {
 		LOCAL, GIBBSQ, GIBBMT, GIIM, GENBANK, EMBL, PIR, SWISSPROT, PATENT, OTHER, GENERAL, GI, DDBJ, PRF, PDB, TPG, TPE,
 		TPD, GPIPE, NAMED_ANNOT_TRACK
-	}
-
-	private final Kind kind;
-	/** Accession, local string, PDB molecule or general database. */
-	private final String accession;
-	/** Locus name, PDB chain or general tag; may be null. */
-	private final String name;
-	/** Version of an accession, or a number (gi, numeric local id); -1 if none. */
-	private final long number;
-	/** Release ({@code reviewed} or {@code unreviewed} for UniProt); may be null. */
-	private final String release;
-
-	SeqId(Kind kind, String accession, String name, long number, String release) {
-		this.kind = kind;
-		this.accession = accession;
-		this.name = name;
-		this.number = number;
-		this.release = release;
-	}
-
-	public Kind kind() {
-		return kind;
 	}
 
 	private static boolean isTextseq(Kind k) {
