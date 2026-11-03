@@ -159,6 +159,33 @@ against 402.5 to 411.7 G) and 1.22 times its instructions (625.2 to 637.1 G). Wa
 19.0 and 20.1 s in the rounds without throttling. Where the first batch is short, as with the 500 bean queries of the
 architecture comparison workflow, the warm-up costs 1.5 to 2.5% of cycles instead.
 
+### Daemon
+
+`blastp4j daemon` is a search server: it opens its databases once, takes jobs over HTTP (the JDK's
+`com.sun.net.httpserver`, no dependencies) and runs them one at a time, each on all threads.
+
+    bin/blastp4j daemon -dir jobs -db sprot=blastdb/sprot -db bean=proteome.fasta -port 8080 -num_threads 8
+    curl --data-binary @queries.fasta 'http://localhost:8080/jobs?db=sprot&outfmt=6+std+btop'   # prints the job id, 1
+    curl -i http://localhost:8080/jobs/1                       # 202 while queued or running, then 200 and the output
+    curl http://localhost:8080/databases                       # name, sequences, residues
+
+* A job's parameters are blastp's options (`outfmt`, `evalue`, `max_target_seqs`, `max_hsps`, `comp_based_stats`
+  and the fixed ones), checked as on the command line; a bad job is answered with 400.
+* A job is stored as `input/<id>.fasta` and `input/<id>.options` in the job directory. When it is done the output is
+  `output/<id>.tsv`, or the error `output/<id>.error`, and the input is deleted. Ids count up from one more than the
+  largest id in either directory, and jobs left in `input` run again at startup.
+* A job's queries are searched in blastp's batches, as `blastp4j -query` does, so the output is blastp's for the job's
+  FASTA file. Jobs are not merged into larger batches: with composition-based statistics the result depends on the
+  batch, so a job's output would then also depend on the other jobs.
+* It listens on 127.0.0.1 unless given `-bind`, and has no authentication.
+* The word finders specialized at run time (hidden classes with a query's window, X-drop, cutoff and diagonal mask as
+  constants) are kept in an LRU cache of `-Dblastp4j.specializations` (256) entries, so a long-running daemon does not
+  keep one for every cutoff it meets.
+
+The 24 human queries against Swiss-Prot, posted three times to one daemon (8 threads): 22.5, 19.6 and 19.6 s, output
+identical to blastp's each time. The first job is about as fast as the command line, which compiles as it goes; the
+later ones run compiled code (BLAST+: 19.0 to 20.1 s).
+
 ## BLAST databases
 
 `db.BlastDbReader` reads the protein databases `makeblastdb` makes, format version 4 or 5:

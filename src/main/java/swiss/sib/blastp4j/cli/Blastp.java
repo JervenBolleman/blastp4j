@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -63,6 +64,8 @@ public final class Blastp {
 			  -num_threads N          threads (default: number of processors)
 			  -version                print the version
 			  -h, -help               print this help
+
+			blastp4j daemon ... runs a search server that takes jobs over HTTP; see blastp4j daemon -help.
 
 			Accepted with their default value only: -task blastp, -matrix BLOSUM62, -gapopen 11, -gapextend 1,
 			-word_size 3, -threshold 11, -window_size 40, -seg no.
@@ -178,6 +181,9 @@ public final class Blastp {
 
 	/** Runs the search; returns the exit status. */
 	static int run(String[] args, PrintStream stdout, PrintStream stderr) {
+		if (args.length > 0 && args[0].equals("daemon")) {
+			return Daemon.run(Arrays.copyOfRange(args, 1, args.length), stdout, stderr);
+		}
 		if (args.length == 0 || List.of(args).contains("-h") || List.of(args).contains("-help")
 				|| List.of(args).contains("--help")) {
 			stdout.print(USAGE);
@@ -212,75 +218,88 @@ public final class Blastp {
 			throw new IOException("cannot read query file " + o.query());
 		}
 		SequenceDatabase queries = FastaReader.read(o.query());
-		SequenceDatabase db;
-		if (BlastDbReader.exists(o.db())) {
-			db = BlastDbReader.read(o.db());
-		} else if (Files.isReadable(o.db())) {
-			db = FastaReader.read(o.db());
-		} else {
-			throw new IOException("cannot read database " + o.db() + " (neither a FASTA file nor a BLAST database)");
-		}
-		Statistics statistics = new Statistics(ScoringParameters.BLOSUM62_11_1, db.totalResidues());
-		BlastpSearch search = new BlastpSearch(db, statistics, o.evalue(), o.compositionBased(), o.maxTargetSeqs(),
-				o.maxHsps());
+		SequenceDatabase db = openDatabase(o.db());
 		try (db; ExecutorService pool = Executors.newFixedThreadPool(o.threads());
 				Writer out = o.out() != null ? Files.newBufferedWriter(o.out(), StandardCharsets.US_ASCII)
 						: new BufferedWriter(new OutputStreamWriter(stdout, StandardCharsets.US_ASCII))) {
-			int[] lengths = new int[queries.size()];
-			for (int q = 0; q < lengths.length; q++) {
-				lengths[q] = queries.length(q);
+			search(o, queries, db, new Statistics(ScoringParameters.BLOSUM62_11_1, db.totalResidues()), pool, out,
+					stderr);
+		}
+	}
+
+	/** The database at {@code path}: a BLAST protein database, or a FASTA file. */
+	static SequenceDatabase openDatabase(Path path) throws IOException {
+		if (BlastDbReader.exists(path)) {
+			return BlastDbReader.read(path);
+		} else if (Files.isReadable(path)) {
+			return FastaReader.read(path);
+		}
+		throw new IOException("cannot read database " + path + " (neither a FASTA file nor a BLAST database)");
+	}
+
+	/**
+	 * Searches {@code queries} against {@code db} with the options' search parameters, in blastp's query batches, on
+	 * {@code o.threads()} tasks of {@code pool}; writes the tabular rows to {@code out} and the warnings about skipped
+	 * queries to {@code stderr}.
+	 */
+	static void search(Options o, SequenceDatabase queries, SequenceDatabase db, Statistics statistics,
+			ExecutorService pool, Writer out, PrintStream stderr) throws IOException, InterruptedException {
+		BlastpSearch search = new BlastpSearch(db, statistics, o.evalue(), o.compositionBased(), o.maxTargetSeqs(),
+				o.maxHsps());
+		int[] lengths = new int[queries.size()];
+		for (int q = 0; q < lengths.length; q++) {
+			lengths[q] = queries.length(q);
+		}
+		QueryBatches batches = QueryBatches.blastp(lengths);
+		for (int first = 0, end; first < queries.size(); first = end) {
+			// BLAST's batch: queries until it holds the batch size in residues. The preliminary stage scans the
+			// database once for the batch; the later stages go query by query.
+			long residues = 0;
+			for (end = first; end < queries.size() && residues < batches.batchSize(); end++) {
+				residues += lengths[end];
 			}
-			QueryBatches batches = QueryBatches.blastp(lengths);
-			for (int first = 0, end; first < queries.size(); first = end) {
-				// BLAST's batch: queries until it holds the batch size in residues. The preliminary stage scans the
-				// database once for the batch; the later stages go query by query.
-				long residues = 0;
-				for (end = first; end < queries.size() && residues < batches.batchSize(); end++) {
-					residues += lengths[end];
+			// As blastp, skip a query whose composition gives no Karlin-Altschul parameters.
+			String[] skipped = new String[end - first];
+			List<byte[]> batch = new ArrayList<>();
+			for (int q = first; q < end; q++) {
+				try {
+					search.seedParameters(queries.sequence(q));
+					search.cutoff(queries.sequence(q));
+					batch.add(queries.sequence(q));
+				} catch (IllegalArgumentException e) {
+					skipped[q - first] = e.getMessage();
 				}
-				// As blastp, skip a query whose composition gives no Karlin-Altschul parameters.
-				String[] skipped = new String[end - first];
-				List<byte[]> batch = new ArrayList<>();
-				for (int q = first; q < end; q++) {
-					try {
-						search.seedParameters(queries.sequence(q));
-						search.cutoff(queries.sequence(q));
-						batch.add(queries.sequence(q));
-					} catch (IllegalArgumentException e) {
-						skipped[q - first] = e.getMessage();
+			}
+			List<List<BlastpSearch.Hit>> prelim = batch.size() > 1 ? search.prelim(batch, pool, o.threads()) : null;
+			int inBatch = 0;
+			for (int q = first; q < end; q++) {
+				byte[] query = queries.sequence(q);
+				boolean earlyTermination = batches.next();
+				if (skipped[q - first] != null) {
+					batches.done(false);
+					stderr.println("blastp4j: warning: query " + queries.id(q) + " skipped: " + skipped[q - first]);
+					continue;
+				}
+				List<BlastpSearch.Hit> hits;
+				try {
+					BlastpSearch.Result result = prelim != null
+							? search.finish(query, prelim.get(inBatch++), pool, o.threads(), earlyTermination)
+							: search.search(query, pool, o.threads(), earlyTermination);
+					batches.done(result.filledToCutoff());
+					hits = result.hits();
+				} catch (IllegalArgumentException e) {
+					batches.done(false);
+					stderr.println("blastp4j: warning: query " + queries.id(q) + " skipped: " + e.getMessage());
+					continue;
+				}
+				for (BlastpSearch.Hit h : hits) {
+					for (Hsp hsp : h.hsps()) {
+						out.write(TabularFormat.row(o.columns(), queries.name(q), query, db, h.subject(), hsp,
+								statistics));
+						out.write('\n');
 					}
 				}
-				List<List<BlastpSearch.Hit>> prelim = batch.size() > 1 ? search.prelim(batch, pool, o.threads()) : null;
-				int inBatch = 0;
-				for (int q = first; q < end; q++) {
-					byte[] query = queries.sequence(q);
-					boolean earlyTermination = batches.next();
-					if (skipped[q - first] != null) {
-						batches.done(false);
-						stderr.println("blastp4j: warning: query " + queries.id(q) + " skipped: " + skipped[q - first]);
-						continue;
-					}
-					List<BlastpSearch.Hit> hits;
-					try {
-						BlastpSearch.Result result = prelim != null
-								? search.finish(query, prelim.get(inBatch++), pool, o.threads(), earlyTermination)
-								: search.search(query, pool, o.threads(), earlyTermination);
-						batches.done(result.filledToCutoff());
-						hits = result.hits();
-					} catch (IllegalArgumentException e) {
-						batches.done(false);
-						stderr.println("blastp4j: warning: query " + queries.id(q) + " skipped: " + e.getMessage());
-						continue;
-					}
-					for (BlastpSearch.Hit h : hits) {
-						for (Hsp hsp : h.hsps()) {
-							out.write(TabularFormat.row(o.columns(), queries.name(q), query, db, h.subject(), hsp,
-									statistics));
-							out.write('\n');
-						}
-					}
-					out.flush();
-				}
+				out.flush();
 			}
 		}
 	}

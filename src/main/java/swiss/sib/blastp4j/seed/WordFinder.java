@@ -15,7 +15,6 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.IntVector;
@@ -23,6 +22,7 @@ import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorShape;
 import jdk.incubator.vector.VectorSpecies;
 import swiss.sib.blastp4j.stats.Blosum62;
+import swiss.sib.blastp4j.util.LruCache;
 
 /**
  * blastp's word finder ({@code s_BlastAaWordFinder_TwoHit} and {@code s_BlastAaExtendTwoHit} in {@code aa_ungapped.c}):
@@ -41,8 +41,13 @@ import swiss.sib.blastp4j.stats.Blosum62;
  * Not thread safe: use one per thread.
  */
 public final class WordFinder implements WordScan {
-	/** The copies by their constants. */
-	private static final Map<Key, MethodHandle> COPIES = new ConcurrentHashMap<>();
+	/**
+	 * The copies by their constants, the most recently used {@code blastp4j.specializations} of them (256): the cutoff
+	 * depends on the query and the database, so a long-running daemon would otherwise keep a copy for each one it
+	 * met. A dropped copy is a hidden class no longer referenced, which the JVM can unload.
+	 */
+	private static final LruCache<Key, MethodHandle> COPIES = new LruCache<>(
+			Integer.getInteger("blastp4j.specializations", 256));
 
 	/** A copy's constants. */
 	private record Key(int window, int xDrop, int cutoff, int diagMask) {
