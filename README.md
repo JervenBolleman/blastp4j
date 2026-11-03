@@ -148,6 +148,15 @@ interleaved rounds, output identical), blastp4j took 1.43 times BLAST+'s cycles 
 402.7 G) and 1.27 times its instructions (650.6 to 664.0 G against 516.7 G). Wall time was 24.9 to 25.6 s against 19.0
 to 19.3 s, and peak memory 767 to 788 MB against 357 MB.
 
+Most of what remained beyond the word finder was the JIT: all 24 queries form one BLAST batch, so the
+composition-based stage started after the whole preliminary stage and ran mostly before C2 had compiled it (49 G
+cycles cold, 11 G warm, BLAST+ 12 G), and C2 spent 20 s of compiler-thread time, 5.7 s of it on
+`OptimizeTargetFreq.optimize` with all its helpers inlined. A thread that warms up the composition-based stage during
+the preliminary one (a316748) and the optimizer's helpers left out of line (a2a0da3, in `bin/jvm.options`) bring
+blastp4j to 1.32 times BLAST+'s cycles (main at 97df58a, three interleaved rounds, output identical: 525.8 to 538.1 G
+against 402.5 to 411.7 G) and 1.22 times its instructions (625.2 to 637.1 G). Wall time was 23.0 and 23.3 s against
+19.0 and 20.1 s in the rounds without throttling.
+
 ## BLAST databases
 
 `db.BlastDbReader` reads the protein databases `makeblastdb` makes, format version 4 or 5:
@@ -346,11 +355,9 @@ defined as a hidden class, in which the query's window, X-drop, cutoff and diago
 (`BatchWordFinder`, which the CLI uses for batches of several queries) does not: all queries' hits go through one call
 site, where copies would make each hit a virtual call.
 
-*Not tried yet:* a copy of `BatchWordFinder` per batch that sends each hit through a switch on the query number to
-that query's copy, held as a constant (class data). With a constant receiver C2 inlines the copy's `probe`, and since
-final fields of a hidden class are trusted, its diagonal array folds too, saving several loads per hit. The risk is
-the switch itself: an indirect jump per hit whose target follows the query order of the merged table entries, which
-predicts poorly, where today's loads hit L1.
+*Tried, slower:* a copy of `BatchWordFinder` per thread that sends each hit through a switch on the query number to
+that query's copy, held as a constant (class data) (bb46e1d, reverted). C2 does not inline the 24 cases into the scan,
+so every hit became a call to a separately compiled `probe`: 37% more cycles in the full search.
 
 ## Gapped extension and traceback
 
