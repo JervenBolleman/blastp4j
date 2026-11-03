@@ -278,6 +278,7 @@ jobs:
             if [ -d ../reference ]; then
               systems+=(ref)
               export REF_JAR="$(ls "$PWD"/../reference/target/blastp4j-*.jar | grep -v -e sources -e javadoc | head -1)"
+              export REF_HOME="$(cd ../reference && pwd)"
               echo "jvm: $(git rev-parse --short HEAD), ref: $(git -C ../reference rev-parse --short HEAD)"
             fi
             QUERY=../data/queries.fasta DB=../data/blastdb/sprot THREADS="$(nproc)" ROUNDS="$ROUNDS" OUT=target/compare \

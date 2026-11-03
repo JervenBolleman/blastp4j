@@ -11,8 +11,8 @@
 # Settings (environment): QUERY, DB, THREADS (8), ROUNDS (5), OUT (target/compare), BLASTP (blastp on PATH),
 # JAVA_HOME or JAVA, NATIVE (the native executable, needed for native), ASYNC_PROFILER (libasyncProfiler.so; without
 # it the profile run is skipped). The JVM runs the jar built by "mvn package", with this machine's options from
-# bin/jvm.options (as bin/blastp4j). ref runs another build's jar, REF_JAR, with the same options: blastp4j at another
-# commit, to compare code on the same machine.
+# bin/jvm.options (as bin/blastp4j). ref runs another build's jar, REF_JAR, with the options of that build's tree,
+# REF_HOME (default this tree's): blastp4j at another commit, to compare code and options on the same machine.
 set -e
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 QUERY="${QUERY:-$HERE/src/test/resources/queries/uniprot_human.fasta}"
@@ -51,7 +51,7 @@ command_of() {
 	case $1 in
 	blast) echo "$BLASTP" ;;
 	jvm) echo "$JAVA $("$HERE/bin/jvm-options") ${2:-} -jar $JAR" ;;
-	ref) echo "$JAVA $("$HERE/bin/jvm-options") ${2:-} -jar $REF_JAR" ;;
+	ref) echo "$JAVA $("${REF_HOME:-$HERE}/bin/jvm-options") ${2:-} -jar $REF_JAR" ;;
 	native) echo "$NATIVE" ;;
 	esac
 }
