@@ -8,6 +8,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import swiss.sib.blastp4j.align.GappedAligner;
@@ -65,6 +66,8 @@ public final class BlastpSearch {
 	public static final int MIN_SUBJECT_LENGTH = 10;
 	private static final int CHUNK = 2048;
 	private static final int WARM_UP_CHUNKS = 2, WARM_UP_HITS = 1000;
+	/** Whether a warm-up has started in this JVM: the code it compiles serves every later batch. */
+	private static final AtomicBoolean WARMED_UP = new AtomicBoolean();
 	private static final double LN2 = 0.69314718055994530941723212145818;
 
 	private final SequenceDatabase db;
@@ -241,7 +244,7 @@ public final class BlastpSearch {
 			cutoffs[i] = cutoff(qs[i]);
 		}
 		final BatchWordFinder.Table table = BatchWordFinder.Table.of(tables);
-		if (compositionBased) {
+		if (compositionBased && !WARMED_UP.getAndSet(true)) {
 			Thread.ofPlatform().daemon().name("blastp4j-warm-up").start(() -> warmUp(qs, seeds, tables, cutoffs));
 		}
 		AtomicInteger next = new AtomicInteger();
@@ -270,7 +273,7 @@ public final class BlastpSearch {
 	 * Gets the JIT to compile the composition-based stage while the preliminary stage runs, on a thread of its own:
 	 * otherwise that stage starts at the end of the run, and most of it runs before its code is compiled. Searches the
 	 * last {@link #WARM_UP_CHUNKS} chunks of the database for queries in turn, and redoes the hits with
-	 * composition-based statistics, up to {@link #WARM_UP_HITS} of them; the results are dropped.
+	 * composition-based statistics, up to {@link #WARM_UP_HITS} of them; the results are dropped. Once per JVM.
 	 */
 	private void warmUp(byte[][] queries, SeedParameters[] seeds, LookupTable[] tables, int[] cutoffs) {
 		int left = WARM_UP_HITS;
