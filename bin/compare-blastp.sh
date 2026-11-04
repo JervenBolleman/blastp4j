@@ -99,8 +99,17 @@ fi
 if [[ " ${SYSTEMS[*]} " == *" jvm "* ]]; then
 	echo "== async-profiler (JVM)"
 	if [ -f "$ASYNC_PROFILER" ]; then
-		JVM_EXTRA="-agentpath:$ASYNC_PROFILER=start,event=cpu,file=$OUT/jvm-profile.html" search jvm "profile-jvm"
+		JVM_EXTRA="-agentpath:$ASYNC_PROFILER=start,event=cpu,file=$OUT/jvm-profile.jfr" search jvm "profile-jvm"
+		# jfrconv is in the bin directory next to the library's lib directory.
+		JFRCONV="$(dirname "$ASYNC_PROFILER")/../bin/jfrconv"
+		"$JFRCONV" --norm -o html "$OUT/jvm-profile.jfr" "$OUT/jvm-profile.html" >/dev/null
 		echo "flame graph: $OUT/jvm-profile.html ($SAME)"
+		# The methods with the most samples of their own (the top frame), hidden-class copies merged by --norm.
+		"$JFRCONV" --norm --simple -o collapsed "$OUT/jvm-profile.jfr" "$OUT/jvm-profile.collapsed" >/dev/null
+		echo "self time, top 15 methods:"
+		awk '{ n = $NF; sub(/ [0-9]+$/, ""); k = split($0, f, ";"); self[f[k]] += n; total += n }
+			END { for (m in self) printf "%6.2f%%  %s\n", 100 * self[m] / total, m }' "$OUT/jvm-profile.collapsed" |
+			sort -rn | head -15
 	else
 		echo "skipped: set ASYNC_PROFILER to libasyncProfiler.so"
 	fi
