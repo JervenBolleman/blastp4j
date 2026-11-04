@@ -419,12 +419,13 @@ public final class WordFinder implements WordScan {
 		final int n = Math.min(sOff, qOff);
 		int best = n + 1, score = 0, maxScore = 0, floor = -xDrop;
 		final int sBase = start + sOff - n, qBase = qOff - n;
-		// Without a branch on a new maximum, which the predictor cannot learn: only the X-drop exit branches.
 		for (int i = n; i >= 0; i--) {
 			score += PADDED[(rowOfQuery[qBase + i] + residues[sBase + i]) & 1023];
-			best = score > maxScore ? i : best;
-			maxScore = Math.max(maxScore, score);
-			floor = maxScore - xDrop;
+			if (score > maxScore) {
+				maxScore = score;
+				best = i;
+				floor = maxScore - xDrop;
+			}
 			if (score <= floor) {
 				break;
 			}
@@ -440,9 +441,11 @@ public final class WordFinder implements WordScan {
 		int floor = Math.max(0, maxScore - xDrop);
 		for (i = 0; i < n; i++) {
 			score += PADDED[(rowOfQuery[qOff + i] + residues[start + sOff + i]) & 1023];
-			best = score > maxScore ? i : best;
-			maxScore = Math.max(maxScore, score);
-			floor = Math.max(0, maxScore - xDrop);
+			if (score > maxScore) {
+				maxScore = score;
+				best = i;
+				floor = Math.max(0, maxScore - xDrop);
+			}
 			if (score <= floor) {
 				break;
 			}
