@@ -240,6 +240,7 @@ public final class WordFinder implements WordScan {
 		// The diagonal fields as locals, for the usual hit below.
 		final int[] diags = diagState;
 		final int diagMaskL = diagMask, diagOffsetL = diagOffset, windowL = window;
+		final int lastL = windowL - LookupTable.WORD_SIZE - 1;
 		if (length >= wordSize) {
 			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
 			for (int s = 0; s <= length - wordSize; s++) {
@@ -248,8 +249,12 @@ public final class WordFinder implements WordScan {
 					final int q = offsets[k];
 					final int diag = (q - s) & diagMaskL;
 					final int state = diags[diag];
-					if ((state & EXTENDED) == 0 && s - (state - diagOffsetL) >= windowL) {
-						diags[diag] = s + diagOffsetL;
+					// As in BatchWordFinder.find: stored or ignored here, with one branch, unless it is a hit to
+					// extend or on an extended diagonal.
+					final int diff = s - (state - diagOffsetL), x = diff - LookupTable.WORD_SIZE;
+					if ((~(x | (lastL - x)) | state << 1) >= 0) {
+						final int older = (diff - windowL) >> 31;
+						diags[diag] = (state & older) | ((s + diagOffsetL) & ~older);
 					} else {
 						hit(residues, start, length, q, s, out);
 					}
@@ -274,6 +279,7 @@ public final class WordFinder implements WordScan {
 		// The diagonal fields as locals, for the usual hit below.
 		final int[] diags = diagState;
 		final int diagMaskL = diagMask, diagOffsetL = diagOffset, windowL = window;
+		final int lastL = windowL - LookupTable.WORD_SIZE - 1;
 		for (int block = 0; block < positions; block += BLOCK) {
 			// First the words of the block and a bit per position whose word has neighbours: LANES positions at a
 			// time with vectors, the rest one at a time, without branches.
@@ -322,8 +328,12 @@ public final class WordFinder implements WordScan {
 					final int q = offsets[k];
 					final int diag = (q - s) & diagMaskL;
 					final int state = diags[diag];
-					if ((state & EXTENDED) == 0 && s - (state - diagOffsetL) >= windowL) {
-						diags[diag] = s + diagOffsetL;
+					// As in BatchWordFinder.find: stored or ignored here, with one branch, unless it is a hit to
+					// extend or on an extended diagonal.
+					final int diff = s - (state - diagOffsetL), x = diff - LookupTable.WORD_SIZE;
+					if ((~(x | (lastL - x)) | state << 1) >= 0) {
+						final int older = (diff - windowL) >> 31;
+						diags[diag] = (state & older) | ((s + diagOffsetL) & ~older);
 					} else {
 						hit(residues, start, length, q, s, out);
 					}
