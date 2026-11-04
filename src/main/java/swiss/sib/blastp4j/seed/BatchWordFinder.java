@@ -97,7 +97,7 @@ public final class BatchWordFinder {
 	public void find(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
 		final int[] cellStart = table.start(), entry = table.entry(), query = table.query();
 		final int[] d = diags;
-		final int offset = diagOffset, windowL = window;
+		final int offset = diagOffset, windowL = window, lastL = window - LookupTable.WORD_SIZE - 1;
 		final WordFinder[] f = finders;
 		final int mask = LookupTable.WORDS - 1;
 		if (length >= LookupTable.WORD_SIZE) {
@@ -105,14 +105,20 @@ public final class BatchWordFinder {
 			for (int s = 0; s <= length - LookupTable.WORD_SIZE; s++) {
 				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
 				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
-					// The usual hit, as in WordFinder.find: the diagonal's last hit is a window or more back, so
-					// this one only replaces it.
+					// The usual hits, decided from the entry: the diagonal's last hit is a window or more back, so
+					// this one replaces it, or it overlaps this one, which is then ignored. Only hits to extend and
+					// hits on an extended diagonal go to the query's finder.
 					final int e = entry[k];
 					final int m = (1 << (e >>> POSITION_BITS)) - 1, p = e & POSITION_MASK;
 					final int diag = (p & ~m) | ((p - s) & m);
 					final int state = d[diag];
-					if ((state & WordFinder.EXTENDED) == 0 && s - (state - offset) >= windowL) {
-						d[diag] = s + offset;
+					// Without branches but one: x = diff - WORD_SIZE is in [0, last] (a hit to extend) when neither
+					// x nor last - x is negative, and the extended flag (bit 30; bit 31 is never set) goes to the
+					// sign bit.
+					final int diff = s - (state - offset), x = diff - LookupTable.WORD_SIZE;
+					if ((~(x | (lastL - x)) | state << 1) >= 0) {
+						final int older = (diff - windowL) >> 31; // -1 if the hit overlaps the last one: keep that
+						d[diag] = (state & older) | ((s + offset) & ~older);
 					} else {
 						final int i = query[k];
 						f[i].hit(residues, start, length, p & m, s, out[i]);
