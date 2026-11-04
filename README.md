@@ -397,6 +397,14 @@ cycles in the full search (median of eight interleaved rounds). *Not built:* BLA
 inline in each word's cell. In the merged table of the 24 queries a non-empty word has 22.7 entries on average, and
 only 493 of 15,666 have three or fewer, so the inline entries would rarely be used.
 
+*Kept:* one diagonal array for the batch, as BLAST has for its concatenated queries. Each query keeps its own
+power-of-two number of diagonals, in a region that starts at a multiple of its size. An entry holds that size's
+logarithm and the region start plus the query offset, so the batched scan finds a hit's diagonal from the entry
+alone, and handles the usual hit (the diagonal's last hit a window or more back) without touching the query's
+`WordFinder`. The query number is in a parallel array, read only for the other hits. Full search, three interleaved
+rounds: 2.1% fewer cycles and 3.4% fewer instructions on the 24 human queries against Swiss-Prot, 1.4% fewer cycles
+on the 500 bean queries.
+
 ## Gapped extension and traceback
 
 `align.GappedAligner`, `align.HspTree` and `search.BlastpSearch` follow BLAST+'s `blast_gapalign.c`, `blast_itree.c`,

@@ -13,50 +13,81 @@ import java.util.List;
  */
 public final class BatchWordFinder {
 	/**
-	 * The queries' lookup tables merged: the hits of word {@code w} are entries {@code [start[w], start[w + 1])}, by
-	 * query and then as in that query's table. An entry is one int, as in BLAST's table for a batch: the query number
-	 * shifted left by {@code shift}, or'ed with the query offset.
+	 * The queries' lookup tables merged, with where each query's diagonals are in the batch's diagonal array: the hits
+	 * of word {@code w} are entries {@code [start[w], start[w + 1])}, by query and then as in that query's table.
+	 * <p>
+	 * Each query has a region of {@code 2^b} diagonals ({@link WordFinder#diagonals}), starting at a multiple of its
+	 * size. An entry is {@code b << POSITION_BITS | (region start + query offset)}, so the diagonal of a hit at subject
+	 * position {@code s} follows from the entry alone; {@code query[k]} is the query of entry {@code k}, read only for
+	 * hits that go on to the two-hit logic. {@code base[i]} is the start of query {@code i}'s region, {@code size} the
+	 * length of the array.
 	 */
-	public record Table(int[] start, int[] entry, int shift) {
-		public static Table of(LookupTable[] tables) {
-			int total = 0, longest = 1;
+	public record Table(int[] start, int[] entry, int[] query, int[] base, int size) {
+		public static Table of(byte[][] queries, LookupTable[] tables, int window) {
+			final int n = queries.length;
+			// The regions by size, largest first, so that each starts at a multiple of its size.
+			final Integer[] order = new Integer[n];
+			final int[] bits = new int[n];
+			for (int i = 0; i < n; i++) {
+				order[i] = i;
+				bits[i] = Integer.numberOfTrailingZeros(WordFinder.diagonals(queries[i].length, window));
+			}
+			java.util.Arrays.sort(order, (a, b) -> Integer.compare(bits[b], bits[a]));
+			final int[] base = new int[n];
+			long size = 0;
+			for (int i : order) {
+				base[i] = (int) size;
+				size += 1L << bits[i];
+			}
+			if (size > POSITION_MASK + 1L) {
+				throw new IllegalArgumentException("the diagonals of a batch of " + n + " queries (" + size
+						+ ") do not fit an entry");
+			}
+			int total = 0;
 			for (LookupTable t : tables) {
 				total += t.offsets().length;
-				for (int q : t.offsets()) {
-					longest = Math.max(longest, q + 1);
-				}
 			}
-			final int shift = 32 - Integer.numberOfLeadingZeros(longest - 1);
-			if (tables.length > 1 && 31 - shift < 32 - Integer.numberOfLeadingZeros(tables.length - 1)) {
-				throw new IllegalArgumentException("a batch of " + tables.length + " queries with offsets up to "
-						+ longest + " does not fit an int entry");
-			}
-			final int[] start = new int[LookupTable.WORDS + 1], entry = new int[total];
+			final int[] start = new int[LookupTable.WORDS + 1], entry = new int[total], query = new int[total];
 			int k = 0;
 			for (int w = 0; w < LookupTable.WORDS; w++) {
 				start[w] = k;
-				for (int i = 0; i < tables.length; i++) {
+				for (int i = 0; i < n; i++) {
 					final int[] ts = tables[i].start(), to = tables[i].offsets();
 					for (int j = ts[w]; j < ts[w + 1]; j++) {
-						entry[k++] = i << shift | to[j];
+						query[k] = i;
+						entry[k++] = bits[i] << POSITION_BITS | (base[i] + to[j]);
 					}
 				}
 			}
 			start[LookupTable.WORDS] = k;
-			return new Table(start, entry, shift);
+			return new Table(start, entry, query, base, (int) size);
 		}
 	}
 
+	/** The low bits of an entry: the diagonal region's start plus the query offset. */
+	private static final int POSITION_BITS = 26, POSITION_MASK = (1 << POSITION_BITS) - 1;
+
 	private final Table table;
 	private final WordFinder[] finders;
+	/** The diagonals of all queries, in the regions of {@link Table#base}. */
+	private final int[] diags;
+	private final int window;
+	/** As each finder's {@code diagOffset}, which all move together. */
+	private int diagOffset;
 
 	/** The queries, their lookup tables and seeding parameters, by query; {@code table} merges the tables. */
 	public BatchWordFinder(byte[][] queries, LookupTable[] tables, SeedParameters[] parameters, Table table) {
 		this.table = table;
+		window = parameters[0].window();
+		diags = new int[table.size()];
 		finders = new WordFinder[queries.length];
 		for (int i = 0; i < queries.length; i++) {
-			finders[i] = new WordFinder(queries[i], tables[i], parameters[i]);
+			if (parameters[i].window() != window) {
+				throw new IllegalArgumentException("the queries of a batch have different windows");
+			}
+			finders[i] = new WordFinder(queries[i], tables[i], parameters[i], diags, table.base()[i]);
 		}
+		diagOffset = window;
 	}
 
 	/**
@@ -64,8 +95,9 @@ public final class BatchWordFinder {
 	 * those of query {@code i} to {@code out[i]}, as {@link WordFinder#find} does for one query.
 	 */
 	public void find(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
-		final int[] cellStart = table.start(), entry = table.entry();
-		final int shift = table.shift(), offsetMask = (1 << shift) - 1;
+		final int[] cellStart = table.start(), entry = table.entry(), query = table.query();
+		final int[] d = diags;
+		final int offset = diagOffset, windowL = window;
 		final WordFinder[] f = finders;
 		final int mask = LookupTable.WORDS - 1;
 		if (length >= LookupTable.WORD_SIZE) {
@@ -73,13 +105,24 @@ public final class BatchWordFinder {
 			for (int s = 0; s <= length - LookupTable.WORD_SIZE; s++) {
 				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
 				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
-					final int e = entry[k], i = e >>> shift;
-					f[i].probe(residues, start, length, e & offsetMask, s, out[i]);
+					// The usual hit, as in WordFinder.find: the diagonal's last hit is a window or more back, so
+					// this one only replaces it.
+					final int e = entry[k];
+					final int m = (1 << (e >>> POSITION_BITS)) - 1, p = e & POSITION_MASK;
+					final int diag = (p & ~m) | ((p - s) & m);
+					final int state = d[diag];
+					if ((state & WordFinder.EXTENDED) == 0 && s - (state - offset) >= windowL) {
+						d[diag] = s + offset;
+					} else {
+						final int i = query[k];
+						f[i].hit(residues, start, length, p & m, s, out[i]);
+					}
 				}
 			}
 		}
 		for (WordFinder finder : f) {
 			finder.endSubject(length);
 		}
+		diagOffset = diagOffset >= Integer.MAX_VALUE / 4 ? window : diagOffset + length + window;
 	}
 }

@@ -244,7 +244,7 @@ public final class BlastpSearch {
 			tables[i] = LookupTable.of(qs[i], seeds[i].threshold());
 			cutoffs[i] = cutoff(qs[i]);
 		}
-		final BatchWordFinder.Table table = BatchWordFinder.Table.of(tables);
+		final BatchWordFinder.Table table = BatchWordFinder.Table.of(qs, tables, seeds[0].window());
 		if (compositionBased && !WARMED_UP.getAndSet(true)) {
 			Thread.ofPlatform().daemon().name("blastp4j-warm-up").start(() -> warmUp(qs, seeds, tables, cutoffs));
 		}

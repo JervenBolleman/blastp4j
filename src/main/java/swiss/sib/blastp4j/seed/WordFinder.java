@@ -77,8 +77,10 @@ public final class WordFinder implements WordScan {
 	 * right. One array, so that a hit reads and writes a single element.
 	 */
 	private final int[] diagState;
+	/** Where this query's diagonals start in {@link #diagState}: 0, or in a batch its region of the shared array. */
+	private final int diagBase;
 	/** Set in a diagonal's state while hits on it are ignored, as they lie within the extension. */
-	private static final int EXTENDED = 1 << 30;
+	static final int EXTENDED = 1 << 30;
 	private final int diagMask;
 	private int diagOffset;
 	// Output of the last extension.
@@ -123,6 +125,15 @@ public final class WordFinder implements WordScan {
 	private final boolean vectorScan;
 
 	public WordFinder(byte[] query, LookupTable table, SeedParameters p) {
+		this(query, table, p, null, 0);
+	}
+
+	/**
+	 * A word finder whose diagonals are {@code diags[base .. base + diagonals(query.length, window))} (for
+	 * {@link BatchWordFinder}), or an array of its own when {@code diags} is null. Only {@link #hit} and
+	 * {@link #endSubject} use the base: such a finder does not scan.
+	 */
+	WordFinder(byte[] query, LookupTable table, SeedParameters p, int[] diags, int base) {
 		this.query = query;
 		this.table = table;
 		this.window = p.window();
@@ -133,14 +144,15 @@ public final class WordFinder implements WordScan {
 		for (int q = 0; q < query.length; q++) {
 			rowOfQuery[q] = query[q] << 5;
 		}
-		diagState = new int[length];
+		diagState = diags != null ? diags : new int[length];
+		diagBase = base;
 		diagMask = length - 1;
 		diagOffset = window;
 		vectorScan = table.coverage() < VECTOR_MAX_COVERAGE;
 	}
 
 	/** The diagonal array's length for a query: a power of two of at least the query length plus the window. */
-	private static int diagonals(int queryLength, int window) {
+	static int diagonals(int queryLength, int window) {
 		int length = 1;
 		while (length < queryLength + window) {
 			length <<= 1;
@@ -322,33 +334,23 @@ public final class WordFinder implements WordScan {
 		}
 	}
 
-	/**
-	 * One word hit of a scan done elsewhere ({@link BatchWordFinder}): query offset {@code q} at subject position
-	 * {@code s}, handled as {@link #find} handles each.
-	 */
-	void probe(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
-		final int diag = (q - s) & diagMask;
-		final int state = diagState[diag];
-		if ((state & EXTENDED) == 0 && s - (state - diagOffset) >= window) {
-			diagState[diag] = s + diagOffset;
-		} else {
-			hit(residues, start, length, q, s, out);
-		}
-	}
-
 	/** The end of a subject of {@code length} letters scanned elsewhere, as at the end of {@link #find}. */
 	void endSubject(int length) {
 		// The next subject's positions start beyond everything stored so far.
 		if (diagOffset >= Integer.MAX_VALUE / 4) {
 			diagOffset = window;
-			java.util.Arrays.fill(diagState, 0);
+			java.util.Arrays.fill(diagState, diagBase, diagBase + diagMask + 1, 0);
 		} else {
 			diagOffset += length + window;
 		}
 	}
 
-	private void hit(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
-		final int diag = (q - s) & diagMask;
+	/**
+	 * A word hit: query offset {@code q} at subject position {@code s}. Also called by {@link BatchWordFinder} for a
+	 * hit that is not just stored.
+	 */
+	void hit(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
+		final int diag = diagBase + ((q - s) & diagMask);
 		final int state = diagState[diag];
 		if ((state & EXTENDED) != 0) {
 			// Already extended past this hit: skip it; otherwise it starts a new pair.
