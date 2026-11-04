@@ -6,8 +6,7 @@ import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorSpecies;
 
 /**
- * Many independent {@link GappedAligner#semiGapped} extensions (BLOSUM62) at once, one per lane of a vector of
- * {@link #L} ints.
+ * Many independent {@link GappedAligner#semiGapped} extensions (BLOSUM62) at once, one per lane of a vector of 8 ints.
  * Each lane computes exactly what semiGapped computes for its extension: the same cells, the same X-drop, the same
  * band, the same best score and end point. Extensions are {@linkplain #submit submitted} to a queue; {@link #step}
  * advances every lane by one row, and a lane whose extension ends reports it and takes the next one from the queue.
@@ -21,8 +20,8 @@ import jdk.incubator.vector.VectorSpecies;
  * which moves and grows with the bands, and the letter ring grows with their span, so that the buffers stay small:
  * arrays sized for the longest subject are humongous objects for G1, which then grows the heap several times over.
  * <p>
- * Pays where the machine has 8 int lanes with a gather instruction (x86 with AVX2); tried with 4 on AArch64 with SVE
- * ({@link #AVAILABLE}). Not thread safe: use one per thread.
+ * Pays where the machine has 8 int lanes with a gather instruction (x86 with AVX2): {@link #AVAILABLE}. Not thread
+ * safe: use one per thread.
  */
 public final class SemiGappedLanes {
 	/** Receives the result of an extension: semiGapped's score and its {@code aOffset} and {@code bOffset}. */
@@ -30,42 +29,16 @@ public final class SemiGappedLanes {
 		void done(int id, int score, int aOffset, int bOffset);
 	}
 
-	/**
-	 * The lanes: 8 ints where the preferred vector has at least 8 (x86 with AVX2 or AVX-512), else the preferred
-	 * vector (4 ints with AArch64's 128-bit NEON and SVE). {@code -Dblastp4j.gappedLaneBits=128} or {@code 256} chooses.
-	 */
-	private static final VectorSpecies<Integer> S = species();
+	private static final VectorSpecies<Integer> S = IntVector.SPECIES_256;
 	/** Lanes. */
 	public static final int L = S.length();
 	/**
-	 * Whether to use the lanes: where a gather is an instruction (8 or more preferred int lanes: x86 with AVX2; 4 on
-	 * AArch64 with SVE), not in a native image (where Graal compiles a gather to scalar loads), and unless
-	 * {@code -Dblastp4j.gappedLanes=false}. {@code -Dblastp4j.gappedLaneBits} also makes them available.
+	 * Whether to use the lanes: where the preferred vector has at least 8 ints (here a gather is an instruction), not
+	 * in a native image (where Graal compiles a gather to scalar loads), and unless {@code -Dblastp4j.gappedLanes=false}.
 	 */
-	public static final boolean AVAILABLE = (IntVector.SPECIES_PREFERRED.length() >= 8 || L >= 4 && sve()
-			|| System.getProperty("blastp4j.gappedLaneBits") != null)
+	public static final boolean AVAILABLE = IntVector.SPECIES_PREFERRED.length() >= 8
 			&& System.getProperty("org.graalvm.nativeimage.imagecode") == null
 			&& Boolean.parseBoolean(System.getProperty("blastp4j.gappedLanes", "true"));
-
-	private static VectorSpecies<Integer> species() {
-		final String bits = System.getProperty("blastp4j.gappedLaneBits");
-		if (bits != null) {
-			return VectorSpecies.of(int.class, jdk.incubator.vector.VectorShape.forBitSize(Integer.parseInt(bits)));
-		}
-		return IntVector.SPECIES_PREFERRED.length() >= 8 ? IntVector.SPECIES_256 : IntVector.SPECIES_PREFERRED;
-	}
-
-	/** Whether HotSpot uses SVE here (UseSVE above 0), which has a gather instruction; NEON has none. */
-	private static boolean sve() {
-		try {
-			return Integer.parseInt(java.lang.management.ManagementFactory
-					.getPlatformMXBean(com.sun.management.HotSpotDiagnosticMXBean.class).getVMOption("UseSVE")
-					.getValue()) > 0;
-		} catch (RuntimeException | LinkageError e) {
-			return false; // not AArch64, or not HotSpot
-		}
-	}
-
 	private static final int MININT = GappedAligner.MININT;
 	private static final int[] MAT = GappedAligner.Rows.BLOSUM62;
 
