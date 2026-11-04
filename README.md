@@ -404,6 +404,13 @@ alone, and handles the usual hit (the diagonal's last hit a window or more back)
 `WordFinder`. The query number is in a parallel array, read only for the other hits. Full search, three interleaved
 rounds: 2.1% fewer cycles and 3.4% fewer instructions on the 24 human queries against Swiss-Prot, 1.4% fewer cycles
 on the 500 bean queries.
+On the GitHub runners (2755a0e): 2.9% less wall time and cycles on AArch64, 1.6% less wall time on x86-64.
+
+*Kept:* the vector scan of a single query (`WordFinder.findBlocks`) at most 256 bits wide (1aff999). With AVX-512 it
+took 16 positions per vector: on a Xeon 8573C a search of CDK1 took 10% longer with them than with 8
+(`BlastpSearchBench`, `-XX:MaxVectorSize=32` against the default, two runs), and on an EPYC 9V45 (Zen 5) the full
+search of the 500 bean queries took 7.6% less wall time with the cap, which brought it to BLAST+'s (33.1 s, BLAST+
+33.6 s). Machines without AVX-512 already used 8 lanes or fewer.
 
 ## Gapped extension and traceback
 
@@ -468,6 +475,10 @@ Speed of the complete search on one thread (`BlastpSearchBench`, Temurin 25), ag
 The blastp times include starting the program and opening the database. blastp4j is 7 to 25% slower. The difference
 is in the gapped stage: for BRCA1 it takes 6.0 s here, against about 3.3 s in blastp (its gapped search minus its
 ungapped one). On 8 threads, the 24 queries take 29 s; blastp on one thread takes 76 s.
+
+*Tried, slower:* the score-only extensions in 4 lanes on AArch64 with SVE (80b15ff, reverted), where they run scalar
+because the lanes need 8 ints with a gather. On the Neoverse-N2 runner 6.2% more wall time than scalar, though with 4.6%
+fewer instructions; on x86 4 lanes take 15% more cycles than scalar, 8 lanes 1% fewer.
 
 ## Composition-based statistics
 

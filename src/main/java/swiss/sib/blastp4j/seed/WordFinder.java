@@ -89,7 +89,8 @@ public final class WordFinder implements WordScan {
 
 	/**
 	 * The machine's preferred vector of ints, at most 256 bits: one subject position per lane. With AVX-512 (16 lanes)
-	 * a single-query search of CDK1 took 10% longer than with 256 bits on a Xeon 8573C (BlastpSearchBench, two runs).
+	 * a single-query search of CDK1 took 10% longer than with 256 bits on a Xeon 8573C (BlastpSearchBench, two runs),
+	 * and the full search of 500 bean queries 8% longer on an EPYC 9V45.
 	 */
 	private static final VectorSpecies<Integer> INTS = IntVector.SPECIES_PREFERRED.length() > 8 ? IntVector.SPECIES_256
 			: IntVector.SPECIES_PREFERRED;
