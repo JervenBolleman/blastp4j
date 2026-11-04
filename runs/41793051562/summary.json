@@ -1,0 +1,37 @@
+{
+ "run_id": "41793051562",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/41793051562",
+ "date": "2026-11-04 08:08 UTC",
+ "event": "push",
+ "code": [
+  "`2f25d44` (README: the shared diagonal array, the 256-bit word scan, 4 lanes on ARM)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 28.69,
+   "jvm_wall": 38.68,
+   "ref_wall": 40.38,
+   "wall": 1.348204949459742,
+   "cycles": 1.3018018018018018,
+   "instructions": 1.3846512169558634,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html"
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 9V74 80-Core Processor",
+   "cpus": "4",
+   "blast_wall": 41.8,
+   "jvm_wall": 43.98,
+   "ref_wall": 44.14,
+   "wall": 1.052153110047847,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html"
+  }
+ ]
+}
