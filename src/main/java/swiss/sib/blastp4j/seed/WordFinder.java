@@ -87,8 +87,12 @@ public final class WordFinder implements WordScan {
 	private int hspQuery, hspSubject, hspLength, lastSubjectOffset;
 	private boolean rightExtended;
 
-	/** The machine's preferred vector of ints: one subject position per lane. */
-	private static final VectorSpecies<Integer> INTS = IntVector.SPECIES_PREFERRED;
+	/**
+	 * The machine's preferred vector of ints, at most 256 bits: one subject position per lane. With AVX-512 (16 lanes)
+	 * a single-query search of CDK1 took 10% longer than with 256 bits on a Xeon 8573C (BlastpSearchBench, two runs).
+	 */
+	private static final VectorSpecies<Integer> INTS = IntVector.SPECIES_PREFERRED.length() > 8 ? IntVector.SPECIES_256
+			: IntVector.SPECIES_PREFERRED;
 	/** Positions per vector. */
 	private static final int LANES = INTS.length();
 	/**
