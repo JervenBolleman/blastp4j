@@ -1,0 +1,37 @@
+{
+ "run_id": "41789076104",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/41789076104",
+ "date": "2026-11-04 07:31 UTC",
+ "event": "push",
+ "code": [
+  "`80b15ff` (Experiment: the gapped lanes 4 wide on AArch64 with SVE)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 27.7,
+   "jvm_wall": 40.85,
+   "ref_wall": 38.62,
+   "wall": 1.4747292418772564,
+   "cycles": 1.3575027995520716,
+   "instructions": 1.3051296829971182,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html"
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 9V45 96-Core Processor",
+   "cpus": "4",
+   "blast_wall": 35.22,
+   "jvm_wall": 35.29,
+   "ref_wall": 35.27,
+   "wall": 1.0019875070982396,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html"
+  }
+ ]
+}
