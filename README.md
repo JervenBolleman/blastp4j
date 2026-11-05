@@ -97,6 +97,13 @@ commit.
   it is a copy of `cli.Blastp` (without the daemon) and gives the same results, which `AlmostBlastpTest` checks.
   The architecture comparison workflow times it in the full search next to blastp4j and BLAST+ (its `almostblastp`
   input, default true), and the report plots it against BLAST+.
+  * Its first change (121ec20): the composition optimizer's logarithms (400 per Newton iteration) a vector at a time,
+    with the Vector API's `LOG` (SVML on x86-64, SLEEF on AArch64), within about an ulp of `Math.log`, and the sums
+    in another order (`util.Arithmetic.FAST`; blastp4j keeps `BLAST`). The results are still blastp's on the bean and
+    human queries. On the runners (run 42096646036, against blastp4j in the same rounds): 1.2% less wall time on
+    AArch64 and 1.4% on a Xeon 8573C, two of three rounds each; locally 1.3% fewer cycles on the bean queries.
+  * *Tried, no gain:* the optimizer's Cholesky factorization and solve with fused multiply-adds and four partial
+    sums (39f9f3e, reverted).
   * `-XX:+TrustFinalNonStaticFields`, which lets C2 treat every final instance field as a constant (by default only
     those of records, hidden classes and some JDK classes), was tried (9ee5ac4, reverted): within the noise on the
     GitHub runners (1.4% less wall time on AArch64, 0.2% on x86-64) and here.
