@@ -6,7 +6,8 @@
 #    cpu-clock samples (.github/scripts/compare-spills.sh); C2's code is printed with hsdis.
 # 2. The JMH benchmarks (the BENCHMARK input, default all) with this machine's options from bin/jvm.options
 #    plus each variant's own (the VARIANTS input), the variants interleaved over BENCH_ROUNDS rounds.
-# 3. A full search, BLAST+ and blastp4j interleaved (bin/compare-blastp.sh), with an async-profiler flame graph.
+# 3. A full search, BLAST+ and blastp4j interleaved (bin/compare-blastp.sh), with an async-profiler flame graph and
+#    the JVM's machine code with the samples of each instruction (machcode.txt, printed with hsdis).
 # The code measured is the CODE input (a branch, tag or commit; default the ref the workflow runs from). With a
 # REFERENCE (for a push to main, main before the push), that blastp4j is built too and run in the same rounds of 2
 # and 3, each with its own bin/jvm.options plus the same variant options: runners differ
@@ -292,7 +293,7 @@ jobs:
             } | tee "$REPORT/full-search.txt"
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY" "$REPORT/report.md"
-          cp target/compare/jvm-profile.html "$REPORT/" 2>/dev/null || true
+          cp target/compare/jvm-profile.html target/compare/machcode.txt "$REPORT/" 2>/dev/null || true
 
       - uses: actions/upload-artifact@v7
         if: always()

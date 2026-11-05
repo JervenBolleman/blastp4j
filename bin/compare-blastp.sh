@@ -5,7 +5,8 @@
 # 1. ROUNDS timing rounds (default 5), the chosen systems interleaved in each round (/usr/bin/time: wall, user, sys).
 # 2. One perf stat run per system (instructions, cycles, branches, branch misses), after all timing rounds; skipped
 #    where perf has no hardware counters.
-# 3. For the JVM, one run with async-profiler (CPU samples, flame graph in jvm-profile.html).
+# 3. For the JVM, one run with async-profiler (CPU samples, flame graph in jvm-profile.html), and one that prints the
+#    machine code of the seed and align packages with the samples of each instruction (machcode.txt).
 # Every output is compared with the first one written (BLAST+'s when blast is chosen).
 #
 # Settings (environment): QUERY, DB, THREADS (8), ROUNDS (5), OUT (target/compare), BLASTP (blastp on PATH),
@@ -112,5 +113,24 @@ if [[ " ${SYSTEMS[*]} " == *" jvm "* ]]; then
 			sort -rn | head -15
 	else
 		echo "skipped: set ASYNC_PROFILER to libasyncProfiler.so"
+	fi
+
+	echo "== machine code (JVM)"
+	# The compiled code of the seeding and alignment packages, with the samples of the same run per instruction
+	# (bin/machcode.py): cycles where perf has hardware counters, a software clock otherwise. With hsdis the JVM prints
+	# the disassembly, without it the bytes, which objdump disassembles.
+	if command -v perf >/dev/null && command -v objdump >/dev/null; then
+		EVENT=cpu-clock:u
+		grep -q '^[0-9]' "$OUT/perf-check.txt" 2>/dev/null && EVENT=cycles:u
+		PRINT="-XX:+UnlockDiagnosticVMOptions -XX:CompileCommand=quiet"
+		PRINT+=" -XX:CompileCommand=print,swiss.sib.blastp4j.seed.*::* -XX:CompileCommand=print,swiss.sib.blastp4j.align.*::*"
+		[ "$(uname -m)" = x86_64 ] && PRINT+=" -XX:PrintAssemblyOptions=intel"
+		JVM_EXTRA="$PRINT" search jvm "machcode-jvm" perf record -q -e "$EVENT" -F 4999 -o "$OUT/machcode.perf" --
+		perf script -F ip -i "$OUT/machcode.perf" >"$OUT/machcode.ips" 2>/dev/null
+		python3 "$HERE/bin/machcode.py" "$OUT/machcode-jvm.log" "$OUT/machcode.ips" >"$OUT/machcode.txt"
+		echo "$EVENT samples ($SAME); the full listing per method in machcode.txt:"
+		sed -n '/^==/q;p' "$OUT/machcode.txt"
+	else
+		echo "skipped: needs perf and objdump"
 	fi
 fi
