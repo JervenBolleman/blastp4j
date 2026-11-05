@@ -1,0 +1,37 @@
+{
+ "run_id": "41986246851",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/41986246851",
+ "date": "2026-11-05 07:54 UTC",
+ "event": "workflow_dispatch",
+ "code": [
+  "`dfc3c67` (Experiment: the traceback's row loop as a hidden-class copy per pair of gap costs)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 27.74,
+   "jvm_wall": 33.93,
+   "ref_wall": 34.11,
+   "wall": 1.2231434751261716,
+   "cycles": 1.1433844406587166,
+   "instructions": 1.284355179704017,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html"
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 7763 64-Core Processor",
+   "cpus": "4",
+   "blast_wall": 51.64,
+   "jvm_wall": 49.76,
+   "ref_wall": 49.61,
+   "wall": 0.9635941130906274,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html"
+  }
+ ]
+}
