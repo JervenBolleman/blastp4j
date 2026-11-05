@@ -388,7 +388,12 @@ defined as a hidden class, in which the query's window, X-drop, cutoff and diago
 queries' hits go through one call site, where copies would make each hit a virtual call. Since 45b95c9
 `BatchWordFinder.of` copies the scan itself, with the window and the batch's diagonal mask as constants (shared by
 nearly all batches: BLAST's are about 10,000 letters, so the mask is 16383); `HiddenCopies` makes both kinds of copy.
-On the runners: 1.0% less wall time on AArch64 (every round), none on x86-64 or locally.
+On the runners: 1.0% and 1.2% less wall time on AArch64 in two runs (every round), none on x86-64 or locally.
+
+*Kept:* the batch scan's diagonal index also masked with the array's length (7c980c5), a power of two: C2 removes the
+bounds check of `a[i & (a.length - 1)]`. 1.8% fewer instructions on the bean queries locally; on AArch64 1.7% fewer
+cycles and 1.0% fewer instructions, wall time 0.3% less (no round slower); none on x86-64. *Tried, slower:* the same
+in the single-query scans (498cdaa, reverted): `WordFinderBench` 1.0-1.7% slower.
 
 *Tried, no gain:* the single-query copies with the batch's diagonal base (0) and its cross-query check (never true for
 a query alone) as constants too (48bc96d, reverted): `WordFinderBench` unchanged, as the check is on the rare path.
