@@ -1,0 +1,37 @@
+{
+ "run_id": "42000813261",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/42000813261",
+ "date": "2026-11-05 09:47 UTC",
+ "event": "workflow_dispatch",
+ "code": [
+  "`654b5e5` (Experiment (retry of c86b5b3): ungapped extension without a branch on a new maximum)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 28.35,
+   "jvm_wall": 32.92,
+   "ref_wall": 33.18,
+   "wall": 1.161199294532628,
+   "cycles": 1.125,
+   "instructions": 1.2976121141525918,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html"
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 9V74 80-Core Processor",
+   "cpus": "4",
+   "blast_wall": 42.02,
+   "jvm_wall": 41.48,
+   "ref_wall": 40.74,
+   "wall": 0.9871489766777723,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html"
+  }
+ ]
+}
