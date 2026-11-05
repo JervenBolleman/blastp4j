@@ -80,6 +80,8 @@ public final class BlastpSearch {
 	private final boolean compositionBased, restrictedAlign;
 	/** How the composition-based stage computes: BLAST's way, or {@link Arithmetic#FAST} for almostblastp. */
 	private final Arithmetic arithmetic;
+	/** SEG's segments of the subjects, shared by the queries' composition-based stages ({@link CompoRedo}). */
+	private final java.util.Map<Integer, List<int[]>> segments = CompoRedo.segmentCache();
 	private final int hitlistSize, prelimHitlistSize, maxHsps;
 	private final int gapOpen, gapExtend, xDrop, xDropFinal;
 
@@ -296,11 +298,11 @@ public final class BlastpSearch {
 		for (int q = 0; q < queries.length && left > 0; q++) {
 			AtomicInteger next = new AtomicInteger(Math.max(0, (db.size() - 1) / CHUNK + 1 - WARM_UP_CHUNKS));
 			List<Hit> hits = prelim(queries[q], new WordFinder(queries[q], tables[q], seeds[q]), cutoffs[q], next);
-			CompoRedo redo = new CompoRedo(new CompoRedo.Query(queries[q]), statistics, arithmetic);
+			CompoRedo redo = new CompoRedo(new CompoRedo.Query(queries[q]), statistics, arithmetic, segments);
 			for (int k = 0; k < hits.size() && left > 0; k++, left--) {
 				Hit h = hits.get(k);
 				subject = db.withSentinels(h.subject(), subject);
-				redo.redo(h.hsps(), subject, 1, db.length(h.subject()), evalue, null);
+				redo.redo(h.hsps(), subject, 1, db.length(h.subject()), evalue, null, h.subject());
 			}
 		}
 	}
@@ -369,12 +371,12 @@ public final class BlastpSearch {
 		List<Callable<Void>> work = new ArrayList<>();
 		for (int t = 0; t < tasks; t++) {
 			work.add(() -> {
-				CompoRedo redo = new CompoRedo(q, statistics, arithmetic);
+				CompoRedo redo = new CompoRedo(q, statistics, arithmetic, segments);
 				byte[] subject = null;
 				for (int i; (i = next.getAndIncrement()) < ordered.size();) {
 					Hit h = ordered.get(i);
 					subject = db.withSentinels(h.subject(), subject);
-					results[i] = redo.redo(h.hsps(), subject, 1, db.length(h.subject()), evalue, null);
+					results[i] = redo.redo(h.hsps(), subject, 1, db.length(h.subject()), evalue, null, h.subject());
 				}
 				return null;
 			});
@@ -394,10 +396,10 @@ public final class BlastpSearch {
 			if (r.usedInheritedMatrix()) {
 				// Rare: redo this subject with the matrix BLAST would have at this point.
 				if (sequential == null) {
-					sequential = new CompoRedo(q, statistics, arithmetic);
+					sequential = new CompoRedo(q, statistics, arithmetic, segments);
 				}
 				r = sequential.redo(h.hsps(), db.withSentinels(h.subject(), null), 1, db.length(h.subject()), evalue,
-						current);
+						current, h.subject());
 			}
 			if (r.finalMatrix() != null) {
 				current = r.finalMatrix();

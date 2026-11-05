@@ -2,6 +2,7 @@ package swiss.sib.blastp4j.compo;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import swiss.sib.blastp4j.align.GappedAligner;
 import swiss.sib.blastp4j.align.Hsp;
@@ -71,6 +72,17 @@ public final class CompoRedo {
 	/** The adjusted matrix, row-major. */
 	private final int[] matrix = new int[CompositionAdjustment.ALPHSIZE * CompositionAdjustment.ALPHSIZE];
 	private final Seg seg = Seg.forCompositionBasedStatistics();
+	/** SEG's segments by subject number, shared by the queries of a search; null: computed each time. */
+	private final Map<Integer, List<int[]>> segments;
+
+	/**
+	 * A cache of SEG's segments for the subjects of a search, to share between the queries' {@link CompoRedo}s: SEG
+	 * depends on the subject only, and with many queries most subjects come up for several of them (80% of SEG's
+	 * calls on 500 queries of the bean proteome against itself).
+	 */
+	public static Map<Integer, List<int[]>> segmentCache() {
+		return new java.util.concurrent.ConcurrentHashMap<>();
+	}
 
 	/**
 	 * @param statistics gapped statistics of the search (lambda, gap costs)
@@ -84,6 +96,17 @@ public final class CompoRedo {
 	 * @param arithmetic how the composition adjustment computes ({@link Arithmetic#FAST} can change the last bits)
 	 */
 	public CompoRedo(Query query, Statistics statistics, Arithmetic arithmetic) {
+		this(query, statistics, arithmetic, null);
+	}
+
+	/**
+	 * @param statistics gapped statistics of the search (lambda, gap costs)
+	 * @param arithmetic how the composition adjustment computes ({@link Arithmetic#FAST} can change the last bits)
+	 * @param segments   SEG's segments of the subjects by their number in the database, shared by the queries of a
+	 *                   search ({@link #segmentCache}); null to compute them for each subject
+	 */
+	public CompoRedo(Query query, Statistics statistics, Arithmetic arithmetic, Map<Integer, List<int[]>> segments) {
+		this.segments = segments;
 		this.workspace = new CompositionAdjustment.Workspace(arithmetic);
 		this.query = query;
 		this.statistics = statistics;
@@ -98,6 +121,20 @@ public final class CompoRedo {
 	private record Align(int score, int queryStart, int queryEnd, int matchStart, int matchEnd, Hsp hsp) {
 	}
 
+	/** SEG's segments of {@code subject[1 .. length]}: from the cache for a known subject number, else computed. */
+	private List<int[]> segments(byte[] subject, int length, int subjectNumber) {
+		if (segments == null || subjectNumber < 0) {
+			return seg.segments(subject, 1, length);
+		}
+		List<int[]> s = segments.get(subjectNumber);
+		if (s == null) {
+			s = seg.segments(subject, 1, length);
+			List<int[]> other = segments.putIfAbsent(subjectNumber, s);
+			s = other != null ? other : s;
+		}
+		return s;
+	}
+
 	/**
 	 * Redoes the preliminary HSPs of one subject ({@code residues[base .. base + length)}), best first.
 	 * <p>
@@ -108,6 +145,15 @@ public final class CompoRedo {
 	 */
 	public Result redo(List<Hsp> prelim, byte[] residues, int base, int length, double evalueCutoff,
 			ScoreMatrix inherited) {
+		return redo(prelim, residues, base, length, evalueCutoff, inherited, -1);
+	}
+
+	/**
+	 * As {@link #redo(List, byte[], int, int, double, ScoreMatrix)}, for subject number {@code subjectNumber} of the
+	 * database: SEG's segments come from the cache when this has one (-1: not known, computed).
+	 */
+	public Result redo(List<Hsp> prelim, byte[] residues, int base, int length, double evalueCutoff,
+			ScoreMatrix inherited, int subjectNumber) {
 		if (inherited != null) {
 			aligner.setMatrix(inherited);
 		}
@@ -130,7 +176,7 @@ public final class CompoRedo {
 				System.arraycopy(residues, base, subject, 1, length);
 				if (subjectMaybeBiased) {
 					if (!nearIdentical || !testNearIdentical(subject, q, first)) {
-						subjectMaybeBiased = seg.mask(subject, 1, length);
+						subjectMaybeBiased = Seg.mask(subject, 1, segments(subject, length, subjectNumber));
 					}
 				}
 			}

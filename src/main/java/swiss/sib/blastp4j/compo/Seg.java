@@ -373,7 +373,11 @@ public final class Seg {
 
 	/** Replaces the low-complexity letters of {@code seq[pos .. pos + length)} by X; returns whether any were. */
 	public boolean mask(byte[] seq, int pos, int length) {
-		List<int[]> segs = segments(seq, pos, length);
+		return mask(seq, pos, segments(seq, pos, length));
+	}
+
+	/** Replaces the letters of {@code segs} ({@link #segments} of {@code seq} at {@code pos}) by X; whether any are. */
+	public static boolean mask(byte[] seq, int pos, List<int[]> segs) {
 		for (int[] s : segs) {
 			for (int i = s[0]; i <= s[1]; i++) {
 				seq[pos + i] = swiss.sib.blastp4j.db.Alphabet.X;
