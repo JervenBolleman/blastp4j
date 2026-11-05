@@ -1,0 +1,37 @@
+{
+ "run_id": "41976179338",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/41976179338",
+ "date": "2026-11-05 06:24 UTC",
+ "event": "workflow_dispatch",
+ "code": [
+  "`a8ca80b` (Experiment: the batch scan without a call, stopping at each hit for a finder)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 28.5,
+   "jvm_wall": 32.83,
+   "ref_wall": 33.03,
+   "wall": 1.1519298245614034,
+   "cycles": 1.1249645792009069,
+   "instructions": 1.2772162193563377,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html"
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+   "cpus": "4",
+   "blast_wall": 53.75,
+   "jvm_wall": 57.15,
+   "ref_wall": 57.69,
+   "wall": 1.0632558139534884,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html"
+  }
+ ]
+}
