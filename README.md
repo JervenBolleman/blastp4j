@@ -570,6 +570,13 @@ The port, in `swiss.sib.blastp4j.compo`:
   * `bin/jvm.options` keeps C2 from inlining `OptimizeTargetFreq`'s methods (a2a0da3). With the flat arrays, inlining
     was tried again (5b96a04, reverted): 1.3% (AArch64) and 1.6% (x86-64) more wall time on the GitHub runners, 4.8%
     more cycles here.
+  * The Newton system's matrix A D A^T has a diagonal block, the first 20 rows (the column constraints). BLAST's
+    Cholesky factorization and solve run over its zeros as over any entry; `OptimizeTargetFreq` leaves them out
+    (8dff3b7), about half the factorization's multiply-adds. Subtracting the products with them changes nothing, and
+    the other terms keep BLAST's order, so the results are BLAST's. On the runners: 1.7% less wall time on AArch64
+    (2.9% fewer cycles) and 0.5% on an EPYC 9V45, every round; 2.3% fewer cycles on the bean queries here.
+  * *Tried, no gain:* the factorization and solve with fused multiply-adds, four partial sums and the diagonal's
+    reciprocals, for almostblastp (39f9f3e, reverted): the same results, but no faster; the dot products are short.
   * BLAST's own C code was compiled into a test harness: `reference/compo/build_harness.sh` downloads the library and
     builds `harness.c`.
   * Of 6,006 query/subject compositions, every adjusted matrix is identical to the C code's. One λ ratio differs in
