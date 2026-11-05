@@ -412,57 +412,15 @@ public final class WordFinder implements WordScan {
 		final int n = Math.min(sOff, qOff);
 		int best = n + 1, score = 0, maxScore = 0, floor = -xDrop;
 		final int sBase = start + sOff - n, qBase = qOff - n;
-		// Unrolled by four: C2 does not unroll a loop with an early exit.
-		int i = n;
-		scan: {
-			for (; i >= 3; i -= 4) {
-				score += PADDED[(rowOfQuery[qBase + i] + residues[sBase + i]) & 1023];
-				if (score > maxScore) {
-					maxScore = score;
-					best = i;
-					floor = maxScore - xDrop;
-				}
-				if (score <= floor) {
-					break scan;
-				}
-				score += PADDED[(rowOfQuery[qBase + i - 1] + residues[sBase + i - 1]) & 1023];
-				if (score > maxScore) {
-					maxScore = score;
-					best = i - 1;
-					floor = maxScore - xDrop;
-				}
-				if (score <= floor) {
-					break scan;
-				}
-				score += PADDED[(rowOfQuery[qBase + i - 2] + residues[sBase + i - 2]) & 1023];
-				if (score > maxScore) {
-					maxScore = score;
-					best = i - 2;
-					floor = maxScore - xDrop;
-				}
-				if (score <= floor) {
-					break scan;
-				}
-				score += PADDED[(rowOfQuery[qBase + i - 3] + residues[sBase + i - 3]) & 1023];
-				if (score > maxScore) {
-					maxScore = score;
-					best = i - 3;
-					floor = maxScore - xDrop;
-				}
-				if (score <= floor) {
-					break scan;
-				}
+		for (int i = n; i >= 0; i--) {
+			score += PADDED[(rowOfQuery[qBase + i] + residues[sBase + i]) & 1023];
+			if (score > maxScore) {
+				maxScore = score;
+				best = i;
+				floor = maxScore - xDrop;
 			}
-			for (; i >= 0; i--) {
-				score += PADDED[(rowOfQuery[qBase + i] + residues[sBase + i]) & 1023];
-				if (score > maxScore) {
-					maxScore = score;
-					best = i;
-					floor = maxScore - xDrop;
-				}
-				if (score <= floor) {
-					break;
-				}
+			if (score <= floor) {
+				break;
 			}
 		}
 		extensionLength = n - best + 1;
@@ -474,59 +432,15 @@ public final class WordFinder implements WordScan {
 		final int n = Math.min(length - sOff, query.length - qOff);
 		int best = -1, score = maxScore, i;
 		int floor = Math.max(0, maxScore - xDrop);
-		i = 0;
-		scan: {
-			for (; i + 3 < n; i += 4) {
-				score += PADDED[(rowOfQuery[qOff + i] + residues[start + sOff + i]) & 1023];
-				if (score > maxScore) {
-					maxScore = score;
-					best = i;
-					floor = Math.max(0, maxScore - xDrop);
-				}
-				if (score <= floor) {
-					break scan;
-				}
-				score += PADDED[(rowOfQuery[qOff + i + 1] + residues[start + sOff + i + 1]) & 1023];
-				if (score > maxScore) {
-					maxScore = score;
-					best = i + 1;
-					floor = Math.max(0, maxScore - xDrop);
-				}
-				if (score <= floor) {
-					i += 1;
-					break scan;
-				}
-				score += PADDED[(rowOfQuery[qOff + i + 2] + residues[start + sOff + i + 2]) & 1023];
-				if (score > maxScore) {
-					maxScore = score;
-					best = i + 2;
-					floor = Math.max(0, maxScore - xDrop);
-				}
-				if (score <= floor) {
-					i += 2;
-					break scan;
-				}
-				score += PADDED[(rowOfQuery[qOff + i + 3] + residues[start + sOff + i + 3]) & 1023];
-				if (score > maxScore) {
-					maxScore = score;
-					best = i + 3;
-					floor = Math.max(0, maxScore - xDrop);
-				}
-				if (score <= floor) {
-					i += 3;
-					break scan;
-				}
+		for (i = 0; i < n; i++) {
+			score += PADDED[(rowOfQuery[qOff + i] + residues[start + sOff + i]) & 1023];
+			if (score > maxScore) {
+				maxScore = score;
+				best = i;
+				floor = Math.max(0, maxScore - xDrop);
 			}
-			for (; i < n; i++) {
-				score += PADDED[(rowOfQuery[qOff + i] + residues[start + sOff + i]) & 1023];
-				if (score > maxScore) {
-					maxScore = score;
-					best = i;
-					floor = Math.max(0, maxScore - xDrop);
-				}
-				if (score <= floor) {
-					break;
-				}
+			if (score <= floor) {
+				break;
 			}
 		}
 		extensionLength = best + 1;
