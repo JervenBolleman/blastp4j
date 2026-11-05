@@ -354,7 +354,11 @@ public final class GappedAligner {
 			tb[i] = EditScript.DEL;
 		}
 		// BLAST's default gap costs (11, 1) as constants: with alignExRows inlined (bin/jvm.options asks C2 to), C2 folds
-		// them into the instructions of the inner loop.
+		// them into the instructions of the inner loop. Composition-based statistics align with them scaled by 32
+		// (CompoRedo.SCALE), the default traceback: those as constants too.
+		if (gapOpen == 11 * 32 && gapExtend == 32) {
+			return alignExRows(a, aBase, m, bs, n, reverse, xDrop, 12 * 32, 32, i, ops);
+		}
 		return gapOpen == 11 && gapExtend == 1
 				? alignExRows(a, aBase, m, bs, n, reverse, xDrop, 12, 1, i, ops)
 				: alignExRows(a, aBase, m, bs, n, reverse, xDrop, goe, gapExtend, i, ops);
