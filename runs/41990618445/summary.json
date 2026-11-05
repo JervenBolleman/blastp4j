@@ -1,0 +1,37 @@
+{
+ "run_id": "41990618445",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/41990618445",
+ "date": "2026-11-05 08:31 UTC",
+ "event": "workflow_dispatch",
+ "code": [
+  "`fa20928` (Experiment (retry of fa4154f): the traceback's best and bestGap interleaved)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 28.6,
+   "jvm_wall": 33.79,
+   "ref_wall": 33.82,
+   "wall": 1.1814685314685314,
+   "cycles": 1.1377076879752182,
+   "instructions": 1.2601001280707882,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html"
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 7763 64-Core Processor",
+   "cpus": "4",
+   "blast_wall": 51.56,
+   "jvm_wall": 48.89,
+   "ref_wall": 48.93,
+   "wall": 0.9482156710628393,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html"
+  }
+ ]
+}
