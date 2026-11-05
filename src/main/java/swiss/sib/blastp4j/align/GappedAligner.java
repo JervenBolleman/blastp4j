@@ -59,6 +59,8 @@ public final class GappedAligner {
 	private final RowLoops rowLoops, rowLoopsBlosum62;
 	/** The row loop for {@link #matrix}. */
 	private RowLoops rows;
+	/** alignEx's row loop, with this aligner's gap costs as constants where that can be done ({@link ExRows#of}). */
+	private final ExRowLoops exRows;
 
 	/**
 	 * @param gapOpen   BLAST's gap open cost (11): a gap of k letters costs {@code gapOpen + k * gapExtend}
@@ -71,11 +73,17 @@ public final class GappedAligner {
 
 	/** With the given row loops (the tests compare the copies with {@link Rows} itself). */
 	GappedAligner(int gapOpen, int gapExtend, RowLoops rowLoops, RowLoops rowLoopsBlosum62) {
+		this(gapOpen, gapExtend, rowLoops, rowLoopsBlosum62, ExRows.of(gapOpen + gapExtend, gapExtend));
+	}
+
+	/** With the given row loops, alignEx's too (the tests compare the copies with {@link ExRows} itself). */
+	GappedAligner(int gapOpen, int gapExtend, RowLoops rowLoops, RowLoops rowLoopsBlosum62, ExRowLoops exRows) {
 		this.gapOpen = gapOpen;
 		this.gapExtend = gapExtend;
 		this.rowLoops = rowLoops;
 		this.rowLoopsBlosum62 = rowLoopsBlosum62;
 		this.rows = rowLoopsBlosum62;
+		this.exRows = exRows;
 	}
 
 	/** Uses {@code m} as the score matrix from now on. */
@@ -353,11 +361,8 @@ public final class GappedAligner {
 			score -= gapExtend;
 			tb[i] = EditScript.DEL;
 		}
-		// BLAST's default gap costs (11, 1) as constants: with alignExRows inlined (bin/jvm.options asks C2 to), C2 folds
-		// them into the instructions of the inner loop.
-		return gapOpen == 11 && gapExtend == 1
-				? alignExRows(a, aBase, m, bs, n, reverse, xDrop, 12, 1, i, ops)
-				: alignExRows(a, aBase, m, bs, n, reverse, xDrop, goe, gapExtend, i, ops);
+		// The rest in a copy of ExRows with this aligner's gap costs as constants (ExRows.of).
+		return exRows.rows(this, a, aBase, m, bs, n, reverse, xDrop, i, ops);
 	}
 
 
@@ -519,128 +524,225 @@ public final class GappedAligner {
 		return null;
 	}
 
+	/** A row loop copy's constants: the gap costs and the matrix (by identity; only {@link Rows#BLOSUM62} for now). */
+	record Key(int goe, int ext, int[] matrix) {
+		@Override
+		public boolean equals(Object o) {
+			return o instanceof Key k && k.goe == goe && k.ext == ext && k.matrix == matrix;
+		}
+
+		@Override
+		public int hashCode() {
+			return 31 * (31 * goe + ext) + System.identityHashCode(matrix);
+		}
+	}
+
 	/**
-	 * alignEx's rows of A after the initial row, and the traceback: the gap costs as arguments ({@code goe} = gapOpen +
-	 * gapExtend, {@code ext} = gapExtend), and the initial row's band end {@code bSize}.
+	 * A copy of the row loop class {@code c} ({@link Rows} or {@link ExRows}), made with the class-file API and defined
+	 * as a hidden class in this nest (so it reads the aligner's private fields as {@code c} does), with each read of
+	 * {@code goe} and {@code ext} replaced by the constant and, with a matrix, each read of {@code MATRIX} by the hidden
+	 * class's class data, a dynamic constant. Returns an instance, made with the constructor of the two gap costs.
 	 */
-	private int alignExRows(byte[] a, int aBase, int m, byte[] bs, int n, boolean reverse, int xDrop, int goe, int ext,
-			int bSize, EditScript ops) {
-		final int[] best = this.best, bestGap = this.bestGap;
-		final int[] mat = matrix.scores;
-		final int numExtraCells = ext > 0 ? xDrop / ext + 3 : n + 3;
-		byte[] tb = trace;
-		int score;
-		int used = bSize + 1;
-		int bestScore = 0, first = 0;
-		for (int ai = 1; ai <= m; ai++) {
-			// Room for this row: from 'first' to at most numExtraCells beyond the previous row's end.
-			ensureTrace(used + 2 + (bSize - first) + numExtraCells + 1);
-			tb = trace;
-			final int base = used + 1 - first; // tb[base + bi] is cell (ai, bi)
-			rowStart[ai] = base;
-			final int origFirst = first;
-			final int row = letterA(a, aBase, m, ai, reverse) * N;
-			score = MININT;
-			int gapRow = MININT, last = first;
-			int bi;
-			for (bi = first; bi < bSize; bi++) {
-				int gapCol = bestGap[bi];
-				int next = best[bi] + mat[row + bs[bi]];
-				// The best of the three moves, and which one (ties keep the earlier one), without branches on the scores.
-				int script = gapCol > score ? EditScript.INS : EditScript.SUB;
-				final int afterCol = Math.max(score, gapCol);
-				script = gapRow > afterCol ? EditScript.DEL : script;
-				score = Math.max(afterCol, gapRow);
-				if (bestScore - score > xDrop) {
-					if (first == bi) {
-						first++;
-					} else {
-						best[bi] = MININT;
-					}
-				} else {
-					last = bi;
-					if (score > bestScore) {
-						bestScore = score;
-						aOffset = ai;
-						bOffset = bi;
-					}
-					gapRow -= ext;
-					gapCol -= ext;
-					if (gapCol < score - goe) {
-						bestGap[bi] = score - goe;
-					} else {
-						bestGap[bi] = gapCol;
-						script += EXTEND_GAP_B;
-					}
-					if (gapRow < score - goe) {
-						gapRow = score - goe;
-					} else {
-						script += EXTEND_GAP_A;
-					}
-					best[bi] = score;
-				}
-				score = next;
-				tb[base + bi] = (byte) script;
-			}
-			if (first == bSize) {
-				break;
-			}
-			if (last < bSize - 1) {
-				bSize = last + 1;
+	private static Object copy(Class<?> c, int goe, int ext, int[] matrix) throws Throwable {
+		final byte[] bytes;
+		try (java.io.InputStream in = c.getResourceAsStream(c.getName().substring(c.getName().lastIndexOf('.') + 1)
+				+ ".class")) {
+			bytes = in.readAllBytes();
+		}
+		final java.lang.classfile.ClassFile cf = java.lang.classfile.ClassFile.of();
+		final java.lang.classfile.ClassModel model = cf.parse(bytes);
+		final java.lang.constant.ClassDesc self = model.thisClass().asSymbol();
+		final java.lang.classfile.CodeTransform constants = (code, element) -> {
+			if (element instanceof java.lang.classfile.instruction.FieldInstruction f
+					&& f.opcode() == java.lang.classfile.Opcode.GETFIELD && f.owner().asSymbol().equals(self)
+					&& (f.name().equalsString("goe") || f.name().equalsString("ext"))) {
+				code.pop(); // the receiver
+				code.loadConstant(f.name().equalsString("goe") ? goe : ext);
+			} else if (matrix != null && element instanceof java.lang.classfile.instruction.FieldInstruction f
+					&& f.opcode() == java.lang.classfile.Opcode.GETSTATIC && f.owner().asSymbol().equals(self)
+					&& f.name().equalsString("MATRIX")) {
+				code.loadConstant(java.lang.constant.DynamicConstantDesc.ofNamed(
+						java.lang.constant.ConstantDescs.BSM_CLASS_DATA, java.lang.constant.ConstantDescs.DEFAULT_NAME,
+						java.lang.constant.ConstantDescs.CD_int.arrayType()));
 			} else {
-				while (gapRow >= bestScore - xDrop && bSize <= n) {
-					best[bSize] = gapRow;
-					bestGap[bSize] = gapRow - goe;
-					gapRow -= ext;
-					if (base + bSize >= tb.length) {
-						ensureTrace(base + bSize + numExtraCells + 2);
-						tb = trace;
+				code.with(element);
+			}
+		};
+		// A hidden class takes its nest from the lookup, not from these attributes.
+		final byte[] copy = cf.transformClass(model, java.lang.classfile.ClassTransform
+				.dropping(e -> e instanceof java.lang.classfile.attribute.NestHostAttribute
+						|| e instanceof java.lang.classfile.attribute.InnerClassesAttribute)
+				.andThen(java.lang.classfile.ClassTransform.transformingMethodBodies(constants)));
+		final java.lang.invoke.MethodHandles.Lookup lookup = matrix == null
+				? java.lang.invoke.MethodHandles.lookup().defineHiddenClass(copy, true,
+						java.lang.invoke.MethodHandles.Lookup.ClassOption.NESTMATE)
+				: java.lang.invoke.MethodHandles.lookup().defineHiddenClassWithClassData(copy, matrix.clone(), true,
+						java.lang.invoke.MethodHandles.Lookup.ClassOption.NESTMATE);
+		return lookup.findConstructor(lookup.lookupClass(),
+				java.lang.invoke.MethodType.methodType(void.class, int.class, int.class)).invoke(goe, ext);
+	}
+
+	/** The row loop of {@link #alignEx}: {@link ExRows}, or a copy of it with constant gap costs. */
+	interface ExRowLoops {
+		int rows(GappedAligner g, byte[] a, int aBase, int m, byte[] bs, int n, boolean reverse, int xDrop, int bSize,
+				EditScript ops);
+	}
+
+	/**
+	 * alignEx's rows of A after the initial row, and the traceback, with the gap costs as fields: {@code goe} (gapOpen +
+	 * gapExtend) and {@code ext} (gapExtend), read once into locals. As for {@link Rows}, {@link #of} gives a copy in
+	 * which they are constants, so that C2 folds them into the loop: BLAST's (11, 1), and with composition-based
+	 * statistics, the default, the same scaled by 32.
+	 */
+	static final class ExRows implements ExRowLoops {
+		private static final java.util.Map<Key, ExRowLoops> COPIES = new java.util.concurrent.ConcurrentHashMap<>();
+
+		private final int goe, ext;
+
+		ExRows(int goe, int ext) {
+			this.goe = goe;
+			this.ext = ext;
+		}
+
+		/** The row loop for these gap costs: a copy with them as constants, or this class where that fails. */
+		static ExRowLoops of(int goe, int ext) {
+			if (Rows.NATIVE_IMAGE) {
+				return new ExRows(goe, ext);
+			}
+			return COPIES.computeIfAbsent(new Key(goe, ext, null), key -> {
+				try {
+					return (ExRowLoops) copy(ExRows.class, goe, ext, null);
+				} catch (Throwable e) {
+					return new ExRows(goe, ext);
+				}
+			});
+		}
+
+		/**
+		 * The rows of A after the initial row, whose band ends at {@code bSize}, then the traceback from the best cell
+		 * to the start into {@code ops}; the best score.
+		 */
+		@Override
+		public int rows(GappedAligner g, byte[] a, int aBase, int m, byte[] bs, int n, boolean reverse, int xDrop,
+				int bSize, EditScript ops) {
+			final int goe = this.goe, ext = this.ext;
+			final int[] best = g.best, bestGap = g.bestGap, rowStart = g.rowStart;
+			final int[] mat = g.matrix.scores;
+			final int numExtraCells = ext > 0 ? xDrop / ext + 3 : n + 3;
+			byte[] tb = g.trace;
+			int score;
+			int used = bSize + 1;
+			int bestScore = 0, first = 0;
+			for (int ai = 1; ai <= m; ai++) {
+				// Room for this row: from 'first' to at most numExtraCells beyond the previous row's end.
+				g.ensureTrace(used + 2 + (bSize - first) + numExtraCells + 1);
+				tb = g.trace;
+				final int base = used + 1 - first; // tb[base + bi] is cell (ai, bi)
+				rowStart[ai] = base;
+				final int origFirst = first;
+				final int row = letterA(a, aBase, m, ai, reverse) * N;
+				score = MININT;
+				int gapRow = MININT, last = first;
+				int bi;
+				for (bi = first; bi < bSize; bi++) {
+					int gapCol = bestGap[bi];
+					int next = best[bi] + mat[row + bs[bi]];
+					// The best of the three moves, and which one (ties keep the earlier one), without branches on the scores.
+					int script = gapCol > score ? EditScript.INS : EditScript.SUB;
+					final int afterCol = Math.max(score, gapCol);
+					script = gapRow > afterCol ? EditScript.DEL : script;
+					score = Math.max(afterCol, gapRow);
+					if (bestScore - score > xDrop) {
+						if (first == bi) {
+							first++;
+						} else {
+							best[bi] = MININT;
+						}
+					} else {
+						last = bi;
+						if (score > bestScore) {
+							bestScore = score;
+							g.aOffset = ai;
+							g.bOffset = bi;
+						}
+						gapRow -= ext;
+						gapCol -= ext;
+						if (gapCol < score - goe) {
+							bestGap[bi] = score - goe;
+						} else {
+							bestGap[bi] = gapCol;
+							script += EXTEND_GAP_B;
+						}
+						if (gapRow < score - goe) {
+							gapRow = score - goe;
+						} else {
+							script += EXTEND_GAP_A;
+						}
+						best[bi] = score;
 					}
-					tb[base + bSize] = EditScript.DEL;
+					score = next;
+					tb[base + bi] = (byte) script;
+				}
+				if (first == bSize) {
+					break;
+				}
+				if (last < bSize - 1) {
+					bSize = last + 1;
+				} else {
+					while (gapRow >= bestScore - xDrop && bSize <= n) {
+						best[bSize] = gapRow;
+						bestGap[bSize] = gapRow - goe;
+						gapRow -= ext;
+						if (base + bSize >= tb.length) {
+							g.ensureTrace(base + bSize + numExtraCells + 2);
+							tb = g.trace;
+						}
+						tb[base + bSize] = EditScript.DEL;
+						bSize++;
+					}
+				}
+				used += Math.max(bi, bSize) - origFirst + 1;
+				if (bSize <= n) {
+					best[bSize] = MININT;
+					bestGap[bSize] = MININT;
 					bSize++;
 				}
 			}
-			used += Math.max(bi, bSize) - origFirst + 1;
-			if (bSize <= n) {
-				best[bSize] = MININT;
-				bestGap[bSize] = MININT;
-				bSize++;
-			}
-		}
 
-		// Follow the traceback from the best cell to the start.
-		int ai = aOffset, bi = bOffset;
-		int script = EditScript.SUB;
-		while (ai > 0 || bi > 0) {
-			int next = tb[rowStart[ai] + bi];
-			switch (script) {
-			case EditScript.DEL:
-				script = next & 0x07;
-				if ((next & EXTEND_GAP_A) != 0) {
-					script = EditScript.DEL;
+			// Follow the traceback from the best cell to the start.
+			int ai = g.aOffset, bi = g.bOffset;
+			int script = EditScript.SUB;
+			while (ai > 0 || bi > 0) {
+				int next = tb[rowStart[ai] + bi];
+				switch (script) {
+				case EditScript.DEL:
+					script = next & 0x07;
+					if ((next & EXTEND_GAP_A) != 0) {
+						script = EditScript.DEL;
+					}
+					break;
+				case EditScript.INS:
+					script = next & 0x07;
+					if ((next & EXTEND_GAP_B) != 0) {
+						script = EditScript.INS;
+					}
+					break;
+				default:
+					script = next & 0x07;
+					break;
 				}
-				break;
-			case EditScript.INS:
-				script = next & 0x07;
-				if ((next & EXTEND_GAP_B) != 0) {
-					script = EditScript.INS;
+				if (script == EditScript.DEL) {
+					bi--;
+				} else if (script == EditScript.INS) {
+					ai--;
+				} else {
+					ai--;
+					bi--;
 				}
-				break;
-			default:
-				script = next & 0x07;
-				break;
+				ops.add(script, 1);
 			}
-			if (script == EditScript.DEL) {
-				bi--;
-			} else if (script == EditScript.INS) {
-				ai--;
-			} else {
-				ai--;
-				bi--;
-			}
-			ops.add(script, 1);
+			return bestScore;
 		}
-		return bestScore;
 	}
 
 	/** The row loop of {@link #semiGapped}: {@link Rows}, or a copy of it with constant gap costs. */
@@ -659,7 +761,7 @@ public final class GappedAligner {
 		/** One copy per pair of gap costs. */
 		private static final java.util.Map<Key, RowLoops> COPIES = new java.util.concurrent.ConcurrentHashMap<>();
 		/** A native image cannot define classes at run time: there the fields stay. */
-		private static final boolean NATIVE_IMAGE = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
+		static final boolean NATIVE_IMAGE = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
 
 		/** BLOSUM62 padded to 32 columns: row {@code a << 5}, column {@code b}. */
 		static final int[] BLOSUM62 = new int[32 * 32];
@@ -693,66 +795,11 @@ public final class GappedAligner {
 			}
 			return COPIES.computeIfAbsent(new Key(goe, ext, matrix), key -> {
 				try {
-					return specialize(goe, ext, matrix);
+					return (RowLoops) copy(Rows.class, goe, ext, matrix);
 				} catch (Throwable e) {
 					return new Rows(goe, ext);
 				}
 			});
-		}
-
-		/** A copy's constants: the gap costs and the matrix (by identity; only {@link #BLOSUM62} for now). */
-		private record Key(int goe, int ext, int[] matrix) {
-			@Override
-			public boolean equals(Object o) {
-				return o instanceof Key k && k.goe == goe && k.ext == ext && k.matrix == matrix;
-			}
-
-			@Override
-			public int hashCode() {
-				return 31 * (31 * goe + ext) + System.identityHashCode(matrix);
-			}
-		}
-
-		/**
-		 * This class with each read of {@code goe} and {@code ext} replaced by the constant, and with a matrix each
-		 * read of {@code MATRIX} by the hidden class's class data, a dynamic constant.
-		 */
-		private static RowLoops specialize(int goe, int ext, int[] matrix) throws Throwable {
-			final byte[] bytes;
-			try (java.io.InputStream in = Rows.class.getResourceAsStream("GappedAligner$Rows.class")) {
-				bytes = in.readAllBytes();
-			}
-			final java.lang.classfile.ClassFile cf = java.lang.classfile.ClassFile.of();
-			final java.lang.classfile.ClassModel model = cf.parse(bytes);
-			final java.lang.constant.ClassDesc self = model.thisClass().asSymbol();
-			final java.lang.classfile.CodeTransform constants = (code, element) -> {
-				if (element instanceof java.lang.classfile.instruction.FieldInstruction f
-						&& f.opcode() == java.lang.classfile.Opcode.GETFIELD && f.owner().asSymbol().equals(self)
-						&& (f.name().equalsString("goe") || f.name().equalsString("ext"))) {
-					code.pop(); // the receiver
-					code.loadConstant(f.name().equalsString("goe") ? goe : ext);
-				} else if (matrix != null && element instanceof java.lang.classfile.instruction.FieldInstruction f
-						&& f.opcode() == java.lang.classfile.Opcode.GETSTATIC && f.owner().asSymbol().equals(self)
-						&& f.name().equalsString("MATRIX")) {
-					code.loadConstant(java.lang.constant.DynamicConstantDesc.ofNamed(
-							java.lang.constant.ConstantDescs.BSM_CLASS_DATA, java.lang.constant.ConstantDescs.DEFAULT_NAME,
-							java.lang.constant.ConstantDescs.CD_int.arrayType()));
-				} else {
-					code.with(element);
-				}
-			};
-			// A hidden class takes its nest from the lookup, not from these attributes.
-			final byte[] copy = cf.transformClass(model, java.lang.classfile.ClassTransform
-					.dropping(e -> e instanceof java.lang.classfile.attribute.NestHostAttribute
-							|| e instanceof java.lang.classfile.attribute.InnerClassesAttribute)
-					.andThen(java.lang.classfile.ClassTransform.transformingMethodBodies(constants)));
-			final java.lang.invoke.MethodHandles.Lookup lookup = matrix == null
-					? java.lang.invoke.MethodHandles.lookup().defineHiddenClass(copy, true,
-							java.lang.invoke.MethodHandles.Lookup.ClassOption.NESTMATE)
-					: java.lang.invoke.MethodHandles.lookup().defineHiddenClassWithClassData(copy, matrix.clone(), true,
-							java.lang.invoke.MethodHandles.Lookup.ClassOption.NESTMATE);
-			return (RowLoops) lookup.findConstructor(lookup.lookupClass(),
-					java.lang.invoke.MethodType.methodType(void.class, int.class, int.class)).invoke(goe, ext);
 		}
 
 		/** {@link GappedAligner#semiGapped}'s rows of A after the initial row, whose band ends at {@code bSize}. */
