@@ -370,9 +370,9 @@ PLOT_SCRIPT = """
 
   function layout(title, den, t) {
     const fg = css("--fg"), bg = css("--bg"), line = css("--line");
-    // The ratio axis starts at 1, or lower where a round is below 1, so that no point is cut off.
+    // The ratio axis starts at 0, so that heights read as proportions.
     const ys = [].concat(...t.map(function (x) { return x.y; }));
-    const lo = Math.min(1, ...ys), hi = Math.max(1, ...ys), pad = 0.05 * (hi - lo) + 0.005;
+    const hi = Math.max(1, ...ys) * 1.05;
     const n = t.length;
     return {
       title: {text: title, font: {size: 14}, x: 0, xanchor: "left"},
@@ -380,7 +380,7 @@ PLOT_SCRIPT = """
       showlegend: false, height: 360, margin: {l: 60, r: 12, t: 40, b: 36},
       xaxis: {type: "category", range: [-0.5, n - 0.5], linecolor: line, tickcolor: line},
       yaxis: {title: {text: "below 1: blastp4j faster than " + NAMES[den]}, gridcolor: line, linecolor: line,
-              zeroline: false, range: [lo < 1 ? lo - pad : 1, hi + pad]},
+              zeroline: false, range: [0, hi]},
       shapes: [{type: "line", xref: "paper", x0: 0, x1: 1, yref: "y", y0: 1, y1: 1, layer: "below",
                 line: {color: css("--muted"), width: 1.5, dash: "dash"}}],
       hoverlabel: {bgcolor: css("--head"), bordercolor: line, font: {color: fg}},
