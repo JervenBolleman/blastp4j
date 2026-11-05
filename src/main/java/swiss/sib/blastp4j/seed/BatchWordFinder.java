@@ -5,43 +5,38 @@ import java.util.List;
 /**
  * The word finder for a batch of queries: BLAST scans each subject once for a batch of queries rather than once per
  * query. Each subject position's word is looked up once, in a table that merges the queries' lookup tables, and each
- * hit goes to its query's {@link WordFinder}, with that query's diagonal array, X-drop and cutoff. A query's hits
- * arrive in the order its own word finder takes them (by subject position, then by query offset), so each query gets
- * the alignments {@link WordFinder#find} gives it alone.
+ * hit goes to its query's {@link WordFinder}, with that query's X-drop and cutoff. A query's hits arrive in the order
+ * its own word finder takes them (by subject position, then by query offset).
+ * <p>
+ * The diagonals are BLAST's for the batch: one array for the queries concatenated, as BLAST concatenates them (each
+ * query after the previous one and a separator), with the length {@link WordFinder#diagonals} gives for the
+ * concatenation. So diagonals of different queries can share an entry, exactly as in BLAST.
  * <p>
  * Not thread safe: use one per thread; the {@link Table} can be shared.
  */
 public final class BatchWordFinder {
 	/**
-	 * The queries' lookup tables merged, with where each query's diagonals are in the batch's diagonal array: the hits
-	 * of word {@code w} are entries {@code [start[w], start[w + 1])}, by query and then as in that query's table.
-	 * <p>
-	 * Each query has a region of {@code 2^b} diagonals ({@link WordFinder#diagonals}), starting at a multiple of its
-	 * size. An entry is {@code b << POSITION_BITS | (region start + query offset)}, so the diagonal of a hit at subject
-	 * position {@code s} follows from the entry alone; {@code query[k]} is the query of entry {@code k}, read only for
-	 * hits that go on to the two-hit logic. {@code base[i]} is the start of query {@code i}'s region, {@code size} the
-	 * length of the array.
+	 * The queries' lookup tables merged: the hits of word {@code w} are entries {@code [start[w], start[w + 1])}, by
+	 * query and then as in that query's table. An entry is the offset in the concatenation, {@code base[i]} plus the
+	 * query offset, so the diagonal of a hit at subject position {@code s} is {@code (entry - s) & (size - 1)};
+	 * {@code query[k]} is the query of entry {@code k}, read only for hits that go on to the two-hit logic.
+	 * {@code size} is the length of the diagonal array.
 	 */
 	public record Table(int[] start, int[] entry, int[] query, int[] base, int size) {
 		public static Table of(byte[][] queries, LookupTable[] tables, int window) {
 			final int n = queries.length;
-			// The regions by size, largest first, so that each starts at a multiple of its size.
-			final Integer[] order = new Integer[n];
-			final int[] bits = new int[n];
-			for (int i = 0; i < n; i++) {
-				order[i] = i;
-				bits[i] = Integer.numberOfTrailingZeros(WordFinder.diagonals(queries[i].length, window));
-			}
-			java.util.Arrays.sort(order, (a, b) -> Integer.compare(bits[b], bits[a]));
+			// BLAST's context offsets (s_QueryInfo_SetContext): one separator after each query that is not empty.
 			final int[] base = new int[n];
-			long size = 0;
-			for (int i : order) {
-				base[i] = (int) size;
-				size += 1L << bits[i];
+			long length = 0;
+			for (int i = 0; i < n; i++) {
+				if (i > 0 && queries[i - 1].length > 0) {
+					length++;
+				}
+				base[i] = (int) length;
+				length += queries[i].length;
 			}
-			if (size > POSITION_MASK + 1L) {
-				throw new IllegalArgumentException("the diagonals of a batch of " + n + " queries (" + size
-						+ ") do not fit an entry");
+			if (length + window > 1 << 30) {
+				throw new IllegalArgumentException("a batch of " + n + " queries is too long: " + length);
 			}
 			int total = 0;
 			for (LookupTable t : tables) {
@@ -55,21 +50,18 @@ public final class BatchWordFinder {
 					final int[] ts = tables[i].start(), to = tables[i].offsets();
 					for (int j = ts[w]; j < ts[w + 1]; j++) {
 						query[k] = i;
-						entry[k++] = bits[i] << POSITION_BITS | (base[i] + to[j]);
+						entry[k++] = base[i] + to[j];
 					}
 				}
 			}
 			start[LookupTable.WORDS] = k;
-			return new Table(start, entry, query, base, (int) size);
+			return new Table(start, entry, query, base, WordFinder.diagonals((int) length, window));
 		}
 	}
 
-	/** The low bits of an entry: the diagonal region's start plus the query offset. */
-	private static final int POSITION_BITS = 26, POSITION_MASK = (1 << POSITION_BITS) - 1;
-
 	private final Table table;
 	private final WordFinder[] finders;
-	/** The diagonals of all queries, in the regions of {@link Table#base}. */
+	/** The diagonals of the concatenated queries. */
 	private final int[] diags;
 	private final int window;
 	/** As each finder's {@code diagOffset}, which all move together. */
@@ -95,8 +87,9 @@ public final class BatchWordFinder {
 	 * those of query {@code i} to {@code out[i]}, as {@link WordFinder#find} does for one query.
 	 */
 	public void find(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
-		final int[] cellStart = table.start(), entry = table.entry(), query = table.query();
+		final int[] cellStart = table.start(), entry = table.entry(), query = table.query(), base = table.base();
 		final int[] d = diags;
+		final int diagMask = d.length - 1;
 		final int offset = diagOffset, windowL = window, lastL = window - LookupTable.WORD_SIZE - 1;
 		final WordFinder[] f = finders;
 		final int mask = LookupTable.WORDS - 1;
@@ -109,8 +102,7 @@ public final class BatchWordFinder {
 					// this one replaces it, or it overlaps this one, which is then ignored. Only hits to extend and
 					// hits on an extended diagonal go to the query's finder.
 					final int e = entry[k];
-					final int m = (1 << (e >>> POSITION_BITS)) - 1, p = e & POSITION_MASK;
-					final int diag = (p & ~m) | ((p - s) & m);
+					final int diag = (e - s) & diagMask;
 					final int state = d[diag];
 					// Without branches but one: x = diff - WORD_SIZE is in [0, last] (a hit to extend) when neither
 					// x nor last - x is negative, and the extended flag (bit 30; bit 31 is never set) goes to the
@@ -121,7 +113,7 @@ public final class BatchWordFinder {
 						d[diag] = (state & older) | ((s + offset) & ~older);
 					} else {
 						final int i = query[k];
-						f[i].hit(residues, start, length, p & m, s, out[i]);
+						f[i].hit(residues, start, length, e - base[i], s, out[i]);
 					}
 				}
 			}
