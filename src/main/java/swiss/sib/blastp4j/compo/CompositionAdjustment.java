@@ -1,6 +1,7 @@
 package swiss.sib.blastp4j.compo;
 
 import swiss.sib.blastp4j.stats.UngappedKarlin;
+import swiss.sib.blastp4j.util.Arithmetic;
 
 /**
  * Compositionally adjusted score matrices ({@code composition_adjustment.c} and {@code compo_mode_condition.c} of
@@ -142,8 +143,15 @@ public final class CompositionAdjustment {
 		final double[] firstStandardFreq = new double[NUM_TRUE_AA];
 		final double[] secondStandardFreq = new double[NUM_TRUE_AA];
 		final double[] matFinal = new double[NUM_TRUE_AA * NUM_TRUE_AA];
+		/** Whether the target-frequency optimizer may compute in its faster way ({@link Arithmetic#FAST}). */
+		final boolean fast;
 
 		public Workspace() {
+			this(Arithmetic.BLAST);
+		}
+
+		public Workspace(Arithmetic arithmetic) {
+			fast = arithmetic == Arithmetic.FAST;
 			for (int i = 0; i < NUM_TRUE_AA; i++) {
 				for (int j = 0; j < NUM_TRUE_AA; j++) {
 					firstStandardFreq[i] += matB[i * NUM_TRUE_AA + j];
@@ -265,7 +273,7 @@ public final class CompositionAdjustment {
 		applyPseudocounts(rowProbs, length1, ws.firstStandardFreq, pseudocounts);
 		applyPseudocounts(colProbs, length2, ws.secondStandardFreq, pseudocounts);
 		int status = OptimizeTargetFreq.optimize(ws.matFinal, NUM_TRUE_AA, ws.matB, rowProbs, colProbs, desiredRe > 0.0,
-				desiredRe, COMPO_ADJUST_ERR_TOLERANCE, COMPO_ADJUST_ITERATION_LIMIT);
+				desiredRe, COMPO_ADJUST_ERR_TOLERANCE, COMPO_ADJUST_ITERATION_LIMIT, ws.fast);
 		if (status != 0) {
 			return status;
 		}

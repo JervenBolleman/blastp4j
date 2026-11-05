@@ -1,5 +1,9 @@
 package swiss.sib.blastp4j.compo;
 
+import jdk.incubator.vector.DoubleVector;
+import jdk.incubator.vector.VectorOperators;
+import jdk.incubator.vector.VectorSpecies;
+
 /**
  * The target frequencies of a compositionally adjusted matrix ({@code optimize_target_freq.c} and
  * {@code nlm_linear_algebra.c} of BLAST+, after Yu, Wootton and Altschul 2003 and Altschul et al. 2005).
@@ -11,6 +15,14 @@ package swiss.sib.blastp4j.compo;
 final class OptimizeTargetFreq {
 	private OptimizeTargetFreq() {
 	}
+
+	/**
+	 * The vectors of {@link swiss.sib.blastp4j.util.Arithmetic#FAST}: the machine's preferred, at most 256 bits (as the
+	 * word finder's).
+	 */
+	private static final VectorSpecies<Double> DOUBLES = DoubleVector.SPECIES_PREFERRED.length() > 4
+			? DoubleVector.SPECIES_256
+			: DoubleVector.SPECIES_PREFERRED;
 
 	// A lower triangle packed by rows: row i starts at i * (i + 1) / 2. Written out where used, not as a method:
 	// bin/jvm.options keeps C2 from inlining this class's methods.
@@ -193,10 +205,12 @@ final class OptimizeTargetFreq {
 
 	/**
 	 * {@code Blast_OptimizeTargetFrequencies}: fills {@code x} (row major, alphsize x alphsize); returns 0 when Newton's
-	 * method converged to a minimizer, 1 otherwise.
+	 * method converged to a minimizer, 1 otherwise. With {@code fast} ({@link swiss.sib.blastp4j.util.Arithmetic#FAST}),
+	 * the relative entropies and their gradients are computed a vector at a time, with the Vector API's logarithm
+	 * (within an ulp or so of {@link Math#log}, not equal to it) and the sums in another order.
 	 */
 	static int optimize(double[] x, int alphsize, double[] q, double[] rowSums, double[] colSums,
-			boolean constrainRelEntropy, double relativeEntropy, double tol, int maxits) {
+			boolean constrainRelEntropy, double relativeEntropy, double tol, int maxits, boolean fast) {
 		final int n = alphsize * alphsize, mA = 2 * alphsize - 1, m = constrainRelEntropy ? mA + 1 : mA;
 		double[] values = new double[2];
 		// The gradients of the two functions, of n entries each, one after the other.
@@ -221,7 +235,24 @@ final class OptimizeTargetFreq {
 			// EvaluateReFunctions
 			values[0] = 0.0;
 			values[1] = 0.0;
-			for (int k = 0; k < n; k++) {
+			int k0 = 0;
+			if (fast) {
+				DoubleVector v0 = DoubleVector.zero(DOUBLES), v1 = DoubleVector.zero(DOUBLES);
+				for (; k0 < DOUBLES.loopBound(n); k0 += DOUBLES.length()) {
+					DoubleVector xk = DoubleVector.fromArray(DOUBLES, x, k0);
+					DoubleVector temp = xk.div(DoubleVector.fromArray(DOUBLES, q, k0)).lanewise(VectorOperators.LOG);
+					v0 = xk.fma(temp, v0);
+					temp.add(1).intoArray(grads, k0);
+					if (constrainRelEntropy) {
+						temp = temp.add(DoubleVector.fromArray(DOUBLES, oldScores, k0));
+						v1 = xk.fma(temp, v1);
+						temp.add(1).intoArray(grads, n + k0);
+					}
+				}
+				values[0] = v0.reduceLanes(VectorOperators.ADD);
+				values[1] = v1.reduceLanes(VectorOperators.ADD);
+			}
+			for (int k = k0; k < n; k++) {
 				double temp = Math.log(x[k] / q[k]);
 				values[0] += x[k] * temp;
 				grads[k] = temp + 1;
