@@ -86,6 +86,24 @@ reaches BLASTP's sensitivity in `--ultra-sensitive` mode at 80–360 times its s
   scaled scores (composition-based, × 32) do not fit 8 or 16 bits; the unscaled preliminary stage's might in 16 bits.
 * **Spaced seeds, tantan masking, chaining, banded extension** (*different program*).
 
+## Measured since
+
+* **Hits per diagonal in the batch scan** (for the sort by diagonal): on 48 bean queries against the bean proteome,
+  235.3 M hits on 126.4 M distinct diagonals (per subject) in one copy of the scan and 164.0 M on 86.7 M in the
+  other, so about 1.9 hits per diagonal and subject; only 1.8–2.0% of the hits read the same 64-byte line of the
+  diagonal array as the hit before. Sorting would keep a diagonal's state in a register for about half of the hits,
+  but the diagonal array (64 KB for a 10,000-letter batch) sits mostly in L1 or L2 already, and each of the hits
+  would be written, sorted and read back. Expected to lose; moved to the end of the queue.
+* **Narrower lanes for the score-only extension on AArch64** (DIAMOND's 8-bit scores): with 16-bit scores a NEON
+  register holds 8 lanes. But on x86-64, 16 lanes of shorts took 11% more cycles than 8 lanes of ints (f36534e,
+  reverted: the lanes' bands drift apart, so the steps per row grow faster than the work per step shrinks), and 8
+  lanes of ints were only 1% faster than scalar there. On AArch64, 8 short lanes would be the same 8 lanes, with
+  conversions on top: not tried.
+* **Tracebacks in subjects whose result is empty** (for the traceback filter): 79,746 of 164,781 tracebacks of the
+  composition-based stage on the 500 bean queries, but only 12% of the aligned letters; an empty result's best
+  E-value is not used (`BlastpSearch` drops it), so the filter only needs a proven upper bound of each traceback
+  score, but computing one for every preliminary alignment costs about what it saves.
+
 ## Order of experiments
 
 1. Hits sorted by diagonal in the batch scan (exact; the largest cost).
