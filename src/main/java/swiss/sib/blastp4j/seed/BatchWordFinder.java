@@ -1,5 +1,18 @@
 package swiss.sib.blastp4j.seed;
 
+import java.lang.classfile.CodeBuilder;
+import java.lang.classfile.CodeElement;
+import java.lang.classfile.CodeTransform;
+import java.lang.classfile.Instruction;
+import java.lang.classfile.Opcode;
+import java.lang.classfile.TypeKind;
+import java.lang.classfile.instruction.ArrayLoadInstruction;
+import java.lang.classfile.instruction.InvokeInstruction;
+import java.lang.classfile.instruction.LoadInstruction;
+import java.lang.classfile.instruction.StoreInstruction;
+import java.lang.constant.ClassDesc;
+import java.lang.constant.ConstantDescs;
+import java.lang.constant.MethodTypeDesc;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
@@ -27,8 +40,12 @@ public final class BatchWordFinder implements BatchScan {
 	 * query offset, so the diagonal of a hit at subject position {@code s} is {@code (entry - s) & (size - 1)};
 	 * {@code query[k]} is the query of entry {@code k}, read only for hits that go on to the two-hit logic.
 	 * {@code size} is the length of the diagonal array.
+	 * <p>
+	 * {@code narrow} holds the same entries as chars, half the memory the scan reads, when the concatenation is
+	 * shorter than 65,536 letters (BLAST's batches are about 10,000), and is null otherwise: the scan's copy for such a
+	 * table reads it ({@link BatchWordFinder#of}).
 	 */
-	public record Table(int[] start, int[] entry, int[] query, int[] base, int size) {
+	public record Table(int[] start, int[] entry, char[] narrow, int[] query, int[] base, int size) {
 		public static Table of(byte[][] queries, LookupTable[] tables, int window) {
 			final int n = queries.length;
 			// BLAST's context offsets (s_QueryInfo_SetContext): one separator after each query that is not empty.
@@ -61,7 +78,14 @@ public final class BatchWordFinder implements BatchScan {
 				}
 			}
 			start[LookupTable.WORDS] = k;
-			return new Table(start, entry, query, base, WordFinder.diagonals((int) length, window));
+			char[] narrow = null;
+			if (length <= Character.MAX_VALUE) {
+				narrow = new char[total];
+				for (int j = 0; j < total; j++) {
+					narrow[j] = (char) entry[j];
+				}
+			}
+			return new Table(start, entry, narrow, query, base, WordFinder.diagonals((int) length, window));
 		}
 	}
 
@@ -74,8 +98,8 @@ public final class BatchWordFinder implements BatchScan {
 	/** Whether this is a GraalVM native image, which cannot define classes at run time. */
 	private static final boolean NATIVE_IMAGE = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
 
-	/** A copy's constants. */
-	private record Key(int window, int diagMask) {
+	/** A copy's constants, and whether it reads the table's narrow entries. */
+	private record Key(int window, int diagMask, boolean narrow) {
 	}
 
 	private final Table table;
@@ -105,16 +129,19 @@ public final class BatchWordFinder implements BatchScan {
 	/**
 	 * The word finder for this batch, with the window and the diagonal mask as constants: a copy of this class (see
 	 * {@link WordFinder#of}), shared by the batches with the same values. Only the scan is copied: the queries'
-	 * finders are {@link WordFinder}s, so that all hits go to the one class. In a native image, or where the copy
-	 * fails, a {@link BatchWordFinder}.
+	 * finders are {@link WordFinder}s, so that all hits go to the one class. Where the table has narrow entries, the
+	 * copy's scan reads those instead ({@link #narrowEntries}). In a native image, or where the copy fails, a
+	 * {@link BatchWordFinder}, which reads the int entries.
 	 */
 	public static BatchScan of(byte[][] queries, LookupTable[] tables, SeedParameters[] parameters, Table table) {
 		if (!NATIVE_IMAGE) {
 			try {
-				return (BatchScan) COPIES.computeIfAbsent(new Key(parameters[0].window(), table.size() - 1), k -> {
+				final Key key = new Key(parameters[0].window(), table.size() - 1, table.narrow() != null);
+				return (BatchScan) COPIES.computeIfAbsent(key, k -> {
 					try {
 						final MethodHandles.Lookup lookup = HiddenCopies.define(MethodHandles.lookup(),
-								BatchWordFinder.class, Map.of("window", k.window(), "diagMask", k.diagMask()));
+								BatchWordFinder.class, Map.of("window", k.window(), "diagMask", k.diagMask()),
+								k.narrow() ? narrowEntries() : null);
 						return lookup.findConstructor(lookup.lookupClass(), MethodType.methodType(void.class,
 								byte[][].class, LookupTable[].class, SeedParameters[].class, Table.class));
 					} catch (Throwable e) {
@@ -128,6 +155,49 @@ public final class BatchWordFinder implements BatchScan {
 			}
 		}
 		return new BatchWordFinder(queries, tables, parameters, table);
+	}
+
+	/**
+	 * The code transform of {@link #of}'s copy for a table with narrow entries: in {@link #find}, {@code table.entry()}
+	 * becomes {@code table.narrow()}, and each load from it ({@code aload entry; iload k; iaload}, as javac compiles
+	 * {@code entry[k]}) a char load. A load of the array that is not followed so leaves an int load of a char array,
+	 * which the verifier rejects: then {@link #of} falls back to this class.
+	 */
+	private static CodeTransform narrowEntries() {
+		final ClassDesc table = ClassDesc.of(Table.class.getName());
+		final MethodTypeDesc entryType = MethodTypeDesc.of(ConstantDescs.CD_int.arrayType());
+		final MethodTypeDesc narrowType = MethodTypeDesc.of(ConstantDescs.CD_char.arrayType());
+		return CodeTransform.ofStateful(() -> new CodeTransform() {
+			/** The local of the entry array (-1: none yet), whether its store is next, and the load pattern's step. */
+			private int slot = -1, step;
+			private boolean store;
+
+			@Override
+			public void accept(CodeBuilder code, CodeElement e) {
+				if (e instanceof InvokeInstruction i && i.opcode() == Opcode.INVOKEVIRTUAL
+						&& i.owner().asSymbol().equals(table) && i.name().equalsString("entry")
+						&& i.typeSymbol().equals(entryType)) {
+					code.invokevirtual(table, "narrow", narrowType);
+					store = true;
+					return;
+				}
+				if (store && e instanceof StoreInstruction st) {
+					slot = st.slot();
+					store = false;
+				} else if (e instanceof LoadInstruction l && l.typeKind() == TypeKind.REFERENCE && l.slot() == slot) {
+					step = 1;
+				} else if (step == 1 && e instanceof LoadInstruction l && l.typeKind() == TypeKind.INT) {
+					step = 2;
+				} else if (step == 2 && e instanceof ArrayLoadInstruction a && a.typeKind() == TypeKind.INT) {
+					code.arrayLoad(TypeKind.CHAR);
+					step = 0;
+					return;
+				} else if (e instanceof Instruction) {
+					step = 0;
+				}
+				code.with(e);
+			}
+		});
 	}
 
 	/**

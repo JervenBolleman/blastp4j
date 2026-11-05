@@ -28,6 +28,15 @@ final class HiddenCopies {
 	 */
 	static MethodHandles.Lookup define(MethodHandles.Lookup lookup, Class<?> c, Map<String, Integer> constants)
 			throws Exception {
+		return define(lookup, c, constants, null);
+	}
+
+	/**
+	 * As {@link #define(MethodHandles.Lookup, Class, Map)}, with {@code more} applied to the code of every method
+	 * after the constants (null: none). Create it with {@link CodeTransform#ofStateful} if it keeps state per method.
+	 */
+	static MethodHandles.Lookup define(MethodHandles.Lookup lookup, Class<?> c, Map<String, Integer> constants,
+			CodeTransform more) throws Exception {
 		final byte[] bytes;
 		try (InputStream in = c.getResourceAsStream(c.getSimpleName() + ".class")) {
 			bytes = in.readAllBytes();
@@ -47,7 +56,7 @@ final class HiddenCopies {
 		// A hidden class takes its nest from the lookup, not from these attributes.
 		final byte[] copy = cf.transformClass(model,
 				ClassTransform.dropping(e -> e instanceof NestMembersAttribute || e instanceof InnerClassesAttribute)
-						.andThen(ClassTransform.transformingMethodBodies(replace)));
+						.andThen(ClassTransform.transformingMethodBodies(more == null ? replace : replace.andThen(more))));
 		return lookup.defineHiddenClass(copy, true);
 	}
 }
