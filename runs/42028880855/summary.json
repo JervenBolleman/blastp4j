@@ -1,0 +1,75 @@
+{
+ "run_id": "42028880855",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/42028880855",
+ "date": "2026-11-05 13:10 UTC",
+ "event": "workflow_dispatch",
+ "code": [
+  "`5794403` (Experiment: the batch table's entries as chars (batches under 65,536 letters only))"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 28.74,
+   "jvm_wall": 34.59,
+   "ref_wall": 34.92,
+   "wall": 1.2035490605427976,
+   "cycles": 1.1868898186889818,
+   "instructions": 1.3513795501970787,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html",
+   "jvm_commit": "5794403",
+   "ref_commit": "03528c9",
+   "rounds": {
+    "blast": [
+     28.74,
+     29.04,
+     27.96
+    ],
+    "jvm": [
+     34.54,
+     34.59,
+     34.7
+    ],
+    "ref": [
+     35.04,
+     34.92,
+     34.92
+    ]
+   }
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "Intel(R) Xeon(R) 6973P-C",
+   "cpus": "4",
+   "blast_wall": 41.54,
+   "jvm_wall": 37.64,
+   "ref_wall": 36.35,
+   "wall": 0.9061145883485797,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html",
+   "jvm_commit": "5794403",
+   "ref_commit": "03528c9",
+   "rounds": {
+    "blast": [
+     41.04,
+     42.04,
+     41.54
+    ],
+    "jvm": [
+     37.64,
+     38.54,
+     35.34
+    ],
+    "ref": [
+     37.13,
+     36.35,
+     35.43
+    ]
+   }
+  }
+ ]
+}
