@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Compares BLAST+ blastp, blastp4j on the JVM and a native blastp4j on one search.
-# Usage: bin/compare-blastp.sh [all|blast|jvm|ref|native]...   (default: all, which is blast, jvm and native)
+# Usage: bin/compare-blastp.sh [all|blast|jvm|ref|almost|native]...   (default: all, which is blast, jvm and native)
+# almost is almostblastp (cli.AlmostBlastp) from the same jar as jvm, whose results may differ slightly from blastp's.
 #
 # 1. ROUNDS timing rounds (default 5), the chosen systems interleaved in each round (/usr/bin/time: wall, user, sys).
 # 2. One perf stat run per system (instructions, cycles, branches, branch misses), after all timing rounds; skipped
@@ -29,9 +30,9 @@ SYSTEMS=()
 for a in "${@:-all}"; do
 	case "$a" in
 	all) SYSTEMS=(blast jvm native) ;;
-	blast | jvm | ref | native) SYSTEMS+=("$a") ;;
+	blast | jvm | ref | almost | native) SYSTEMS+=("$a") ;;
 	*)
-		echo "usage: $0 [all|blast|jvm|ref|native]..." >&2
+		echo "usage: $0 [all|blast|jvm|ref|almost|native]..." >&2
 		exit 1
 		;;
 	esac
@@ -40,7 +41,7 @@ done
 JAR="$(ls "$HERE"/target/blastp4j-*.jar 2>/dev/null | grep -v -e sources -e javadoc | head -1)"
 for s in "${SYSTEMS[@]}"; do
 	case $s in
-	jvm) [ -n "$JAR" ] || { echo "compare-blastp: no jar in $HERE/target; run 'mvn package' first" >&2; exit 1; } ;;
+	jvm | almost) [ -n "$JAR" ] || { echo "compare-blastp: no jar in $HERE/target; run 'mvn package' first" >&2; exit 1; } ;;
 	ref) [ -f "${REF_JAR:-}" ] || { echo "compare-blastp: set REF_JAR to the jar to compare with" >&2; exit 1; } ;;
 	native) [ -x "${NATIVE:-}" ] || { echo "compare-blastp: set NATIVE to the native blastp4j executable" >&2; exit 1; } ;;
 	esac
@@ -52,6 +53,7 @@ command_of() {
 	case $1 in
 	blast) echo "$BLASTP" ;;
 	jvm) echo "$JAVA $("$HERE/bin/jvm-options") ${2:-} -jar $JAR" ;;
+	almost) echo "$JAVA $("$HERE/bin/jvm-options") ${2:-} -cp $JAR swiss.sib.blastp4j.cli.AlmostBlastp" ;;
 	ref) echo "$JAVA $("${REF_HOME:-$HERE}/bin/jvm-options") ${2:-} -jar $REF_JAR" ;;
 	native) echo "$NATIVE" ;;
 	esac

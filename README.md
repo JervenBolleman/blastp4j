@@ -95,6 +95,8 @@ commit.
 * `bin/almostblastp` (`cli.AlmostBlastp`) takes the same options. It is for changes that make the search faster but may
   change its results slightly, such as fused multiply-adds in the floating-point code; `blastp4j` stays exact. For now
   it is a copy of `cli.Blastp` (without the daemon) and gives the same results, which `AlmostBlastpTest` checks.
+  The architecture comparison workflow times it in the full search next to blastp4j and BLAST+ (its `almostblastp`
+  input, default true), and the report plots it against BLAST+.
   * `-XX:+TrustFinalNonStaticFields`, which lets C2 treat every final instance field as a constant (by default only
     those of records, hidden classes and some JDK classes), was tried (9ee5ac4, reverted): within the noise on the
     GitHub runners (1.4% less wall time on AArch64, 0.2% on x86-64) and here.

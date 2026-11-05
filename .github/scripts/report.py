@@ -318,7 +318,7 @@ def per_commit(site, runs):
             if measured(rounds, "jvm") and (measured(rounds, "blast") or measured(rounds, "ref")):
                 run["measured"] = True
                 job = {"run": d, "arch": r.get("architecture", "?"), "cpu": r.get("cpu", "?"), "ref_commit": ref[:7]}
-                job.update({k: rounds[k] for k in ("blast", "jvm", "ref") if k in rounds})
+                job.update({k: rounds[k] for k in ("blast", "jvm", "ref", "almost") if k in rounds})
                 g["jobs"].append(job)
     ordered = sorted(groups.values(), key=lambda g: g["date"], reverse=True)
     for g in ordered:
@@ -333,24 +333,26 @@ PLOTLY = "https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"
 PLOT_SCRIPT = """
 (function () {
   const data = JSON.parse(document.getElementById("perf-data").textContent);
-  const NAMES = {blast: "BLAST+", ref: "reference"};
+  const NAMES = {blast: "BLAST+", ref: "reference", jvm: "blastp4j", almost: "almostblastp"};
+  // Numerator, denominator, title.
   const METRICS = [
-    ["blast", "blastp4j / BLAST+, wall time per round"],
-    ["ref", "blastp4j / reference commit, wall time per round"],
+    ["jvm", "blast", "blastp4j / BLAST+, wall time per round"],
+    ["jvm", "ref", "blastp4j / reference commit, wall time per round"],
+    ["almost", "blast", "almostblastp / BLAST+, wall time per round"],
   ];
   const ARCH = {aarch64: "--arm", x86_64: "--x86"};
   function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
   function hex(color) { return /^#[0-9a-f]{6}$/i.test(color) ? color : "#888888"; }
 
-  function traces(commit, den) {
+  function traces(commit, num, den) {
     const by = {};
     for (const j of commit.jobs) {
-      const a = j.jvm || [], b = j[den] || [];
+      const a = j[num] || [], b = j[den] || [];
       for (let i = 0; i < Math.min(a.length, b.length); i++) {
         if (a[i] == null || !b[i]) continue;
         const t = by[j.arch] || (by[j.arch] = {y: [], text: []});
         t.y.push(a[i] / b[i]);
-        t.text.push("run " + j.run + ", round " + (i + 1) + "<br>" + j.cpu + "<br>blastp4j " + a[i].toFixed(2)
+        t.text.push("run " + j.run + ", round " + (i + 1) + "<br>" + j.cpu + "<br>" + NAMES[num] + " " + a[i].toFixed(2)
           + " s, " + NAMES[den] + (den === "ref" && j.ref_commit ? " " + j.ref_commit : "") + " " + b[i].toFixed(2) + " s");
       }
     }
@@ -368,7 +370,7 @@ PLOT_SCRIPT = """
     });
   }
 
-  function layout(title, den, t) {
+  function layout(title, num, den, t) {
     const fg = css("--fg"), bg = css("--bg"), line = css("--line");
     // The ratio axis starts at 0, so that heights read as proportions.
     const ys = [].concat(...t.map(function (x) { return x.y; }));
@@ -379,7 +381,7 @@ PLOT_SCRIPT = """
       paper_bgcolor: bg, plot_bgcolor: bg, font: {color: fg, family: "system-ui, sans-serif", size: 12},
       showlegend: false, height: 360, margin: {l: 60, r: 12, t: 40, b: 36},
       xaxis: {type: "category", range: [-0.5, n - 0.5], linecolor: line, tickcolor: line},
-      yaxis: {title: {text: "below 1: blastp4j faster than " + NAMES[den]}, gridcolor: line, linecolor: line,
+      yaxis: {title: {text: "below 1: " + NAMES[num] + " faster than " + NAMES[den]}, gridcolor: line, linecolor: line,
               zeroline: false, range: [0, hi]},
       shapes: [{type: "line", xref: "paper", x0: 0, x1: 1, yref: "y", y0: 1, y1: 1, layer: "below",
                 line: {color: css("--muted"), width: 1.5, dash: "dash"}}],
@@ -397,13 +399,13 @@ PLOT_SCRIPT = """
     box.textContent = "";
     const commit = data[Number(details.dataset.k)];
     const plots = [];
-    for (const [den, title] of METRICS) {
-      const t = traces(commit, den);
+    for (const [num, den, title] of METRICS) {
+      const t = traces(commit, num, den);
       if (!t.length) continue;
       const div = document.createElement("div");
       div.className = "plot";
       box.appendChild(div);
-      plots.push([div, t, layout(title, den, t)]);
+      plots.push([div, t, layout(title, num, den, t)]);
     }
     // Draw once all the plots are in the grid, so that each gets its column's width.
     for (const [div, t, l] of plots) {
