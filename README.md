@@ -384,8 +384,14 @@ BLAST's. On 8 threads, the 24 queries are seeded in 20 s.
 **Query parameters as constants.** `WordFinder.of` gives a copy of `WordFinder`, made with the class-file API and
 defined as a hidden class, in which the query's window, X-drop, cutoff and diagonal mask are constants (d7bdab1:
 1.5-2.2% fewer cycles for CDK1 and BRCA1 in `WordFinderBench`). Single-query searches use it. The batched scan
-(`BatchWordFinder`, which the CLI uses for batches of several queries) does not: all queries' hits go through one call
-site, where copies would make each hit a virtual call.
+(`BatchWordFinder`, which the CLI uses for batches of several queries) does not copy the queries' finders: all
+queries' hits go through one call site, where copies would make each hit a virtual call. Since 45b95c9
+`BatchWordFinder.of` copies the scan itself, with the window and the batch's diagonal mask as constants (shared by
+nearly all batches: BLAST's are about 10,000 letters, so the mask is 16383); `HiddenCopies` makes both kinds of copy.
+On the runners: 1.0% less wall time on AArch64 (every round), none on x86-64 or locally.
+
+*Tried, no gain:* the single-query copies with the batch's diagonal base (0) and its cross-query check (never true for
+a query alone) as constants too (48bc96d, reverted): `WordFinderBench` unchanged, as the check is on the rare path.
 
 *Tried, slower:* a copy of `BatchWordFinder` per thread that sends each hit through a switch on the query number to
 that query's copy, held as a constant (class data) (bb46e1d, reverted). C2 does not inline the 24 cases into the scan,
