@@ -69,6 +69,38 @@ commit.
 8. **BLAST databases** (done): `-db` also takes a database made by `makeblastdb`; see
    [BLAST databases](#blast-databases).
 
+### Long-term to do: how far can almostblastp be from blastp?
+
+almostblastp's changes (`util.Arithmetic.FAST`) change floating-point results in their last bits. So far its output
+has been blastp's on every workload measured, but no bound says how often or by how much it can differ. A numerical
+analysis should bound the combined difference of all FAST changes, from the floating-point error up to the output:
+
+1. **The changes' own errors.** For each FAST change, the error per operation against BLAST's: the Vector API's
+   logarithm (SVML on x86-64, SLEEF on AArch64; their documented ulp bounds, to check against `Math.log` over the
+   inputs that occur), sums in another order (the bound for a reordered sum of n terms), fused multiply-adds (one
+   rounding instead of two).
+2. **Through the target-frequency optimizer.** The optimizer is Newton's method on a smooth convex problem, stopped
+   when the residual is below 1e-8 (`COMPO_ADJUST_ERR_TOLERANCE`). A perturbation of its inputs and of each
+   iteration moves the solution by about the condition number of the Newton system times the perturbation; the
+   stopping rule itself allows a difference of about the tolerance between any two runs, which is likely larger than
+   the rounding. Bound the difference in the target frequencies, then in the frequency ratios, then in the scores
+   before rounding (log(ratio) / λ: the relative error of a ratio becomes an absolute error of the score, scaled by
+   32 / λ). A FAST run can also take one Newton iteration more or fewer, or fail to converge where BLAST's does (then
+   the matrix is not adjusted at all): measure how close to the tolerance the last residuals are.
+3. **To the integer matrix.** Each adjusted score is rounded to an integer (scaled by 32). A difference ε before
+   rounding flips the integer only when the value is within ε of a half-integer. Estimate the distribution of the
+   distance to the nearest half-integer over real compositions (it should be about uniform), which gives the expected
+   number of flipped entries per adjusted matrix, about 2ε for each of the 400 entries.
+4. **To the alignments.** A flipped entry changes the score of every aligned pair of those two letters by ±1 (a 32nd
+   of a raw score unit): the alignment score changes by at most the number of such pairs, usually 0 or 1. Then the
+   E-value (from the scaled score), the order of hits with nearly the same score, the hits at the E-value cutoff and
+   at `-max_target_seqs`, and the X-drop end points (a changed cell can let an extension stop or go on) can change.
+   Bound each, and how often each happens given step 3.
+5. **Check it empirically.** Run almostblastp against blastp4j on large workloads (all of Swiss-Prot against itself,
+   the bean proteome, the 24 human queries): count differing adjusted matrices, flipped entries, and differing output
+   lines, and compare them with the bounds. A test could then accept almostblastp's output when it is within those
+   bounds of blastp's, instead of identical (`AlmostBlastpTest`).
+
 ## Usage
 
     mvn package -DskipTests

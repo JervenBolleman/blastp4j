@@ -97,7 +97,7 @@ public final class CompositionAdjustment {
 			System.arraycopy(Blosum62Data.FREQ_RATIOS, 0, startFreqRatios, 0, ALPHSIZE * ALPHSIZE);
 			// Blast_Int4MatrixFromFreq
 			double[] scores = java.util.Arrays.copyOf(startFreqRatios, ALPHSIZE * ALPHSIZE);
-			freqRatioToScore(scores, ungappedLambda);
+			OptimizeTargetFreq.of(Arithmetic.BLAST).freqRatioToScore(scores, ungappedLambda);
 			for (int k = 0; k < ALPHSIZE * ALPHSIZE; k++) {
 				startMatrix[k] = round(scores[k]);
 			}
@@ -106,13 +106,6 @@ public final class CompositionAdjustment {
 		/** The starting (unadjusted) matrix, scaled: {@link #ALPHSIZE} x {@link #ALPHSIZE}, row-major. */
 		public int[] startMatrix() {
 			return java.util.Arrays.copyOf(startMatrix, ALPHSIZE * ALPHSIZE);
-		}
-	}
-
-	/** {@code Blast_FreqRatioToScore} on every entry of {@code ratios}. */
-	private static void freqRatioToScore(double[] ratios, double lambda) {
-		for (int k = 0; k < ratios.length; k++) {
-			ratios[k] = 0.0 == ratios[k] ? SCORE_MIN : Math.log(ratios[k]) / lambda;
 		}
 	}
 
@@ -143,15 +136,15 @@ public final class CompositionAdjustment {
 		final double[] firstStandardFreq = new double[NUM_TRUE_AA];
 		final double[] secondStandardFreq = new double[NUM_TRUE_AA];
 		final double[] matFinal = new double[NUM_TRUE_AA * NUM_TRUE_AA];
-		/** Whether the target-frequency optimizer may compute in its faster way ({@link Arithmetic#FAST}). */
-		final boolean fast;
+		/** The target-frequency optimizer, and the scores' logarithms, in this workspace's arithmetic. */
+		final CompoKernels optimizer;
 
 		public Workspace() {
 			this(Arithmetic.BLAST);
 		}
 
 		public Workspace(Arithmetic arithmetic) {
-			fast = arithmetic == Arithmetic.FAST;
+			optimizer = OptimizeTargetFreq.of(arithmetic);
 			for (int i = 0; i < NUM_TRUE_AA; i++) {
 				for (int j = 0; j < NUM_TRUE_AA; j++) {
 					firstStandardFreq[i] += matB[i * NUM_TRUE_AA + j];
@@ -184,7 +177,7 @@ public final class CompositionAdjustment {
 				return new Adjustment(status, rule, 1.0);
 			}
 		}
-		double ratio = compositionBasedStats(matrix, info, query.prob(), subject.prob());
+		double ratio = compositionBasedStats(matrix, info, query.prob(), subject.prob(), ws.optimizer);
 		return new Adjustment(0, Rule.SCALE_OLD_MATRIX, ratio);
 	}
 
@@ -272,12 +265,12 @@ public final class CompositionAdjustment {
 		}
 		applyPseudocounts(rowProbs, length1, ws.firstStandardFreq, pseudocounts);
 		applyPseudocounts(colProbs, length2, ws.secondStandardFreq, pseudocounts);
-		int status = OptimizeTargetFreq.optimize(ws.matFinal, NUM_TRUE_AA, ws.matB, rowProbs, colProbs, desiredRe > 0.0,
-				desiredRe, COMPO_ADJUST_ERR_TOLERANCE, COMPO_ADJUST_ITERATION_LIMIT, ws.fast);
+		int status = ws.optimizer.optimize(ws.matFinal, NUM_TRUE_AA, ws.matB, rowProbs, colProbs, desiredRe > 0.0,
+				desiredRe, COMPO_ADJUST_ERR_TOLERANCE, COMPO_ADJUST_ITERATION_LIMIT);
 		if (status != 0) {
 			return status;
 		}
-		scoresStdAlphabet(matrix, ws.matFinal, info.startMatrix, rowProbs, colProbs, info.ungappedLambda);
+		scoresStdAlphabet(matrix, ws.matFinal, info.startMatrix, rowProbs, colProbs, info.ungappedLambda, ws.optimizer);
 		return 0;
 	}
 
@@ -295,7 +288,7 @@ public final class CompositionAdjustment {
 
 	/** {@code s_ScoresStdAlphabet}; {@code targetFreq} is 20 x 20, row-major. */
 	private static void scoresStdAlphabet(int[] matrix, double[] targetFreq, int[] startMatrix, double[] rowProb,
-			double[] colProb, double lambda) {
+			double[] colProb, double lambda, CompoKernels optimizer) {
 		final int n = ALPHSIZE;
 		double[] rowStd = unpack(rowProb), colStd = unpack(colProb);
 		double[] scores = new double[n * n];
@@ -334,7 +327,7 @@ public final class CompositionAdjustment {
 				}
 			}
 		}
-		freqRatioToScore(scores, lambda);
+		optimizer.freqRatioToScore(scores, lambda);
 		setXUOScores(scores, rowStd, colStd);
 		roundInto(matrix, scores);
 		stopScores(matrix, startMatrix);
@@ -402,7 +395,8 @@ public final class CompositionAdjustment {
 	 * {@code Blast_CompositionBasedStats}: scales the starting matrix so that its ungapped lambda in the context of the
 	 * two compositions equals the standard one; returns the lambda ratio.
 	 */
-	static double compositionBasedStats(int[] matrix, MatrixInfo info, double[] queryProb, double[] resProb) {
+	static double compositionBasedStats(int[] matrix, MatrixInfo info, double[] queryProb, double[] resProb,
+			CompoKernels optimizer) {
 		// s_GetMatrixScoreProbs
 		int minScore = 0, maxScore = 0;
 		for (int irow = 0; irow < ALPHSIZE; irow++) {
@@ -439,7 +433,7 @@ public final class CompositionAdjustment {
 			double scaledLambda = info.ungappedLambda / ratio;
 			// s_ScaleSquareMatrix
 			double[] scores = java.util.Arrays.copyOf(info.startFreqRatios, ALPHSIZE * ALPHSIZE);
-			freqRatioToScore(scores, scaledLambda);
+			optimizer.freqRatioToScore(scores, scaledLambda);
 			setXUOScores(scores, queryProb, resProb);
 			roundInto(matrix, scores);
 			stopScores(matrix, info.startMatrix);

@@ -19,6 +19,7 @@ import java.lang.invoke.MethodType;
 import java.util.List;
 import java.util.Map;
 
+import swiss.sib.blastp4j.util.HiddenCopies;
 import swiss.sib.blastp4j.util.LruCache;
 
 /**

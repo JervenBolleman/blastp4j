@@ -12,7 +12,8 @@
 # quiet keeps C2 from printing the CompileCommands on stdout.
 -XX:CompileCommand=quiet
 # The target-frequency optimizer's helpers not inlined: inlined, C2 took about 0.7 s per compile of
-# OptimizeTargetFreq.optimize (8 compiles, 5.7 of 20.5 s of C2 time in a full search), and the code was slower.
--XX:CompileCommand=dontinline,swiss.sib.blastp4j.compo.OptimizeTargetFreq::*
+# OptimizeTargetFreq.optimize (8 compiles, 5.7 of 20.5 s of C2 time in a full search), and the code was slower. The *
+# also matches the class's hidden copies (OptimizeTargetFreq/0x...), one per arithmetic.
+-XX:CompileCommand=dontinline,swiss.sib.blastp4j.compo.OptimizeTargetFreq*::*
 # The word finder uses the Vector API, an incubator module, which the JVM then reports with a warning on stderr.
 --add-modules=jdk.incubator.vector

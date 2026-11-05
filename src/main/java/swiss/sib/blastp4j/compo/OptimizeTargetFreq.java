@@ -1,8 +1,13 @@
 package swiss.sib.blastp4j.compo;
 
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
+
 import jdk.incubator.vector.DoubleVector;
 import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorSpecies;
+import swiss.sib.blastp4j.util.Arithmetic;
+import swiss.sib.blastp4j.util.HiddenCopies;
 
 /**
  * The target frequencies of a compositionally adjusted matrix ({@code optimize_target_freq.c} and
@@ -12,13 +17,67 @@ import jdk.incubator.vector.VectorSpecies;
  * and column sums are the compositions of the two sequences, optionally with a given relative entropy. Newton's method
  * on the Lagrangian, with the constraint matrix used implicitly, as in BLAST.
  */
-final class OptimizeTargetFreq {
-	private OptimizeTargetFreq() {
+final class OptimizeTargetFreq implements CompoKernels {
+	/**
+	 * Whether this computes the {@link Arithmetic#FAST} way. A constant in the copies of {@link #of}, so that C2
+	 * compiles each copy's loops for one way only.
+	 */
+	private final boolean fast;
+
+	OptimizeTargetFreq(boolean fast) {
+		this.fast = fast;
+	}
+
+	/** The copies by arithmetic, made on first use. */
+	private static final java.util.Map<Arithmetic, CompoKernels> COPIES =
+			new java.util.concurrent.ConcurrentHashMap<>();
+	/** Whether this is a GraalVM native image, which cannot define classes at run time: there the field stays. */
+	private static final boolean NATIVE_IMAGE = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
+
+	/**
+	 * The target-frequency optimizer for this arithmetic: a copy of this class (class-file API, hidden class; see
+	 * {@link HiddenCopies}) in which {@link #fast} is a constant, one per arithmetic; or, in a native image or where the
+	 * copy fails, this class with the field. (An interface, as the copy is not a subclass.)
+	 */
+	static CompoKernels of(Arithmetic arithmetic) {
+		final boolean fast = arithmetic == Arithmetic.FAST;
+		if (NATIVE_IMAGE) {
+			return new OptimizeTargetFreq(fast);
+		}
+		return COPIES.computeIfAbsent(arithmetic, a -> {
+			try {
+				final MethodHandles.Lookup lookup = HiddenCopies.define(MethodHandles.lookup(), OptimizeTargetFreq.class,
+						java.util.Map.of("fast", fast ? 1 : 0));
+				return (CompoKernels) lookup
+						.findConstructor(lookup.lookupClass(), MethodType.methodType(void.class, boolean.class))
+						.invoke(fast);
+			} catch (Throwable e) {
+				return new OptimizeTargetFreq(fast);
+			}
+		});
 	}
 
 	/**
-	 * The vectors of {@link swiss.sib.blastp4j.util.Arithmetic#FAST}: the machine's preferred, at most 256 bits (as the
-	 * word finder's).
+	 * {@code Blast_FreqRatioToScore} on every entry of {@code ratios}; {@link Arithmetic#FAST}: a vector at a time with
+	 * the Vector API's logarithm, within an ulp or so of {@link Math#log}.
+	 */
+	@Override
+	public void freqRatioToScore(double[] ratios, double lambda) {
+		int k = 0;
+		if (fast) {
+			for (; k < DOUBLES.loopBound(ratios.length); k += DOUBLES.length()) {
+				DoubleVector r = DoubleVector.fromArray(DOUBLES, ratios, k);
+				r.lanewise(VectorOperators.LOG).div(lambda).blend(CompositionAdjustment.SCORE_MIN, r.eq(0.0))
+						.intoArray(ratios, k);
+			}
+		}
+		for (; k < ratios.length; k++) {
+			ratios[k] = 0.0 == ratios[k] ? CompositionAdjustment.SCORE_MIN : Math.log(ratios[k]) / lambda;
+		}
+	}
+
+	/**
+	 * The vectors of {@link Arithmetic#FAST}: the machine's preferred, at most 256 bits (as the word finder's).
 	 */
 	private static final VectorSpecies<Double> DOUBLES = DoubleVector.SPECIES_PREFERRED.length() > 4
 			? DoubleVector.SPECIES_256
@@ -205,12 +264,14 @@ final class OptimizeTargetFreq {
 
 	/**
 	 * {@code Blast_OptimizeTargetFrequencies}: fills {@code x} (row major, alphsize x alphsize); returns 0 when Newton's
-	 * method converged to a minimizer, 1 otherwise. With {@code fast} ({@link swiss.sib.blastp4j.util.Arithmetic#FAST}),
-	 * the relative entropies and their gradients are computed a vector at a time, with the Vector API's logarithm
-	 * (within an ulp or so of {@link Math#log}, not equal to it) and the sums in another order.
+	 * method converged to a minimizer, 1 otherwise. {@link Arithmetic#FAST}: the logarithms of the starting scores, the
+	 * relative entropies and their gradients a vector at a time, with the Vector API's logarithm (within an ulp or so
+	 * of {@link Math#log}, not equal to it) and the sums in another order.
 	 */
-	static int optimize(double[] x, int alphsize, double[] q, double[] rowSums, double[] colSums,
-			boolean constrainRelEntropy, double relativeEntropy, double tol, int maxits, boolean fast) {
+	@Override
+	public int optimize(double[] x, int alphsize, double[] q, double[] rowSums, double[] colSums,
+			boolean constrainRelEntropy, double relativeEntropy, double tol, int maxits) {
+		final boolean fast = this.fast;
 		final int n = alphsize * alphsize, mA = 2 * alphsize - 1, m = constrainRelEntropy ? mA + 1 : mA;
 		double[] values = new double[2];
 		// The gradients of the two functions, of n entries each, one after the other.
@@ -223,7 +284,17 @@ final class OptimizeTargetFreq {
 		double[] dinv = new double[n], gradRe = new double[n];
 
 		for (int i = 0; i < alphsize; i++) {
-			for (int j = 0; j < alphsize; j++) {
+			int j = 0;
+			if (fast) {
+				// A row's ratios, then their logarithms, a vector at a time.
+				final DoubleVector r = DoubleVector.broadcast(DOUBLES, rowSums[i]);
+				for (; j < DOUBLES.loopBound(alphsize); j += DOUBLES.length()) {
+					DoubleVector.fromArray(DOUBLES, q, i * alphsize + j)
+							.div(r.mul(DoubleVector.fromArray(DOUBLES, colSums, j))).lanewise(VectorOperators.LOG)
+							.intoArray(oldScores, i * alphsize + j);
+				}
+			}
+			for (; j < alphsize; j++) {
 				int k = i * alphsize + j;
 				oldScores[k] = Math.log(q[k] / (rowSums[i] * colSums[j]));
 			}

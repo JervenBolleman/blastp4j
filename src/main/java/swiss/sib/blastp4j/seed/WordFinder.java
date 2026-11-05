@@ -12,6 +12,7 @@ import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorShape;
 import jdk.incubator.vector.VectorSpecies;
 import swiss.sib.blastp4j.stats.Blosum62;
+import swiss.sib.blastp4j.util.HiddenCopies;
 import swiss.sib.blastp4j.util.LruCache;
 
 /**
