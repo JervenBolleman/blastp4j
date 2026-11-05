@@ -1,0 +1,37 @@
+{
+ "run_id": "42006085715",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/42006085715",
+ "date": "2026-11-05 10:29 UTC",
+ "event": "workflow_dispatch",
+ "code": [
+  "`54574b8` (Experiment (retry of e9d5cb1): the ungapped extension loops unrolled by four)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 27.71,
+   "jvm_wall": 34.62,
+   "ref_wall": 33.84,
+   "wall": 1.2493684590400576,
+   "cycles": 1.160056258790436,
+   "instructions": 1.2938108484005564,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html"
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 7763 64-Core Processor",
+   "cpus": "4",
+   "blast_wall": 50.99,
+   "jvm_wall": 51.37,
+   "ref_wall": 49.07,
+   "wall": 1.0074524416552264,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html"
+  }
+ ]
+}
