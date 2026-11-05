@@ -8,6 +8,7 @@ import swiss.sib.blastp4j.align.Hsp;
 import swiss.sib.blastp4j.align.ScoreMatrix;
 import swiss.sib.blastp4j.stats.Statistics;
 import swiss.sib.blastp4j.stats.UngappedKarlin;
+import swiss.sib.blastp4j.util.Arithmetic;
 
 /**
  * The traceback stage with composition-based statistics ({@code Blast_RedoOneMatch} of {@code redo_alignment.c} with
@@ -66,7 +67,7 @@ public final class CompoRedo {
 	private final int xDrop;
 	private final double nearIdenticalCutoff;
 	private final GappedAligner aligner;
-	private final CompositionAdjustment.Workspace workspace = new CompositionAdjustment.Workspace();
+	private final CompositionAdjustment.Workspace workspace;
 	/** The adjusted matrix, row-major. */
 	private final int[] matrix = new int[CompositionAdjustment.ALPHSIZE * CompositionAdjustment.ALPHSIZE];
 	private final Seg seg = Seg.forCompositionBasedStatistics();
@@ -75,6 +76,15 @@ public final class CompoRedo {
 	 * @param statistics gapped statistics of the search (lambda, gap costs)
 	 */
 	public CompoRedo(Query query, Statistics statistics) {
+		this(query, statistics, Arithmetic.BLAST);
+	}
+
+	/**
+	 * @param statistics gapped statistics of the search (lambda, gap costs)
+	 * @param arithmetic how the composition adjustment computes ({@link Arithmetic#FAST} can change the last bits)
+	 */
+	public CompoRedo(Query query, Statistics statistics, Arithmetic arithmetic) {
+		this.workspace = new CompositionAdjustment.Workspace(arithmetic);
 		this.query = query;
 		this.statistics = statistics;
 		this.lambda = statistics.parameters().lambda() / SCALE;
