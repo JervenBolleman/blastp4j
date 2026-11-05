@@ -151,7 +151,8 @@ public final class BatchWordFinder implements BatchScan {
 					// this one replaces it, or it overlaps this one, which is then ignored. Only hits to extend and
 					// hits on an extended diagonal go to the query's finder.
 					final int e = entry[k];
-					final int diag = (e - s) & diagMask;
+					// Also masked with the array's length (a power of two), so that C2 knows the index is in bounds.
+					final int diag = (e - s) & diagMask & (d.length - 1);
 					final int state = d[diag];
 					// Without branches but one: x = diff - WORD_SIZE is in [0, last] (a hit to extend) when neither
 					// x nor last - x is negative, and the extended flag (bit 30; bit 31 is never set) goes to the
