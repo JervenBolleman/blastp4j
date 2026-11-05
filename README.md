@@ -136,6 +136,17 @@ analysis should bound the combined difference of all FAST changes, from the floa
     AArch64 and 1.4% on a Xeon 8573C, two of three rounds each; locally 1.3% fewer cycles on the bean queries.
   * *Tried, no gain:* the optimizer's Cholesky factorization and solve with fused multiply-adds and four partial
     sums (39f9f3e, reverted).
+  * The optimizer a class of its own, `compo.OptimizeTargetFreqFast` (195c589): every loop of a Newton iteration a
+    vector at a time (logarithms, gradients, the products with A and A^T, the residuals, the Cholesky factorization's
+    and solve's dot products and updates, the step bound), and `Blast_FreqRatioToScore`'s logarithms too (3e10055).
+    BLAST's `OptimizeTargetFreq` keeps no trace of it; `OptimizeTargetFreq.of` picks the class. The results are still
+    blastp's on the bean and human queries. On the runners (run 42114578082): 2.7% less wall time than blastp4j on
+    AArch64 and 4.0% on an EPYC 9V74, every round; locally 4.4% fewer cycles on the bean queries.
+  * *Queued, for completeness* (each as an experiment branch, measured overnight on the runners):
+    * BLOSUM62's logarithms as constants in the fast optimizer (`exp/logq`, 03af68a): a hidden copy whose class data
+      is log q, so the starting scores take 40 logarithms instead of 400 (log q − log row − log column) and each
+      iteration's log(x / q) is log x − log q. Expected gain about 0.1-0.2%: the setup is about a seventh of the
+      optimizer's logarithms.
   * `-XX:+TrustFinalNonStaticFields`, which lets C2 treat every final instance field as a constant (by default only
     those of records, hidden classes and some JDK classes), was tried (9ee5ac4, reverted): within the noise on the
     GitHub runners (1.4% less wall time on AArch64, 0.2% on x86-64) and here.
