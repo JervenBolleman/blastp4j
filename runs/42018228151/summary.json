@@ -1,0 +1,75 @@
+{
+ "run_id": "42018228151",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/42018228151",
+ "date": "2026-11-05 11:56 UTC",
+ "event": "push",
+ "code": [
+  "`38462b8` (README: the traceback's copy per pair of gap costs, the retries)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 28.45,
+   "jvm_wall": 34.19,
+   "ref_wall": 34.34,
+   "wall": 1.2017574692442883,
+   "cycles": 1.1566807313642757,
+   "instructions": 1.2747291156938134,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html",
+   "jvm_commit": "38462b8",
+   "ref_commit": "ad24592",
+   "rounds": {
+    "blast": [
+     28.45,
+     28.73,
+     27.74
+    ],
+    "jvm": [
+     34.4,
+     34.16,
+     34.19
+    ],
+    "ref": [
+     34.34,
+     34.41,
+     34.06
+    ]
+   }
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 7763 64-Core Processor",
+   "cpus": "4",
+   "blast_wall": 51.56,
+   "jvm_wall": 49.32,
+   "ref_wall": 49.64,
+   "wall": 0.9565554693560899,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html",
+   "jvm_commit": "38462b8",
+   "ref_commit": "ad24592",
+   "rounds": {
+    "blast": [
+     50.9,
+     51.67,
+     51.56
+    ],
+    "jvm": [
+     49.16,
+     49.73,
+     49.32
+    ],
+    "ref": [
+     49.64,
+     49.58,
+     49.9
+    ]
+   }
+  }
+ ]
+}
