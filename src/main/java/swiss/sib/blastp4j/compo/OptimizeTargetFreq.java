@@ -123,11 +123,25 @@ final class OptimizeTargetFreq {
 		return scale * Math.sqrt(sum);
 	}
 
-	/** {@code Nlm_FactorLtriangPosDef}: Cholesky factorization in place of the lower triangle (packed by rows). */
-	private static void factorLtriangPosDef(double[] a, int n) {
-		for (int i = 0; i < n; i++) {
+	/**
+	 * {@code Nlm_FactorLtriangPosDef}: Cholesky factorization in place of the lower triangle (packed by rows), whose
+	 * first {@code d} rows are diagonal (as {@link #scaledSymmetricProductA} makes them: A D A^T's block of the column
+	 * constraints). BLAST's loops run over those zeros too; here they are left out. Products with them are zeros,
+	 * whose subtraction leaves every other value as it is, and the remaining terms are summed in BLAST's order, so the
+	 * factor is BLAST's: in the first {@code d} rows only the square roots of the diagonal, and in the others the first
+	 * {@code d} columns are only divided by those.
+	 */
+	private static void factorLtriangPosDef(double[] a, int n, int d) {
+		for (int i = 0; i < Math.min(d, n); i++) {
 			final int ri = i * (i + 1) / 2;
-			for (int j = 0; j < i; j++) {
+			a[ri + i] = Math.sqrt(a[ri + i]);
+		}
+		for (int i = d; i < n; i++) {
+			final int ri = i * (i + 1) / 2;
+			for (int j = 0; j < d; j++) {
+				a[ri + j] = a[ri + j] / a[j * (j + 1) / 2 + j];
+			}
+			for (int j = d; j < i; j++) {
 				final int rj = j * (j + 1) / 2;
 				double temp = a[ri + j];
 				for (int k = 0; k < j; k++) {
@@ -143,12 +157,15 @@ final class OptimizeTargetFreq {
 		}
 	}
 
-	/** {@code Nlm_SolveLtriangPosDef}: solves L L^T y = x in place; L packed by rows. */
-	private static void solveLtriangPosDef(double[] x, int n, double[] l) {
+	/**
+	 * {@code Nlm_SolveLtriangPosDef}: solves L L^T y = x in place; L packed by rows, its first {@code d} rows diagonal
+	 * (as {@link #factorLtriangPosDef} leaves them), whose zeros are left out as there.
+	 */
+	private static void solveLtriangPosDef(double[] x, int n, double[] l, int d) {
 		for (int i = 0; i < n; i++) {
 			final int ri = i * (i + 1) / 2;
 			double temp = x[i];
-			for (int j = 0; j < i; j++) {
+			for (int j = 0; j < (i < d ? 0 : i); j++) {
 				temp -= l[ri + j] * x[j];
 			}
 			x[i] = temp / l[ri + i];
@@ -156,7 +173,7 @@ final class OptimizeTargetFreq {
 		for (int j = n - 1; j >= 0; j--) {
 			final int rj = j * (j + 1) / 2;
 			x[j] /= l[rj + j];
-			for (int i = 0; i < j; i++) {
+			for (int i = 0; i < (j < d ? 0 : j); i++) {
 				x[i] -= l[rj + i] * x[j];
 			}
 		}
@@ -253,7 +270,8 @@ final class OptimizeTargetFreq {
 				}
 				multiplyByA(0.0, w, last, alphsize, 1.0, workspace);
 			}
-			factorLtriangPosDef(w, m);
+			// The first alphsize rows of W are diagonal (the column constraints).
+			factorLtriangPosDef(w, m, alphsize);
 			// SolveReNewtonSystem(residsX, residsZ)
 			for (int i = 0; i < n; i++) {
 				workspace[i] = residsX[i] * dinv[i];
@@ -264,7 +282,7 @@ final class OptimizeTargetFreq {
 					residsZ[m - 1] -= gradRe[i] * workspace[i];
 				}
 			}
-			solveLtriangPosDef(residsZ, m, w);
+			solveLtriangPosDef(residsZ, m, w, alphsize);
 			if (constrainRelEntropy) {
 				for (int i = 0; i < n; i++) {
 					residsX[i] += gradRe[i] * residsZ[m - 1];
