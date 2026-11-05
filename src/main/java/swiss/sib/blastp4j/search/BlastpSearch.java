@@ -19,6 +19,7 @@ import swiss.sib.blastp4j.align.SemiGappedLanes;
 import swiss.sib.blastp4j.compo.CompoHeap;
 import swiss.sib.blastp4j.compo.CompoRedo;
 import swiss.sib.blastp4j.db.SequenceDatabase;
+import swiss.sib.blastp4j.seed.BatchScan;
 import swiss.sib.blastp4j.seed.BatchWordFinder;
 import swiss.sib.blastp4j.seed.LookupTable;
 import swiss.sib.blastp4j.seed.SeedParameters;
@@ -251,7 +252,7 @@ public final class BlastpSearch {
 		AtomicInteger next = new AtomicInteger();
 		List<Callable<List<List<Hit>>>> prelimTasks = new ArrayList<>();
 		for (int t = 0; t < tasks; t++) {
-			prelimTasks.add(() -> prelim(qs, new BatchWordFinder(qs, tables, seeds, table), cutoffs, next));
+			prelimTasks.add(() -> prelim(qs, BatchWordFinder.of(qs, tables, seeds, table), cutoffs, next));
 		}
 		List<List<Hit>> found = new ArrayList<>();
 		for (int i = 0; i < n; i++) {
@@ -474,7 +475,7 @@ public final class BlastpSearch {
 
 	/** The preliminary stage of a batch's task: {@link #prelim(byte[], WordScan, int, AtomicInteger)} per query. */
 	@SuppressWarnings("unchecked")
-	private List<List<Hit>> prelim(byte[][] queries, BatchWordFinder finder, int[] cutoffs, AtomicInteger next) {
+	private List<List<Hit>> prelim(byte[][] queries, BatchScan finder, int[] cutoffs, AtomicInteger next) {
 		final GappedAligner aligner = new GappedAligner(gapOpen, gapExtend);
 		final int n = queries.length;
 		final List<List<Hit>> found = new ArrayList<>();
