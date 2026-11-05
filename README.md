@@ -395,6 +395,14 @@ bounds check of `a[i & (a.length - 1)]`. 1.8% fewer instructions on the bean que
 cycles and 1.0% fewer instructions, wall time 0.3% less (no round slower); none on x86-64. *Tried, slower:* the same
 in the single-query scans (498cdaa, reverted): `WordFinderBench` 1.0-1.7% slower.
 
+*Kept:* the batch table's entries also as chars (928b663), half the memory the scan reads, where the concatenation is
+shorter than 65,536 letters, as BLAST's batches of about 10,000 are. The source keeps reading ints (longer batches, the
+native image); the scan's hidden copy for a narrow table is made to read chars by a further code transform
+(`entry()` becomes `narrow()`, each `entry[k]` load a char load), and the verifier rejects a copy where a load was
+missed, so that `of` falls back to the ints. `BatchWordFinderTest` checks both copies against the int scan. On the
+runners: 0.8% less wall time on AArch64 and 1.4% on an EPYC 9V45, in every round; locally within the noise. (Chars
+for a single query's table, 586aa09, gained nothing: that table fits in L1.)
+
 *Tried, no gain:* the single-query copies with the batch's diagonal base (0) and its cross-query check (never true for
 a query alone) as constants too (48bc96d, reverted): `WordFinderBench` unchanged, as the check is on the rare path.
 
