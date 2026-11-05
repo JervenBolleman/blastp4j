@@ -405,6 +405,26 @@ alone, and handles the usual hit (the diagonal's last hit a window or more back)
 rounds: 2.1% fewer cycles and 3.4% fewer instructions on the 24 human queries against Swiss-Prot, 1.4% fewer cycles
 on the 500 bean queries.
 On the GitHub runners (2755a0e): 2.9% less wall time and cycles on AArch64, 1.6% less wall time on x86-64.
+Since b9735a8 the array is exactly BLAST's: indexed with the offset in the concatenated queries (each query one
+separator after the previous one, as `s_QueryInfo_SetContext` places them) and sized for the whole concatenation, so
+an entry is that offset and its diagonal `(entry - s) & mask`, without decoding a region. Diagonals then run across
+queries, and a hit whose diagonal's last hit lies in the previous query starts a new pair, as in BLAST (its check
+after `BSearchContextInfo`); without that check one line of `BlastpTest.optionsAsBlastp` differed from blastp. Full
+search, local, against the regions: 2.9% fewer cycles on the bean queries, 4.6% on the human ones (5.9% and 8.2%
+fewer instructions).
+
+*Kept:* the usual hits decided without branching on them (493154b batched, 59b0741 single query). On the bean
+queries a quarter of the 5.0 G entries the batched scan visits were not the usual store; three quarters of those only
+overlapped the diagonal's last hit and were ignored, yet each went through the query's `WordFinder` first. Now the scan
+ignores them itself, and one sign test decides between storing, ignoring and calling the finder, with a masked store.
+Written with `||`, C2 compiled the test to separate branches and nothing changed; with the sign test, branch misses
+fell by 24% and cycles by 5.4% (bean) and 4.1% (human), and `WordFinderBench` took 9-10% less time. On the runners:
+6.0% less wall time on x86-64 (a Xeon 6973P-C, now 7.5% faster than BLAST+) and 3.0% on AArch64, where branch misses
+fell by 20% but cycles by only 0.8%.
+
+*Tried, no gain:* the hits for the finder put in a buffer and handled after each position's entries (7a12106,
+reverted), so that the entry loop has no call. C2 still kept the loop's values in stack slots: 2.8% more instructions,
+cycles unchanged.
 
 *Kept:* the vector scan of a single query (`WordFinder.findBlocks`) at most 256 bits wide (1aff999). With AVX-512 it
 took 16 positions per vector: on a Xeon 8573C a search of CDK1 took 10% longer with them than with 8
