@@ -217,8 +217,7 @@ public final class WordFinder implements WordScan {
 				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
 				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
 					final int q = offsets[k];
-					// Also masked with the array's length (a power of two), so that C2 knows the index is in bounds.
-					final int diag = (q - s) & diagMaskL & (diags.length - 1);
+					final int diag = (q - s) & diagMaskL;
 					final int state = diags[diag];
 					// As in BatchWordFinder.find: stored or ignored here, with one branch, unless it is a hit to
 					// extend or on an extended diagonal.
@@ -297,8 +296,7 @@ public final class WordFinder implements WordScan {
 				final int s = block + b, word = words[b];
 				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
 					final int q = offsets[k];
-					// Also masked with the array's length (a power of two), so that C2 knows the index is in bounds.
-					final int diag = (q - s) & diagMaskL & (diags.length - 1);
+					final int diag = (q - s) & diagMaskL;
 					final int state = diags[diag];
 					// As in BatchWordFinder.find: stored or ignored here, with one branch, unless it is a hit to
 					// extend or on an extended diagonal.
