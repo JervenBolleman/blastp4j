@@ -28,7 +28,7 @@ public final class BatchWordFinder implements BatchScan {
 	 * {@code query[k]} is the query of entry {@code k}, read only for hits that go on to the two-hit logic.
 	 * {@code size} is the length of the diagonal array.
 	 */
-	public record Table(int[] start, char[] entry, int[] query, int[] base, int size) {
+	public record Table(int[] start, int[] entry, int[] query, int[] base, int size) {
 		public static Table of(byte[][] queries, LookupTable[] tables, int window) {
 			final int n = queries.length;
 			// BLAST's context offsets (s_QueryInfo_SetContext): one separator after each query that is not empty.
@@ -41,15 +41,14 @@ public final class BatchWordFinder implements BatchScan {
 				base[i] = (int) length;
 				length += queries[i].length;
 			}
-			if (length > Character.MAX_VALUE) {
+			if (length + window > 1 << 30) {
 				throw new IllegalArgumentException("a batch of " + n + " queries is too long: " + length);
 			}
 			int total = 0;
 			for (LookupTable t : tables) {
 				total += t.offsets().length;
 			}
-			final int[] start = new int[LookupTable.WORDS + 1], query = new int[total];
-			final char[] entry = new char[total];
+			final int[] start = new int[LookupTable.WORDS + 1], entry = new int[total], query = new int[total];
 			int k = 0;
 			for (int w = 0; w < LookupTable.WORDS; w++) {
 				start[w] = k;
@@ -57,7 +56,7 @@ public final class BatchWordFinder implements BatchScan {
 					final int[] ts = tables[i].start(), to = tables[i].offsets();
 					for (int j = ts[w]; j < ts[w + 1]; j++) {
 						query[k] = i;
-						entry[k++] = (char) (base[i] + to[j]);
+						entry[k++] = base[i] + to[j];
 					}
 				}
 			}
@@ -137,8 +136,7 @@ public final class BatchWordFinder implements BatchScan {
 	 */
 	@Override
 	public void find(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
-		final int[] cellStart = table.start(), query = table.query(), base = table.base();
-		final char[] entry = table.entry();
+		final int[] cellStart = table.start(), entry = table.entry(), query = table.query(), base = table.base();
 		final int[] d = diags;
 		final int diagMask = this.diagMask;
 		final int offset = diagOffset, windowL = window, lastL = window - LookupTable.WORD_SIZE - 1;
