@@ -142,11 +142,12 @@ analysis should bound the combined difference of all FAST changes, from the floa
     BLAST's `OptimizeTargetFreq` keeps no trace of it; `OptimizeTargetFreq.of` picks the class. The results are still
     blastp's on the bean and human queries. On the runners (run 42114578082): 2.7% less wall time than blastp4j on
     AArch64 and 4.0% on an EPYC 9V74, every round; locally 4.4% fewer cycles on the bean queries.
-  * *Queued, for completeness* (each as an experiment branch, measured overnight on the runners):
-    * BLOSUM62's logarithms as constants in the fast optimizer (`exp/logq`, 03af68a): a hidden copy whose class data
-      is log q, so the starting scores take 40 logarithms instead of 400 (log q − log row − log column) and each
-      iteration's log(x / q) is log x − log q. Expected gain about 0.1-0.2%: the setup is about a seventh of the
-      optimizer's logarithms.
+  * *Tried for completeness, no gain:* BLOSUM62's logarithms as constants in the fast optimizer (03af68a, on the
+    branch `exp/logq`, not merged): a hidden copy whose class data is log q, so that the starting scores take 40
+    logarithms instead of 400 (log q − log row − log column) and each iteration's log(x / q) is log x − log q. Run
+    42126697919: almostblastp over blastp4j 0.969 on AArch64 and 0.957 on an EPYC 9V74, against 0.970 and 0.963 in the
+    run before (another x86-64 CPU): within the noise, as expected (the setup is about a seventh of the optimizer's
+    logarithms). Output identical.
   * `-XX:+TrustFinalNonStaticFields`, which lets C2 treat every final instance field as a constant (by default only
     those of records, hidden classes and some JDK classes), was tried (9ee5ac4, reverted): within the noise on the
     GitHub runners (1.4% less wall time on AArch64, 0.2% on x86-64) and here.
