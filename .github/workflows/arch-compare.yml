@@ -28,9 +28,11 @@
 name: Architecture comparison
 
 on:
-  # Daily, on main with the default inputs, to build up a series of runs on the runners' varying CPUs.
+  # On main with the default inputs, to build up a series of runs on the runners' varying CPUs: once on weekdays, five
+  # times on Saturdays and Sundays, when GitHub's runners are less loaded (UTC; cssw4j's runs are at other hours).
   schedule:
-    - cron: "17 3 * * *"
+    - cron: "17 3 * * 1-5"
+    - cron: "17 1,6,11,16,21 * * 0,6"
   # Each push to main, compared with main before the push.
   push:
     branches: [main]

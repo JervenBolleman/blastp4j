@@ -467,7 +467,7 @@ def index(site):
             tr = "<tr>"
             if k == 0:
                 n = len(rows)
-                event = {"schedule": "daily", "push": "push", "workflow_dispatch": "manual"}.get(s.get("event", ""), "")
+                event = {"schedule": "scheduled", "push": "push", "workflow_dispatch": "manual"}.get(s.get("event", ""), "")
                 tr += (f'<td rowspan={n}><a href="runs/{html.escape(d)}/">{html.escape(s.get("date", d))}</a></td>'
                        f'<td rowspan={n}>{event}</td>'
                        f'<td rowspan={n}>{", ".join(commit_link(c) for c in s.get("code", []))}</td>')
