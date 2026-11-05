@@ -79,6 +79,8 @@ public final class WordFinder implements WordScan {
 	private final int[] diagState;
 	/** The offset of this query in the diagonals of {@link #diagState}: 0, or in a batch its offset in the concatenation. */
 	private final int diagBase;
+	/** Whether the diagonals are a batch's ({@link #diagBase} and the concatenation); false, a constant, in a copy. */
+	private final boolean batch;
 	/** Set in a diagonal's state while hits on it are ignored, as they lie within the extension. */
 	static final int EXTENDED = 1 << 30;
 	private final int diagMask;
@@ -151,6 +153,7 @@ public final class WordFinder implements WordScan {
 		}
 		diagState = diags != null ? diags : new int[length];
 		diagBase = base;
+		batch = diags != null;
 		diagMask = length - 1;
 		diagOffset = window;
 		vectorScan = table.coverage() < VECTOR_MAX_COVERAGE;
@@ -166,9 +169,9 @@ public final class WordFinder implements WordScan {
 	}
 
 	/**
-	 * A word finder for this query whose window, X-drop, cutoff and diagonal mask are constants: a copy of this class,
-	 * made with the class-file API and defined as a hidden class, with each read of those fields replaced by its
-	 * value. One copy per combination of values, so queries that share them share a copy. In a native image, which
+	 * A word finder for this query whose window, X-drop, cutoff and diagonal mask are constants, as is that it is not
+	 * in a batch: a copy of this class, made with the class-file API and defined as a hidden class, with each read of
+	 * those fields replaced by its value. One copy per combination of values, so queries that share them share a copy. In a native image, which
 	 * cannot define classes at run time, or where the copy fails, a {@link WordFinder}.
 	 */
 	public static WordScan of(byte[] query, LookupTable table, SeedParameters p) {
@@ -199,7 +202,7 @@ public final class WordFinder implements WordScan {
 		final ClassModel model = cf.parse(bytes);
 		final ClassDesc self = model.thisClass().asSymbol();
 		final Map<String, Integer> constants = Map.of("window", key.window(), "xDrop", key.xDrop(), "cutoff",
-				key.cutoff(), "diagMask", key.diagMask());
+				key.cutoff(), "diagMask", key.diagMask(), "diagBase", 0, "batch", 0);
 		final CodeTransform replace = (code, element) -> {
 			if (element instanceof FieldInstruction f && f.opcode() == Opcode.GETFIELD
 					&& f.owner().asSymbol().equals(self) && constants.containsKey(f.name().stringValue())) {
@@ -383,7 +386,7 @@ public final class WordFinder implements WordScan {
 		if (diff < LookupTable.WORD_SIZE) {
 			return; // overlaps the previous hit
 		}
-		if (q < diff) {
+		if (batch && q < diff) {
 			// In a batch, the last hit on the diagonal was in a query before this one in the concatenation: as BLAST
 			// (the check after BSearchContextInfo), this one starts a new pair. Never so for a query alone.
 			diagState[diag] = s + diagOffset;
