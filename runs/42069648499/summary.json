@@ -1,0 +1,75 @@
+{
+ "run_id": "42069648499",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/42069648499",
+ "date": "2026-11-05 17:28 UTC",
+ "event": "workflow_dispatch",
+ "code": [
+  "`8dff3b7` (Composition optimizer: the Newton system's diagonal block left out of the Cholesky)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 28.55,
+   "jvm_wall": 33.6,
+   "ref_wall": 34.17,
+   "wall": 1.1768826619964974,
+   "cycles": 1.1128031584884377,
+   "instructions": 1.2435747663551402,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html",
+   "jvm_commit": "8dff3b7",
+   "ref_commit": "5e7ead0",
+   "rounds": {
+    "blast": [
+     27.87,
+     28.55,
+     28.66
+    ],
+    "jvm": [
+     33.62,
+     33.6,
+     33.46
+    ],
+    "ref": [
+     34.16,
+     34.26,
+     34.17
+    ]
+   }
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 9V45 96-Core Processor",
+   "cpus": "4",
+   "blast_wall": 35.5,
+   "jvm_wall": 31.6,
+   "ref_wall": 31.77,
+   "wall": 0.8901408450704226,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html",
+   "jvm_commit": "8dff3b7",
+   "ref_commit": "5e7ead0",
+   "rounds": {
+    "blast": [
+     35.78,
+     35.5,
+     34.91
+    ],
+    "jvm": [
+     31.39,
+     31.6,
+     31.62
+    ],
+    "ref": [
+     31.77,
+     31.91,
+     31.73
+    ]
+   }
+  }
+ ]
+}
