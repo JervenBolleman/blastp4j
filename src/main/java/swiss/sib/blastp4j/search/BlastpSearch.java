@@ -27,7 +27,6 @@ import swiss.sib.blastp4j.seed.UngappedHsp;
 import swiss.sib.blastp4j.seed.WordFinder;
 import swiss.sib.blastp4j.seed.WordScan;
 import swiss.sib.blastp4j.stats.Statistics;
-import swiss.sib.blastp4j.util.Arithmetic;
 
 /**
  * A blastp search, without composition-based statistics ({@code -comp_based_stats 0}) or with mode 2 (blastp's
@@ -78,8 +77,6 @@ public final class BlastpSearch {
 	private final int minLength;
 	private final double evalue, prelimEvalue;
 	private final boolean compositionBased, restrictedAlign;
-	/** How the composition-based stage computes: BLAST's way, or {@link Arithmetic#FAST} for almostblastp. */
-	private final Arithmetic arithmetic;
 	private final int hitlistSize, prelimHitlistSize, maxHsps;
 	private final int gapOpen, gapExtend, xDrop, xDropFinal;
 
@@ -108,16 +105,6 @@ public final class BlastpSearch {
 	 */
 	public BlastpSearch(SequenceDatabase db, Statistics statistics, double evalue, boolean compositionBased,
 			int maxTargetSeqs, int maxHsps) {
-		this(db, statistics, evalue, compositionBased, maxTargetSeqs, maxHsps, Arithmetic.BLAST);
-	}
-
-	/**
-	 * @param arithmetic how the floating-point code computes: {@link Arithmetic#BLAST} for blastp's results to the last
-	 *                   bit, {@link Arithmetic#FAST} (almostblastp) where they may differ slightly
-	 */
-	public BlastpSearch(SequenceDatabase db, Statistics statistics, double evalue, boolean compositionBased,
-			int maxTargetSeqs, int maxHsps, Arithmetic arithmetic) {
-		this.arithmetic = arithmetic;
 		if (maxTargetSeqs < 1 || maxHsps < 0) {
 			throw new IllegalArgumentException("max_target_seqs must be at least 1 and max_hsps at least 0");
 		}
@@ -296,7 +283,7 @@ public final class BlastpSearch {
 		for (int q = 0; q < queries.length && left > 0; q++) {
 			AtomicInteger next = new AtomicInteger(Math.max(0, (db.size() - 1) / CHUNK + 1 - WARM_UP_CHUNKS));
 			List<Hit> hits = prelim(queries[q], new WordFinder(queries[q], tables[q], seeds[q]), cutoffs[q], next);
-			CompoRedo redo = new CompoRedo(new CompoRedo.Query(queries[q]), statistics, arithmetic);
+			CompoRedo redo = new CompoRedo(new CompoRedo.Query(queries[q]), statistics);
 			for (int k = 0; k < hits.size() && left > 0; k++, left--) {
 				Hit h = hits.get(k);
 				subject = db.withSentinels(h.subject(), subject);
@@ -369,7 +356,7 @@ public final class BlastpSearch {
 		List<Callable<Void>> work = new ArrayList<>();
 		for (int t = 0; t < tasks; t++) {
 			work.add(() -> {
-				CompoRedo redo = new CompoRedo(q, statistics, arithmetic);
+				CompoRedo redo = new CompoRedo(q, statistics);
 				byte[] subject = null;
 				for (int i; (i = next.getAndIncrement()) < ordered.size();) {
 					Hit h = ordered.get(i);
@@ -394,7 +381,7 @@ public final class BlastpSearch {
 			if (r.usedInheritedMatrix()) {
 				// Rare: redo this subject with the matrix BLAST would have at this point.
 				if (sequential == null) {
-					sequential = new CompoRedo(q, statistics, arithmetic);
+					sequential = new CompoRedo(q, statistics);
 				}
 				r = sequential.redo(h.hsps(), db.withSentinels(h.subject(), null), 1, db.length(h.subject()), evalue,
 						current);

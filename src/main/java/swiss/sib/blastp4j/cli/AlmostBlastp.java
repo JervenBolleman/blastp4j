@@ -25,13 +25,12 @@ import swiss.sib.blastp4j.search.BlastpSearch;
 import swiss.sib.blastp4j.search.QueryBatches;
 import swiss.sib.blastp4j.stats.ScoringParameters;
 import swiss.sib.blastp4j.stats.Statistics;
-import swiss.sib.blastp4j.util.Arithmetic;
 
 /**
  * The {@code almostblastp} command: {@link Blastp} where the results may differ slightly from blastp's, for changes
  * that make the search faster but not bit for bit BLAST's, such as fused multiply-adds in the floating-point code.
- * {@link Blastp} stays exact. A copy of it that differs only in the search's {@link Arithmetic}: {@link Arithmetic#FAST}
- * (for now in the composition-based stage's target-frequency optimizer).
+ * {@link Blastp} stays exact. For now a copy of it that gives the same results; changes of that kind are made here
+ * only.
  *
  * <pre>
  * almostblastp -query queries.fasta -db uniprot_sprot.fasta -outfmt "6 std btop" -num_threads 8 -out hits.tsv
@@ -243,9 +242,8 @@ public final class AlmostBlastp {
 	 */
 	static void search(Options o, SequenceDatabase queries, SequenceDatabase db, Statistics statistics,
 			ExecutorService pool, Writer out, PrintStream stderr) throws IOException, InterruptedException {
-		// Where almostblastp differs from blastp4j: the floating-point code may compute in its faster way.
 		BlastpSearch search = new BlastpSearch(db, statistics, o.evalue(), o.compositionBased(), o.maxTargetSeqs(),
-				o.maxHsps(), Arithmetic.FAST);
+				o.maxHsps());
 		int[] lengths = new int[queries.size()];
 		for (int q = 0; q < lengths.length; q++) {
 			lengths[q] = queries.length(q);

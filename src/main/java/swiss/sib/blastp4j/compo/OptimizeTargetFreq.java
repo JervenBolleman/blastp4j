@@ -143,47 +143,6 @@ final class OptimizeTargetFreq {
 		}
 	}
 
-	/**
-	 * {@link #factorLtriangPosDef} for {@link swiss.sib.blastp4j.util.Arithmetic#FAST}: each dot product in four
-	 * partial sums with fused multiply-adds, so that they do not wait for each other, and a multiplication by the
-	 * diagonal entry's reciprocal ({@code inverse}, n entries, filled here) instead of a division: each entry of a row
-	 * waits for the one before it, through the division. The sums are in another order and the quotients rounded
-	 * twice, so the last bits can differ from BLAST's.
-	 */
-	private static void factorLtriangPosDefFast(double[] a, int n, double[] inverse) {
-		for (int i = 0; i < n; i++) {
-			final int ri = i * (i + 1) / 2;
-			for (int j = 0; j < i; j++) {
-				final int rj = j * (j + 1) / 2;
-				double s0 = 0, s1 = 0, s2 = 0, s3 = 0;
-				int k = 0;
-				for (; k + 4 <= j; k += 4) {
-					s0 = Math.fma(a[ri + k], a[rj + k], s0);
-					s1 = Math.fma(a[ri + k + 1], a[rj + k + 1], s1);
-					s2 = Math.fma(a[ri + k + 2], a[rj + k + 2], s2);
-					s3 = Math.fma(a[ri + k + 3], a[rj + k + 3], s3);
-				}
-				for (; k < j; k++) {
-					s0 = Math.fma(a[ri + k], a[rj + k], s0);
-				}
-				a[ri + j] = (a[ri + j] - ((s0 + s1) + (s2 + s3))) * inverse[j];
-			}
-			double s0 = 0, s1 = 0, s2 = 0, s3 = 0;
-			int k = 0;
-			for (; k + 4 <= i; k += 4) {
-				s0 = Math.fma(a[ri + k], a[ri + k], s0);
-				s1 = Math.fma(a[ri + k + 1], a[ri + k + 1], s1);
-				s2 = Math.fma(a[ri + k + 2], a[ri + k + 2], s2);
-				s3 = Math.fma(a[ri + k + 3], a[ri + k + 3], s3);
-			}
-			for (; k < i; k++) {
-				s0 = Math.fma(a[ri + k], a[ri + k], s0);
-			}
-			a[ri + i] = Math.sqrt(a[ri + i] - ((s0 + s1) + (s2 + s3)));
-			inverse[i] = 1 / a[ri + i];
-		}
-	}
-
 	/** {@code Nlm_SolveLtriangPosDef}: solves L L^T y = x in place; L packed by rows. */
 	private static void solveLtriangPosDef(double[] x, int n, double[] l) {
 		for (int i = 0; i < n; i++) {
@@ -203,36 +162,6 @@ final class OptimizeTargetFreq {
 		}
 	}
 
-	/**
-	 * {@link #solveLtriangPosDef} for {@link swiss.sib.blastp4j.util.Arithmetic#FAST}, as
-	 * {@link #factorLtriangPosDefFast}.
-	 */
-	private static void solveLtriangPosDefFast(double[] x, int n, double[] l) {
-		for (int i = 0; i < n; i++) {
-			final int ri = i * (i + 1) / 2;
-			double s0 = 0, s1 = 0, s2 = 0, s3 = 0;
-			int j = 0;
-			for (; j + 4 <= i; j += 4) {
-				s0 = Math.fma(l[ri + j], x[j], s0);
-				s1 = Math.fma(l[ri + j + 1], x[j + 1], s1);
-				s2 = Math.fma(l[ri + j + 2], x[j + 2], s2);
-				s3 = Math.fma(l[ri + j + 3], x[j + 3], s3);
-			}
-			for (; j < i; j++) {
-				s0 = Math.fma(l[ri + j], x[j], s0);
-			}
-			x[i] = (x[i] - ((s0 + s1) + (s2 + s3))) / l[ri + i];
-		}
-		for (int j = n - 1; j >= 0; j--) {
-			final int rj = j * (j + 1) / 2;
-			x[j] /= l[rj + j];
-			final double xj = x[j];
-			for (int i = 0; i < j; i++) {
-				x[i] = Math.fma(-l[rj + i], xj, x[i]);
-			}
-		}
-	}
-
 	/** {@code Nlm_StepBound}. */
 	private static double stepBound(double[] x, int n, double[] stepX, double max) {
 		double alpha = max;
@@ -247,11 +176,10 @@ final class OptimizeTargetFreq {
 
 	/**
 	 * {@code Blast_OptimizeTargetFrequencies}: fills {@code x} (row major, alphsize x alphsize); returns 0 when Newton's
-	 * method converged to a minimizer, 1 otherwise. With {@code fast}, the Newton system is factored and solved
-	 * with {@link #factorLtriangPosDefFast} and {@link #solveLtriangPosDefFast}.
+	 * method converged to a minimizer, 1 otherwise.
 	 */
 	static int optimize(double[] x, int alphsize, double[] q, double[] rowSums, double[] colSums,
-			boolean constrainRelEntropy, double relativeEntropy, double tol, int maxits, boolean fast) {
+			boolean constrainRelEntropy, double relativeEntropy, double tol, int maxits) {
 		final int n = alphsize * alphsize, mA = 2 * alphsize - 1, m = constrainRelEntropy ? mA + 1 : mA;
 		double[] values = new double[2];
 		// The gradients of the two functions, of n entries each, one after the other.
@@ -262,8 +190,6 @@ final class OptimizeTargetFreq {
 		// Newton system: W lower triangular, packed by rows (row i has i + 1 entries), Dinv, grad_re
 		double[] w = new double[alphsize * (2 * alphsize + 1)];
 		double[] dinv = new double[n], gradRe = new double[n];
-		// The reciprocals of the factor's diagonal, for the fast factorization.
-		double[] inverse = new double[m];
 
 		for (int i = 0; i < alphsize; i++) {
 			for (int j = 0; j < alphsize; j++) {
@@ -327,11 +253,7 @@ final class OptimizeTargetFreq {
 				}
 				multiplyByA(0.0, w, last, alphsize, 1.0, workspace);
 			}
-			if (fast) {
-				factorLtriangPosDefFast(w, m, inverse);
-			} else {
-				factorLtriangPosDef(w, m);
-			}
+			factorLtriangPosDef(w, m);
 			// SolveReNewtonSystem(residsX, residsZ)
 			for (int i = 0; i < n; i++) {
 				workspace[i] = residsX[i] * dinv[i];
@@ -342,11 +264,7 @@ final class OptimizeTargetFreq {
 					residsZ[m - 1] -= gradRe[i] * workspace[i];
 				}
 			}
-			if (fast) {
-				solveLtriangPosDefFast(residsZ, m, w);
-			} else {
-				solveLtriangPosDef(residsZ, m, w);
-			}
+			solveLtriangPosDef(residsZ, m, w);
 			if (constrainRelEntropy) {
 				for (int i = 0; i < n; i++) {
 					residsX[i] += gradRe[i] * residsZ[m - 1];
