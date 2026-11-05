@@ -1,0 +1,85 @@
+{
+ "run_id": "42120017821",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/42120017821",
+ "date": "2026-11-05 23:02 UTC",
+ "event": "push",
+ "code": [
+  "`cfde74d` (README: almostblastp's fast optimizer on the runners; experiments queued)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 28.64,
+   "jvm_wall": 32.67,
+   "ref_wall": 33.33,
+   "wall": 1.1407122905027933,
+   "cycles": 1.0943449048152296,
+   "instructions": 1.204398148148148,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html",
+   "jvm_commit": "cfde74d",
+   "ref_commit": "29f40ab",
+   "rounds": {
+    "blast": [
+     27.61,
+     28.64,
+     28.79
+    ],
+    "jvm": [
+     32.67,
+     32.56,
+     32.92
+    ],
+    "almost": [
+     31.76,
+     31.68,
+     31.45
+    ],
+    "ref": [
+     33.38,
+     33.33,
+     33.26
+    ]
+   }
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 7763 64-Core Processor",
+   "cpus": "4",
+   "blast_wall": 50.98,
+   "jvm_wall": 46.65,
+   "ref_wall": 47.85,
+   "wall": 0.9150647312671636,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html",
+   "jvm_commit": "cfde74d",
+   "ref_commit": "29f40ab",
+   "rounds": {
+    "blast": [
+     51.67,
+     50.94,
+     50.98
+    ],
+    "jvm": [
+     46.79,
+     46.58,
+     46.65
+    ],
+    "almost": [
+     45.11,
+     44.69,
+     44.92
+    ],
+    "ref": [
+     47.85,
+     47.94,
+     47.42
+    ]
+   }
+  }
+ ]
+}
