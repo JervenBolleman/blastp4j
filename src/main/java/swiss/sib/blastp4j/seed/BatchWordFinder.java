@@ -74,8 +74,6 @@ public final class BatchWordFinder {
 	private final int window;
 	/** As each finder's {@code diagOffset}, which all move together. */
 	private int diagOffset;
-	/** The entries of one subject position that go to their query's finder, as many as the longest cell. */
-	private final int[] pending;
 
 	/** The queries, their lookup tables and seeding parameters, by query; {@code table} merges the tables. */
 	public BatchWordFinder(byte[][] queries, LookupTable[] tables, SeedParameters[] parameters, Table table) {
@@ -90,11 +88,6 @@ public final class BatchWordFinder {
 			finders[i] = new WordFinder(queries[i], tables[i], parameters[i], diags, table.base()[i]);
 		}
 		diagOffset = window;
-		int longest = 0;
-		for (int w = 0; w < LookupTable.WORDS; w++) {
-			longest = Math.max(longest, table.start()[w + 1] - table.start()[w]);
-		}
-		pending = new int[longest];
 	}
 
 	/**
@@ -106,37 +99,30 @@ public final class BatchWordFinder {
 		final int[] d = diags;
 		final int offset = diagOffset, windowL = window, lastL = window - LookupTable.WORD_SIZE - 1;
 		final WordFinder[] f = finders;
-		final int[] pending = this.pending;
 		final int mask = LookupTable.WORDS - 1;
 		if (length >= LookupTable.WORD_SIZE) {
 			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
 			for (int s = 0; s <= length - LookupTable.WORD_SIZE; s++) {
 				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
-				// The position's entries: each hit decided from its entry without branches, the usual ones handled
-				// there and the others put in pending. A hit to extend, or one on an extended diagonal, goes to its
-				// query's finder after the loop, which then has no call (so C2 keeps its values in registers). Hits
-				// at one position are on different diagonals, so the order within a position does not matter to them.
-				int n = 0;
 				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
+					// The usual hits, decided from the entry: the diagonal's last hit is a window or more back, so
+					// this one replaces it, or it overlaps this one, which is then ignored. Only hits to extend and
+					// hits on an extended diagonal go to the query's finder.
 					final int e = entry[k];
 					final int m = (1 << (e >>> POSITION_BITS)) - 1, p = e & POSITION_MASK;
 					final int diag = (p & ~m) | ((p - s) & m);
 					final int state = d[diag];
-					// x = diff - WORD_SIZE is in [0, last] (a hit to extend) when neither x nor last - x is negative;
-					// the extended flag (bit 30; bit 31 is never set) goes to the sign bit. Then -1 for the finder.
+					// Without branches but one: x = diff - WORD_SIZE is in [0, last] (a hit to extend) when neither
+					// x nor last - x is negative, and the extended flag (bit 30; bit 31 is never set) goes to the
+					// sign bit.
 					final int diff = s - (state - offset), x = diff - LookupTable.WORD_SIZE;
-					final int later = (~(x | (lastL - x)) | state << 1) >> 31;
-					// -1 to keep the state: the hit overlaps the last one (ignored), or it is for the finder.
-					final int keep = ((diff - windowL) >> 31) | later;
-					d[diag] = (state & keep) | ((s + offset) & ~keep);
-					pending[n] = k;
-					n -= later;
-				}
-				for (int j = 0; j < n; j++) {
-					final int k = pending[j], e = entry[k];
-					final int i = query[k];
-					f[i].hit(residues, start, length, e & POSITION_MASK & ((1 << (e >>> POSITION_BITS)) - 1), s,
-							out[i]);
+					if ((~(x | (lastL - x)) | state << 1) >= 0) {
+						final int older = (diff - windowL) >> 31; // -1 if the hit overlaps the last one: keep that
+						d[diag] = (state & older) | ((s + offset) & ~older);
+					} else {
+						final int i = query[k];
+						f[i].hit(residues, start, length, p & m, s, out[i]);
+					}
 				}
 			}
 		}
