@@ -1,5 +1,15 @@
 package swiss.sib.blastp4j.seed;
 
+import java.io.InputStream;
+import java.lang.classfile.ClassFile;
+import java.lang.classfile.ClassModel;
+import java.lang.classfile.ClassTransform;
+import java.lang.classfile.CodeTransform;
+import java.lang.classfile.Opcode;
+import java.lang.classfile.attribute.InnerClassesAttribute;
+import java.lang.classfile.attribute.NestMembersAttribute;
+import java.lang.classfile.instruction.FieldInstruction;
+import java.lang.constant.ClassDesc;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
@@ -181,9 +191,29 @@ public final class WordFinder implements WordScan {
 
 	/** This class with each read of the fields in {@code key} replaced by the value; its constructor. */
 	private static MethodHandle specialize(Key key) throws Throwable {
-		final MethodHandles.Lookup lookup = HiddenCopies.define(MethodHandles.lookup(), WordFinder.class,
-				Map.of("window", key.window(), "xDrop", key.xDrop(), "cutoff", key.cutoff(), "diagMask",
-						key.diagMask()));
+		final byte[] bytes;
+		try (InputStream in = WordFinder.class.getResourceAsStream("WordFinder.class")) {
+			bytes = in.readAllBytes();
+		}
+		final ClassFile cf = ClassFile.of();
+		final ClassModel model = cf.parse(bytes);
+		final ClassDesc self = model.thisClass().asSymbol();
+		final Map<String, Integer> constants = Map.of("window", key.window(), "xDrop", key.xDrop(), "cutoff",
+				key.cutoff(), "diagMask", key.diagMask());
+		final CodeTransform replace = (code, element) -> {
+			if (element instanceof FieldInstruction f && f.opcode() == Opcode.GETFIELD
+					&& f.owner().asSymbol().equals(self) && constants.containsKey(f.name().stringValue())) {
+				code.pop(); // the receiver
+				code.loadConstant(constants.get(f.name().stringValue()));
+			} else {
+				code.with(element);
+			}
+		};
+		// A hidden class takes its nest from the lookup, not from these attributes.
+		final byte[] copy = cf.transformClass(model,
+				ClassTransform.dropping(e -> e instanceof NestMembersAttribute || e instanceof InnerClassesAttribute)
+						.andThen(ClassTransform.transformingMethodBodies(replace)));
+		final MethodHandles.Lookup lookup = MethodHandles.lookup().defineHiddenClass(copy, true);
 		return lookup.findConstructor(lookup.lookupClass(),
 				MethodType.methodType(void.class, byte[].class, LookupTable.class, SeedParameters.class));
 	}

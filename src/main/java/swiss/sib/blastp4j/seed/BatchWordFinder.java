@@ -1,12 +1,6 @@
 package swiss.sib.blastp4j.seed;
 
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
 import java.util.List;
-import java.util.Map;
-
-import swiss.sib.blastp4j.util.LruCache;
 
 /**
  * The word finder for a batch of queries: BLAST scans each subject once for a batch of queries rather than once per
@@ -20,7 +14,7 @@ import swiss.sib.blastp4j.util.LruCache;
  * <p>
  * Not thread safe: use one per thread; the {@link Table} can be shared.
  */
-public final class BatchWordFinder implements BatchScan {
+public final class BatchWordFinder {
 	/**
 	 * The queries' lookup tables merged: the hits of word {@code w} are entries {@code [start[w], start[w + 1])}, by
 	 * query and then as in that query's table. An entry is the offset in the concatenation, {@code base[i]} plus the
@@ -65,24 +59,11 @@ public final class BatchWordFinder implements BatchScan {
 		}
 	}
 
-	/**
-	 * The copies by their constants. Nearly every full batch has the same ones: BLAST's batches are about 10,000
-	 * letters, so their diagonal mask is 16383.
-	 */
-	private static final LruCache<Key, MethodHandle> COPIES = new LruCache<>(
-			Integer.getInteger("blastp4j.specializations", 256));
-	/** Whether this is a GraalVM native image, which cannot define classes at run time. */
-	private static final boolean NATIVE_IMAGE = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
-
-	/** A copy's constants. */
-	private record Key(int window, int diagMask) {
-	}
-
 	private final Table table;
 	private final WordFinder[] finders;
 	/** The diagonals of the concatenated queries. */
 	private final int[] diags;
-	private final int window, diagMask;
+	private final int window;
 	/** As each finder's {@code diagOffset}, which all move together. */
 	private int diagOffset;
 
@@ -91,7 +72,6 @@ public final class BatchWordFinder implements BatchScan {
 		this.table = table;
 		window = parameters[0].window();
 		diags = new int[table.size()];
-		diagMask = table.size() - 1;
 		finders = new WordFinder[queries.length];
 		for (int i = 0; i < queries.length; i++) {
 			if (parameters[i].window() != window) {
@@ -103,42 +83,13 @@ public final class BatchWordFinder implements BatchScan {
 	}
 
 	/**
-	 * The word finder for this batch, with the window and the diagonal mask as constants: a copy of this class (see
-	 * {@link WordFinder#of}), shared by the batches with the same values. Only the scan is copied: the queries'
-	 * finders are {@link WordFinder}s, so that all hits go to the one class. In a native image, or where the copy
-	 * fails, a {@link BatchWordFinder}.
-	 */
-	public static BatchScan of(byte[][] queries, LookupTable[] tables, SeedParameters[] parameters, Table table) {
-		if (!NATIVE_IMAGE) {
-			try {
-				return (BatchScan) COPIES.computeIfAbsent(new Key(parameters[0].window(), table.size() - 1), k -> {
-					try {
-						final MethodHandles.Lookup lookup = HiddenCopies.define(MethodHandles.lookup(),
-								BatchWordFinder.class, Map.of("window", k.window(), "diagMask", k.diagMask()));
-						return lookup.findConstructor(lookup.lookupClass(), MethodType.methodType(void.class,
-								byte[][].class, LookupTable[].class, SeedParameters[].class, Table.class));
-					} catch (Throwable e) {
-						throw new IllegalStateException(e);
-					}
-				}).invoke(queries, tables, parameters, table);
-			} catch (IllegalArgumentException e) {
-				throw e;
-			} catch (Throwable e) {
-				// Fall back to the fields.
-			}
-		}
-		return new BatchWordFinder(queries, tables, parameters, table);
-	}
-
-	/**
 	 * Finds the ungapped alignments of the subject {@code residues[start .. start + length)} for each query, adding
 	 * those of query {@code i} to {@code out[i]}, as {@link WordFinder#find} does for one query.
 	 */
-	@Override
 	public void find(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
 		final int[] cellStart = table.start(), entry = table.entry(), query = table.query(), base = table.base();
 		final int[] d = diags;
-		final int diagMask = this.diagMask;
+		final int diagMask = d.length - 1;
 		final int offset = diagOffset, windowL = window, lastL = window - LookupTable.WORD_SIZE - 1;
 		final WordFinder[] f = finders;
 		final int mask = LookupTable.WORDS - 1;
