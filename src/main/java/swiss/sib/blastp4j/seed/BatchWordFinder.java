@@ -136,58 +136,41 @@ public final class BatchWordFinder implements BatchScan {
 	 */
 	@Override
 	public void find(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
-		final int[] entry = table.entry(), query = table.query(), base = table.base();
+		final int[] cellStart = table.start(), entry = table.entry(), query = table.query(), base = table.base();
+		final int[] d = diags;
+		final int diagMask = this.diagMask;
+		final int offset = diagOffset, windowL = window, lastL = window - LookupTable.WORD_SIZE - 1;
 		final WordFinder[] f = finders;
+		final int mask = LookupTable.WORDS - 1;
 		if (length >= LookupTable.WORD_SIZE) {
-			// The scan stops at each hit for a query's finder, which gets it here; then the scan goes on after it.
-			for (long at = scan(residues, start, length, 0, 0); at >= 0;) {
-				final int s = (int) (at >>> 32), k = (int) at, i = query[k];
-				f[i].hit(residues, start, length, entry[k] - base[i], s, out[i]);
-				at = scan(residues, start, length, s, k + 1);
+			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
+			for (int s = 0; s <= length - LookupTable.WORD_SIZE; s++) {
+				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
+				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
+					// The usual hits, decided from the entry: the diagonal's last hit is a window or more back, so
+					// this one replaces it, or it overlaps this one, which is then ignored. Only hits to extend and
+					// hits on an extended diagonal go to the query's finder.
+					final int e = entry[k];
+					// Also masked with the array's length (a power of two), so that C2 knows the index is in bounds.
+					final int diag = (e - s) & diagMask & (d.length - 1);
+					final int state = d[diag];
+					// Without branches but one: x = diff - WORD_SIZE is in [0, last] (a hit to extend) when neither
+					// x nor last - x is negative, and the extended flag (bit 30; bit 31 is never set) goes to the
+					// sign bit.
+					final int diff = s - (state - offset), x = diff - LookupTable.WORD_SIZE;
+					if ((~(x | (lastL - x)) | state << 1) >= 0) {
+						final int older = (diff - windowL) >> 31; // -1 if the hit overlaps the last one: keep that
+						d[diag] = (state & older) | ((s + offset) & ~older);
+					} else {
+						final int i = query[k];
+						f[i].hit(residues, start, length, e - base[i], s, out[i]);
+					}
+				}
 			}
 		}
 		for (WordFinder finder : f) {
 			finder.endSubject(length);
 		}
 		diagOffset = diagOffset >= Integer.MAX_VALUE / 4 ? window : diagOffset + length + window;
-	}
-
-	/**
-	 * Scans the subject from position {@code from}, at entry {@code resume} of its cell or the cell's start if that is
-	 * further, handling the usual hits, up to the first hit for a query's finder: returns its position and entry,
-	 * {@code s << 32 | k}, or -1 at the end of the subject. Not inlined (bin/jvm.options): without a call in it, C2
-	 * keeps the loop's values in registers, where with the call to the finder they were reloaded from the stack for
-	 * each entry.
-	 */
-	long scan(byte[] residues, int start, int length, int from, int resume) {
-		final int[] cellStart = table.start(), entry = table.entry();
-		final int[] d = diags;
-		final int diagMask = this.diagMask;
-		final int offset = diagOffset, windowL = window, lastL = window - LookupTable.WORD_SIZE - 1;
-		final int mask = LookupTable.WORDS - 1;
-		int word = (residues[start + from] << LookupTable.CHAR_BITS) | residues[start + from + 1];
-		for (int s = from; s <= length - LookupTable.WORD_SIZE; s++) {
-			word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
-			for (int k = Math.max(cellStart[word], resume), end = cellStart[word + 1]; k < end; k++) {
-				// The usual hits, decided from the entry: the diagonal's last hit is a window or more back, so this
-				// one replaces it, or it overlaps this one, which is then ignored. Only hits to extend and hits on an
-				// extended diagonal go to the query's finder.
-				final int e = entry[k];
-				// Also masked with the array's length (a power of two), so that C2 knows the index is in bounds.
-				final int diag = (e - s) & diagMask & (d.length - 1);
-				final int state = d[diag];
-				// Without branches but one: x = diff - WORD_SIZE is in [0, last] (a hit to extend) when neither x nor
-				// last - x is negative, and the extended flag (bit 30; bit 31 is never set) goes to the sign bit.
-				final int diff = s - (state - offset), x = diff - LookupTable.WORD_SIZE;
-				if ((~(x | (lastL - x)) | state << 1) >= 0) {
-					final int older = (diff - windowL) >> 31; // -1 if the hit overlaps the last one: keep that
-					d[diag] = (state & older) | ((s + offset) & ~older);
-				} else {
-					return (long) s << 32 | k;
-				}
-			}
-			resume = 0;
-		}
-		return -1;
 	}
 }
