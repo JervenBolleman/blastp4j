@@ -633,8 +633,6 @@ public final class GappedAligner {
 			int score;
 			int used = bSize + 1;
 			int bestScore = 0, first = 0;
-			// bestScore - xDrop, kept up to date, so that the inner loop does not need xDrop (as Rows).
-			int floor = -xDrop;
 			for (int ai = 1; ai <= m; ai++) {
 				// Room for this row: from 'first' to at most numExtraCells beyond the previous row's end.
 				g.ensureTrace(used + 2 + (bSize - first) + numExtraCells + 1);
@@ -654,7 +652,7 @@ public final class GappedAligner {
 					final int afterCol = Math.max(score, gapCol);
 					script = gapRow > afterCol ? EditScript.DEL : script;
 					score = Math.max(afterCol, gapRow);
-					if (score < floor) {
+					if (bestScore - score > xDrop) {
 						if (first == bi) {
 							first++;
 						} else {
@@ -664,7 +662,6 @@ public final class GappedAligner {
 						last = bi;
 						if (score > bestScore) {
 							bestScore = score;
-							floor = score - xDrop;
 							g.aOffset = ai;
 							g.bOffset = bi;
 						}
@@ -692,7 +689,7 @@ public final class GappedAligner {
 				if (last < bSize - 1) {
 					bSize = last + 1;
 				} else {
-					while (gapRow >= floor && bSize <= n) {
+					while (gapRow >= bestScore - xDrop && bSize <= n) {
 						best[bSize] = gapRow;
 						bestGap[bSize] = gapRow - goe;
 						gapRow -= ext;
