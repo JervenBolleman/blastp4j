@@ -1,0 +1,37 @@
+{
+ "run_id": "41995916172",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/41995916172",
+ "date": "2026-11-05 09:09 UTC",
+ "event": "workflow_dispatch",
+ "code": [
+  "`24f7c19` (Experiment (retry of eee7c94): the traceback's X-drop test against a floor)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 27.82,
+   "jvm_wall": 33.8,
+   "ref_wall": 33.98,
+   "wall": 1.2149532710280373,
+   "cycles": 1.2521222410865875,
+   "instructions": 1.3460413986668225,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html"
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 7763 64-Core Processor",
+   "cpus": "4",
+   "blast_wall": null,
+   "jvm_wall": null,
+   "ref_wall": null,
+   "wall": null,
+   "cycles": null,
+   "instructions": null,
+   "identical": false,
+   "profile": ""
+  }
+ ]
+}
