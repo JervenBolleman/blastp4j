@@ -341,7 +341,7 @@ public final class GappedAligner {
 		if (rowStart.length < m + 1) {
 			rowStart = new int[Math.max(m + 1, rowStart.length * 2)];
 		}
-		final int[] dp = this.dp;
+		final int[] best = this.best, bestGap = this.bestGap;
 		// B read in one direction by one loop: its index is the loop's, so C2 checks its bounds once per row.
 		final byte[] bs = bLetters(b, bBase, n, reverse);
 
@@ -349,15 +349,15 @@ public final class GappedAligner {
 		byte[] tb = trace;
 		rowStart[0] = 0;
 		int score = -goe;
-		dp[0] = 0;
-		dp[1] = -goe;
+		best[0] = 0;
+		bestGap[0] = -goe;
 		int i;
 		for (i = 1; i <= n; i++) {
 			if (score < -xDrop) {
 				break;
 			}
-			dp[2 * i] = score;
-			dp[2 * i + 1] = score - goe;
+			best[i] = score;
+			bestGap[i] = score - goe;
 			score -= gapExtend;
 			tb[i] = EditScript.DEL;
 		}
@@ -626,8 +626,7 @@ public final class GappedAligner {
 		public int rows(GappedAligner g, byte[] a, int aBase, int m, byte[] bs, int n, boolean reverse, int xDrop,
 				int bSize, EditScript ops) {
 			final int goe = this.goe, ext = this.ext;
-			// best and bestGap of a column next to each other, as in semiGapped: dp[2 * i] and dp[2 * i + 1].
-			final int[] dp = g.dp, rowStart = g.rowStart;
+			final int[] best = g.best, bestGap = g.bestGap, rowStart = g.rowStart;
 			final int[] mat = g.matrix.scores;
 			final int numExtraCells = ext > 0 ? xDrop / ext + 3 : n + 3;
 			byte[] tb = g.trace;
@@ -646,8 +645,8 @@ public final class GappedAligner {
 				int gapRow = MININT, last = first;
 				int bi;
 				for (bi = first; bi < bSize; bi++) {
-					int gapCol = dp[2 * bi + 1];
-					int next = dp[2 * bi] + mat[row + bs[bi]];
+					int gapCol = bestGap[bi];
+					int next = best[bi] + mat[row + bs[bi]];
 					// The best of the three moves, and which one (ties keep the earlier one), without branches on the scores.
 					int script = gapCol > score ? EditScript.INS : EditScript.SUB;
 					final int afterCol = Math.max(score, gapCol);
@@ -657,7 +656,7 @@ public final class GappedAligner {
 						if (first == bi) {
 							first++;
 						} else {
-							dp[2 * bi] = MININT;
+							best[bi] = MININT;
 						}
 					} else {
 						last = bi;
@@ -669,9 +668,9 @@ public final class GappedAligner {
 						gapRow -= ext;
 						gapCol -= ext;
 						if (gapCol < score - goe) {
-							dp[2 * bi + 1] = score - goe;
+							bestGap[bi] = score - goe;
 						} else {
-							dp[2 * bi + 1] = gapCol;
+							bestGap[bi] = gapCol;
 							script += EXTEND_GAP_B;
 						}
 						if (gapRow < score - goe) {
@@ -679,7 +678,7 @@ public final class GappedAligner {
 						} else {
 							script += EXTEND_GAP_A;
 						}
-						dp[2 * bi] = score;
+						best[bi] = score;
 					}
 					score = next;
 					tb[base + bi] = (byte) script;
@@ -691,8 +690,8 @@ public final class GappedAligner {
 					bSize = last + 1;
 				} else {
 					while (gapRow >= bestScore - xDrop && bSize <= n) {
-						dp[2 * bSize] = gapRow;
-						dp[2 * bSize + 1] = gapRow - goe;
+						best[bSize] = gapRow;
+						bestGap[bSize] = gapRow - goe;
 						gapRow -= ext;
 						if (base + bSize >= tb.length) {
 							g.ensureTrace(base + bSize + numExtraCells + 2);
@@ -704,8 +703,8 @@ public final class GappedAligner {
 				}
 				used += Math.max(bi, bSize) - origFirst + 1;
 				if (bSize <= n) {
-					dp[2 * bSize] = MININT;
-					dp[2 * bSize + 1] = MININT;
+					best[bSize] = MININT;
+					bestGap[bSize] = MININT;
 					bSize++;
 				}
 			}
