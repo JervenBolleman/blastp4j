@@ -511,6 +511,23 @@ ungapped one). On 8 threads, the 24 queries take 29 s; blastp on one thread take
 because the lanes need 8 ints with a gather. On the Neoverse-N2 runner 6.2% more wall time than scalar, though with 4.6%
 fewer instructions; on x86 4 lanes take 15% more cycles than scalar, 8 lanes 1% fewer.
 
+*Kept:* the traceback's row loop as a hidden-class copy per pair of gap costs (`GappedAligner.ExRows`, dfc3c67), as the
+score-only loop has. Before, the inlined loop had constant gap costs only for (11, 1); with composition-based
+statistics, the default, the traceback aligns with everything scaled by 32, so it ran with the costs as variables (the
+runners' machine-code listings showed them in stack slots). On the runners: 0.5% less wall time on AArch64, with 1.3%
+fewer cycles and 2.2% fewer instructions; none on x86-64. A third inlined call for the scaled costs instead (dada6ae,
+reverted) gained nothing. `RowsTest` compares the copies' tracebacks with `ExRows` itself, also with scaled costs.
+
+*Tried again, no gain* on top of the changes since (one run each on the runners, 500 bean queries, 3 rounds):
+
+| Retry of | Change | AArch64 | x86-64 |
+|---|---|---|---|
+| fa4154f | traceback's best and bestGap interleaved (fa20928) | -0.1% | -0.1% |
+| eee7c94 | traceback's X-drop test against a floor (24f7c19) | rounds mixed | (job failed) |
+| c86b5b3 | ungapped extension without a branch on a new maximum (654b5e5) | -0.8% | +1.8% |
+| e9d5cb1 | ungapped extension loops unrolled by four (54574b8) | +2.3% | +4.7% |
+| 36f465f | score-only row's last live cell found after the row (aa1ef5b) | +2.4% | rounds mixed |
+
 ## Composition-based statistics
 
 blastp's default, mode 2 ("conditional compositional score matrix adjustment", Altschul et al. 2005; Yu and
