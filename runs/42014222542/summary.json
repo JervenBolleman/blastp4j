@@ -1,0 +1,37 @@
+{
+ "run_id": "42014222542",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/42014222542",
+ "date": "2026-11-05 11:10 UTC",
+ "event": "schedule",
+ "code": [
+  "`ad24592` (compare-blastp: the JVM's machine code with the samples of each instruction)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 27.65,
+   "jvm_wall": 34.01,
+   "ref_wall": null,
+   "wall": 1.2300180831826402,
+   "cycles": 1.1623542792152404,
+   "instructions": 1.317839491645093,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html"
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 9V74 80-Core Processor",
+   "cpus": "4",
+   "blast_wall": 42.02,
+   "jvm_wall": 40.75,
+   "ref_wall": null,
+   "wall": 0.9697762970014279,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html"
+  }
+ ]
+}
