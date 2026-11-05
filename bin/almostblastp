@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+# Runs almostblastp (swiss.sib.blastp4j.cli.AlmostBlastp) from the jar built by "mvn package": blastp4j where the
+# results may differ slightly from BLAST+ blastp's; options as for blastp (see almostblastp -help). Java and the JVM
+# options as in bin/blastp4j: $JAVA_HOME/bin/java if set, otherwise java from PATH; this machine's options from
+# bin/jvm.options, then $BLASTP4J_OPTS.
+HERE="$(cd "$(dirname "$0")/.." && pwd)"
+JAR="$(ls "$HERE"/target/blastp4j-*.jar 2>/dev/null | grep -v -e sources -e javadoc | head -1)"
+if [ -z "$JAR" ]; then
+	echo "almostblastp: no jar in $HERE/target; run 'mvn package' first" >&2
+	exit 1
+fi
+JAVA="${JAVA_HOME:+$JAVA_HOME/bin/}java"
+OPTS="$("$HERE/bin/jvm-options")"
+exec "$JAVA" $OPTS $BLASTP4J_OPTS -cp "$JAR" swiss.sib.blastp4j.cli.AlmostBlastp "$@"

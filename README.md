@@ -92,6 +92,9 @@ commit.
   `-window_size 40` and `-seg no` are accepted with these values only. Anything else is rejected with a message.
 * Use a HotSpot JDK. `bin/blastp4j` uses `$JAVA_HOME` and passes this machine's options from `bin/jvm.options`, then
   `$BLASTP4J_OPTS`, to the JVM.
+* `bin/almostblastp` (`cli.AlmostBlastp`) takes the same options. It is for changes that make the search faster but may
+  change its results slightly, such as fused multiply-adds in the floating-point code; `blastp4j` stays exact. For now
+  it is a copy of `cli.Blastp` (without the daemon) and gives the same results, which `AlmostBlastpTest` checks.
   * `-XX:+TrustFinalNonStaticFields`, which lets C2 treat every final instance field as a constant (by default only
     those of records, hidden classes and some JDK classes), was tried (9ee5ac4, reverted): within the noise on the
     GitHub runners (1.4% less wall time on AArch64, 0.2% on x86-64) and here.
