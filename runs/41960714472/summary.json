@@ -1,0 +1,37 @@
+{
+ "run_id": "41960714472",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/41960714472",
+ "date": "2026-11-05 03:49 UTC",
+ "event": "workflow_dispatch",
+ "code": [
+  "`351baa5` (Experiment: the batch scan as a hidden-class copy, window and mask constant)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 27.66,
+   "jvm_wall": 34.05,
+   "ref_wall": 34.39,
+   "wall": 1.2310195227765726,
+   "cycles": 1.1539748953974895,
+   "instructions": 1.2965975484018788,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html"
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 9V74 80-Core Processor",
+   "cpus": "4",
+   "blast_wall": 42.3,
+   "jvm_wall": 40.58,
+   "ref_wall": 40.46,
+   "wall": 0.9593380614657211,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html"
+  }
+ ]
+}
