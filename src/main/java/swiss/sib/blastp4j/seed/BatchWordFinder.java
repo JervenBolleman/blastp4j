@@ -110,6 +110,8 @@ public final class BatchWordFinder implements BatchScan {
 	private final int window, diagMask;
 	/** As each finder's {@code diagOffset}, which all move together. */
 	private int diagOffset;
+	/** The queue of the finders' extensions. */
+	private final UngappedLanes lanes = new UngappedLanes();
 
 	/** The queries, their lookup tables and seeding parameters, by query; {@code table} merges the tables. */
 	public BatchWordFinder(byte[][] queries, LookupTable[] tables, SeedParameters[] parameters, Table table) {
@@ -123,6 +125,7 @@ public final class BatchWordFinder implements BatchScan {
 				throw new IllegalArgumentException("the queries of a batch have different windows");
 			}
 			finders[i] = new WordFinder(queries[i], tables[i], parameters[i], diags, table.base()[i]);
+			finders[i].lanes = lanes;
 		}
 		diagOffset = window;
 	}
@@ -239,6 +242,7 @@ public final class BatchWordFinder implements BatchScan {
 				}
 			}
 		}
+		lanes.flush(residues, start, length);
 		for (WordFinder finder : f) {
 			finder.endSubject(length);
 		}

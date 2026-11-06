@@ -31,7 +31,7 @@ import swiss.sib.blastp4j.util.LruCache;
  * <p>
  * Not thread safe: use one per thread.
  */
-public final class WordFinder implements WordScan {
+public final class WordFinder implements WordScan, UngappedLanes.Owner {
 	/**
 	 * The copies by their constants, the most recently used {@code blastp4j.specializations} of them (256): the cutoff
 	 * depends on the query and the database, so a long-running daemon would otherwise keep a copy for each one it
@@ -48,7 +48,7 @@ public final class WordFinder implements WordScan {
 	 * BLOSUM62 with 32 columns per row, so that a row starts at a multiple of 32. Static, so that C2 knows its length and
 	 * need not check the lookups against it.
 	 */
-	private static final byte[] PADDED = new byte[32 * 32];
+	static final byte[] PADDED = new byte[32 * 32];
 	static {
 		byte[] matrix = Blosum62.matrix();
 		for (int a = 0; a < Blosum62.SIZE; a++) {
@@ -76,6 +76,8 @@ public final class WordFinder implements WordScan {
 	private int diagOffset;
 	// Output of the last extension.
 	private int hspQuery, hspSubject, hspLength, lastSubjectOffset;
+	/** In a batch, the queue whose lanes extend the hits ({@link UngappedLanes}); null for a query alone. */
+	UngappedLanes lanes;
 	private boolean rightExtended;
 
 	/**
@@ -337,7 +339,12 @@ public final class WordFinder implements WordScan {
 	 */
 	void hit(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
 		final int diag = (diagBase + q - s) & diagMask;
-		final int state = diagState[diag];
+		int state = diagState[diag];
+		if (state == UngappedLanes.PENDING) {
+			// A hit queued on this diagonal: its extension decides the state this one reads.
+			lanes.flush(residues, start, length);
+			state = diagState[diag];
+		}
 		if ((state & EXTENDED) != 0) {
 			// Already extended past this hit: skip it; otherwise it starts a new pair.
 			if (s + diagOffset >= (state & ~EXTENDED)) {
@@ -360,12 +367,48 @@ public final class WordFinder implements WordScan {
 			diagState[diag] = s + diagOffset;
 			return;
 		}
+		if (lanes != null) {
+			diagState[diag] = UngappedLanes.PENDING;
+			if (lanes.add(this, out, q, s, last + LookupTable.WORD_SIZE, diag)) {
+				lanes.flush(residues, start, length);
+			}
+			return;
+		}
 		int score = extendTwoHit(residues, start, length, last + LookupTable.WORD_SIZE, s, q);
 		if (score >= cutoff) {
 			out.add(new UngappedHsp(hspQuery, hspSubject, hspLength, score, q, s));
 		}
 		if (rightExtended) {
 			diagState[diag] = (lastSubjectOffset - (LookupTable.WORD_SIZE - 1) + diagOffset) | EXTENDED;
+		} else {
+			diagState[diag] = s + diagOffset;
+		}
+	}
+
+	@Override
+	public int[] rows() {
+		return rowOfQuery;
+	}
+
+	@Override
+	public int xDrop() {
+		return xDrop;
+	}
+
+	@Override
+	public int queryLength() {
+		return query.length;
+	}
+
+	/** The result of hit {@code (q, s)}'s extension by {@link UngappedLanes}, applied as {@link #hit} applies its own. */
+	@Override
+	public void extended(int q, int s, int diag, int score, int hq, int hs, int hl, boolean right, int lastSubject,
+			List<UngappedHsp> out) {
+		if (score >= cutoff) {
+			out.add(new UngappedHsp(hq, hs, hl, score, q, s));
+		}
+		if (right) {
+			diagState[diag] = (lastSubject - (LookupTable.WORD_SIZE - 1) + diagOffset) | EXTENDED;
 		} else {
 			diagState[diag] = s + diagOffset;
 		}
