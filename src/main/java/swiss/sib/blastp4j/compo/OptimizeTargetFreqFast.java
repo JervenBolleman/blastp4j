@@ -3,6 +3,7 @@ package swiss.sib.blastp4j.compo;
 import jdk.incubator.vector.DoubleVector;
 import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorSpecies;
+import swiss.sib.blastp4j.util.WideVectors;
 
 /**
  * {@link OptimizeTargetFreq} for {@link swiss.sib.blastp4j.util.Arithmetic#FAST} (almostblastp): the same Newton's
@@ -12,9 +13,12 @@ import jdk.incubator.vector.VectorSpecies;
  * Nothing reads the objective's own value, so it is not computed.
  */
 final class OptimizeTargetFreqFast implements CompoKernels {
-	/** The machine's preferred vectors of doubles, at most 256 bits (as the word finder's). */
-	private static final VectorSpecies<Double> D = DoubleVector.SPECIES_PREFERRED.length() > 4 ? DoubleVector.SPECIES_256
-			: DoubleVector.SPECIES_PREFERRED;
+	/**
+	 * The machine's preferred vectors of doubles, at most 256 bits (as the word finder's) unless
+	 * {@link WideVectors#ENABLED}.
+	 */
+	private static final VectorSpecies<Double> D = DoubleVector.SPECIES_PREFERRED.length() > 4
+			&& !WideVectors.ENABLED ? DoubleVector.SPECIES_256 : DoubleVector.SPECIES_PREFERRED;
 	private static final int L = D.length();
 
 	/** {@link OptimizeTargetFreq#freqRatioToScore}, a vector at a time. */

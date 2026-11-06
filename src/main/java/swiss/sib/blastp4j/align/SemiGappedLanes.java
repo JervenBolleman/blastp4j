@@ -4,6 +4,7 @@ import jdk.incubator.vector.IntVector;
 import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorSpecies;
+import swiss.sib.blastp4j.util.WideVectors;
 
 /**
  * Many independent {@link GappedAligner#semiGapped} extensions (BLOSUM62) at once, one per lane of a vector of 8 ints.
@@ -29,7 +30,8 @@ public final class SemiGappedLanes {
 		void done(int id, int score, int aOffset, int bOffset);
 	}
 
-	private static final VectorSpecies<Integer> S = IntVector.SPECIES_256;
+	/** 8 lanes, 16 where {@link WideVectors#ENABLED}. */
+	private static final VectorSpecies<Integer> S = WideVectors.ENABLED ? IntVector.SPECIES_512 : IntVector.SPECIES_256;
 	/** Lanes. */
 	public static final int L = S.length();
 	/**
