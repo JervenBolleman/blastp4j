@@ -23,11 +23,16 @@ import jdk.incubator.vector.VectorSpecies;
  * Pays where the machine has 8 int lanes with a gather instruction (x86 with AVX2): {@link #AVAILABLE}. Not thread
  * safe: use one per thread.
  */
-public final class SemiGappedLanes {
+public final class SemiGappedLanes implements ScoreOnlyLanes {
 	/** Receives the result of an extension: semiGapped's score and its {@code aOffset} and {@code bOffset}. */
 	public interface Done {
 		void done(int id, int score, int aOffset, int bOffset);
 	}
+
+	private static final boolean NATIVE_IMAGE = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
+	/** The copies' constructors, by gap costs ({@code goe << 32 | ext}). */
+	private static final java.util.Map<Long, java.lang.invoke.MethodHandle> COPIES =
+			new java.util.concurrent.ConcurrentHashMap<>();
 
 	/** The machine's preferred vectors (bin/jvm.options selects AVX-512 where it pays). */
 	private static final VectorSpecies<Integer> S = IntVector.SPECIES_PREFERRED;
@@ -100,6 +105,33 @@ public final class SemiGappedLanes {
 		this(gapOpen, gapExtend, maxA, 256);
 	}
 
+	/**
+	 * As the constructor, in a copy of this class with {@code goe} and {@code ext} as constants (a hidden class, one
+	 * per pair of gap costs), so that the row loop has them as constants: on x86-64 it reloaded them from the stack
+	 * and broadcast them again at every cell. This class itself in a native image, or where the copy fails.
+	 */
+	public static ScoreOnlyLanes of(int gapOpen, int gapExtend, int maxA) {
+		if (!NATIVE_IMAGE) {
+			final int goe = gapOpen + gapExtend, ext = gapExtend;
+			try {
+				return (ScoreOnlyLanes) COPIES.computeIfAbsent((long) goe << 32 | ext, k -> {
+					try {
+						final java.lang.invoke.MethodHandles.Lookup lookup = swiss.sib.blastp4j.util.HiddenCopies.define(
+								java.lang.invoke.MethodHandles.lookup(), SemiGappedLanes.class,
+								java.util.Map.of("goe", goe, "ext", ext));
+						return lookup.findConstructor(lookup.lookupClass(),
+								java.lang.invoke.MethodType.methodType(void.class, int.class, int.class, int.class));
+					} catch (Throwable e) {
+						throw new IllegalStateException(e);
+					}
+				}).invoke(gapOpen, gapExtend, maxA);
+			} catch (Throwable e) {
+				// Fall back to the fields.
+			}
+		}
+		return new SemiGappedLanes(gapOpen, gapExtend, maxA);
+	}
+
 	/** With DP row and letter ring of {@code slots} slots to start with (the tests start small, to move and grow). */
 	SemiGappedLanes(int gapOpen, int gapExtend, int maxA, int slots) {
 		this.slots = slots;
@@ -120,6 +152,7 @@ public final class SemiGappedLanes {
 	}
 
 	/** Extensions submitted and not yet in a lane. */
+	@Override
 	public int queued() {
 		return size;
 	}
@@ -128,11 +161,13 @@ public final class SemiGappedLanes {
 	 * Submits {@code semiGapped(a, aBase, m, b, bBase, n, reverse, xDrop)}, with {@code 0 < m <= maxA} and
 	 * {@code n > 0}; {@link #step} reports its result under {@code id}.
 	 */
+	@Override
 	public void submit(byte[] a, int aBase, int m, byte[] b, int bBase, int n, boolean reverse, int xDrop, int id) {
 		submit(a, aBase, m, b, bBase, n, reverse, xDrop, id, MAT);
 	}
 
 	/** As {@link #submit}, with the score matrix {@code matrix[a << 5 | b]} (32 x 32) instead of BLOSUM62. */
+	@Override
 	public void submit(byte[] a, int aBase, int m, byte[] b, int bBase, int n, boolean reverse, int xDrop, int id,
 			int[] matrix) {
 		if (m <= 0 || n <= 0 || m > maxA) {
@@ -193,6 +228,7 @@ public final class SemiGappedLanes {
 	 * Advances every lane by one row, reporting the extensions that end to {@code done} (which may submit more).
 	 * Returns false, doing nothing, when no lane has an extension and none is queued.
 	 */
+	@Override
 	public boolean step(Done done) {
 		t++;
 		// Row setup: the next row of each lane, a new extension where one has passed its last row or where the lane

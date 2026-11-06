@@ -15,7 +15,8 @@ import java.util.Map;
 
 /**
  * Copies of a class with some of its int (or boolean) fields as constants, defined as hidden classes: the word
- * finders' ({@code seed.WordFinder.of}, {@code seed.BatchWordFinder.of}).
+ * finders' ({@code seed.WordFinder.of}, {@code seed.BatchWordFinder.of}) and the score-only lanes
+ * ({@code align.SemiGappedLanes.of}).
  */
 public final class HiddenCopies {
 	private HiddenCopies() {
