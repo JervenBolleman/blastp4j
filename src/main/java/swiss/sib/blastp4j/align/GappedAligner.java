@@ -36,6 +36,8 @@ public final class GappedAligner {
 	private final int gapOpen, gapExtend;
 
 	private int[] best = new int[256], bestGap = new int[256];
+	/** ExRows' copy of a band of {@link #best} and {@link #bestGap} before rows computed without traceback. */
+	private int[] savedBest = new int[256], savedGap = new int[256];
 	/** semiGapped's best and bestGap, interleaved. */
 	private int[] dp = new int[512];
 	/** semiGapped's B letters in the order it reads them. */
@@ -105,6 +107,8 @@ public final class GappedAligner {
 			int size = Math.max(n, best.length * 2);
 			best = new int[size];
 			bestGap = new int[size];
+			savedBest = new int[size];
+			savedGap = new int[size];
 			dp = new int[2 * size];
 		}
 	}
@@ -630,6 +634,70 @@ public final class GappedAligner {
 	 * statistics, the default, the same scaled by 32.
 	 */
 	static final class ExRows implements ExRowLoops {
+		/**
+		 * Rows with traceback after the best cell's row, before the rows that follow are computed without it, score only
+		 * (see {@link #rows}).
+		 */
+		static final int AHEAD = 4;
+
+		/**
+		 * Rows {@code from} onwards as {@link #rows} computes them, with the band {@code [first, bSize)} of the row before,
+		 * scores only: the row of the first cell above {@code bestScore}, or -1 where the band ends (or A) before one.
+		 * Changes {@code best} and {@code bestGap} (the caller keeps a copy), nothing else.
+		 */
+		private int scoreRows(GappedAligner g, byte[] a, int aBase, int m, byte[] bs, int n, boolean reverse, int xDrop,
+				int from, int first, int bSize, int bestScore, int[] mat, int mask) {
+			final int goe = this.goe, ext = this.ext;
+			final int[] best = g.best, bestGap = g.bestGap;
+			final int floor = bestScore - xDrop;
+			for (int ai = from; ai <= m; ai++) {
+				final int row = letterA(a, aBase, m, ai, reverse) << 5;
+				int score = MININT, gapRow = MININT, last = first;
+				for (int bi = first; bi < bSize; bi++) {
+					int gapCol = bestGap[bi];
+					final int next = best[bi] + mat[(row + bs[bi]) & mask];
+					score = Math.max(Math.max(score, gapCol), gapRow);
+					if (score < floor) {
+						if (first == bi) {
+							first++;
+						} else {
+							best[bi] = MININT;
+						}
+					} else {
+						if (score > bestScore) {
+							return ai;
+						}
+						last = bi;
+						gapRow -= ext;
+						gapCol -= ext;
+						bestGap[bi] = Math.max(score - goe, gapCol);
+						gapRow = Math.max(score - goe, gapRow);
+						best[bi] = score;
+					}
+					score = next;
+				}
+				if (first == bSize) {
+					return -1;
+				}
+				if (last < bSize - 1) {
+					bSize = last + 1;
+				} else {
+					while (gapRow >= floor && bSize <= n) {
+						best[bSize] = gapRow;
+						bestGap[bSize] = gapRow - goe;
+						gapRow -= ext;
+						bSize++;
+					}
+				}
+				if (bSize <= n) {
+					best[bSize] = MININT;
+					bestGap[bSize] = MININT;
+					bSize++;
+				}
+			}
+			return -1;
+		}
+
 		private static final java.util.Map<Key, ExRowLoops> COPIES = new java.util.concurrent.ConcurrentHashMap<>();
 
 		private final int goe, ext;
@@ -666,10 +734,13 @@ public final class GappedAligner {
 			final int[] mat = g.matrix.wide;
 			final int mask = mat.length - 1;
 			final int numExtraCells = ext > 0 ? xDrop / ext + 3 : n + 3;
+			final int[] saved = g.savedBest, savedGap = g.savedGap;
 			byte[] tb = g.trace;
 			int score;
 			int used = bSize + 1;
 			int bestScore = 0, first = 0;
+			// Rows computed again with traceback, through this one, where the score-only rows found a better cell.
+			int traceUntil = 0;
 			for (int ai = 1; ai <= m; ai++) {
 				// Room for this row: from 'first' to at most numExtraCells beyond the previous row's end.
 				g.ensureTrace(used + 2 + (bSize - first) + numExtraCells + 1);
@@ -743,6 +814,22 @@ public final class GappedAligner {
 					best[bSize] = MININT;
 					bestGap[bSize] = MININT;
 					bSize++;
+				}
+				// Over half of the cells lie in rows after the best cell's, where only the scores matter: whether a better
+				// cell comes. So AHEAD rows after the best, the next rows are computed score only, from a copy of the band.
+				// Without a better cell (score > bestScore, as above) the traceback has its rows; with one, the band is
+				// put back and the rows are computed again with traceback, up to that cell's row at least.
+				if (ai >= g.aOffset + AHEAD && ai >= traceUntil && ai < m) {
+					System.arraycopy(best, first, saved, first, bSize - first);
+					System.arraycopy(bestGap, first, savedGap, first, bSize - first);
+					final int better = scoreRows(g, a, aBase, m, bs, n, reverse, xDrop, ai + 1, first, bSize, bestScore,
+							mat, mask);
+					if (better < 0) {
+						break;
+					}
+					System.arraycopy(saved, first, best, first, bSize - first);
+					System.arraycopy(savedGap, first, bestGap, first, bSize - first);
+					traceUntil = better;
 				}
 			}
 
