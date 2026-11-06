@@ -1,0 +1,85 @@
+{
+ "run_id": "42284579171",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/42284579171",
+ "date": "2026-11-06 20:36 UTC",
+ "event": "push",
+ "code": [
+  "`9d2bba9` (SemiGappedLanes: a copy with the gap costs as constants (experiment))"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 28.73,
+   "jvm_wall": 32.62,
+   "ref_wall": 32.44,
+   "wall": 1.1353985381134701,
+   "cycles": 1.1286074530680863,
+   "instructions": 1.264242704955998,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html",
+   "jvm_commit": "9d2bba9",
+   "ref_commit": "e522b88",
+   "rounds": {
+    "blast": [
+     27.76,
+     28.73,
+     28.82
+    ],
+    "jvm": [
+     32.17,
+     32.62,
+     32.84
+    ],
+    "almost": [
+     33.09,
+     31.99,
+     31.8
+    ],
+    "ref": [
+     32.61,
+     32.44,
+     31.57
+    ]
+   }
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "INTEL(R) XEON(R) PLATINUM 8573C",
+   "cpus": "4",
+   "blast_wall": 56.43,
+   "jvm_wall": 41.96,
+   "ref_wall": 41.95,
+   "wall": 0.7435761119971647,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html",
+   "jvm_commit": "9d2bba9",
+   "ref_commit": "e522b88",
+   "rounds": {
+    "blast": [
+     57.13,
+     56.43,
+     56.01
+    ],
+    "jvm": [
+     41.96,
+     42.04,
+     41.42
+    ],
+    "almost": [
+     39.66,
+     39.95,
+     40.45
+    ],
+    "ref": [
+     41.95,
+     41.97,
+     41.57
+    ]
+   }
+  }
+ ]
+}
