@@ -18,6 +18,7 @@ import swiss.sib.blastp4j.align.ScoreMatrix;
 import swiss.sib.blastp4j.align.SemiGappedLanes;
 import swiss.sib.blastp4j.compo.CompoHeap;
 import swiss.sib.blastp4j.compo.CompoRedo;
+import swiss.sib.blastp4j.compo.TracebackStage;
 import swiss.sib.blastp4j.db.SequenceDatabase;
 import swiss.sib.blastp4j.seed.BatchScan;
 import swiss.sib.blastp4j.seed.BatchWordFinder;
@@ -299,6 +300,23 @@ public final class BlastpSearch {
 			AtomicInteger next = new AtomicInteger(Math.max(0, (db.size() - 1) / CHUNK + 1 - WARM_UP_CHUNKS));
 			List<Hit> hits = prelim(queries[q], new WordFinder(queries[q], tables[q], seeds[q]), cutoffs[q], next);
 			CompoRedo redo = new CompoRedo(new CompoRedo.Query(queries[q]), statistics, arithmetic, segments);
+			if (TracebackStage.AVAILABLE) {
+				// The stage as it will run: its tracebacks as lanes.
+				final int n = Math.min(hits.size(), left);
+				final AtomicInteger k = new AtomicInteger();
+				new TracebackStage(redo).run(() -> {
+					final int i = k.getAndIncrement();
+					if (i >= n) {
+						return null;
+					}
+					final Hit h = hits.get(i);
+					return new TracebackStage.Job(i, redo.new Subject(h.hsps(), db.withSentinels(h.subject(), null), 1,
+							db.length(h.subject()), evalue, h.subject()));
+				}, (i, r) -> {
+				});
+				left -= n;
+				continue;
+			}
 			for (int k = 0; k < hits.size() && left > 0; k++, left--) {
 				Hit h = hits.get(k);
 				subject = db.withSentinels(h.subject(), subject);
@@ -372,6 +390,19 @@ public final class BlastpSearch {
 		for (int t = 0; t < tasks; t++) {
 			work.add(() -> {
 				CompoRedo redo = new CompoRedo(q, statistics, arithmetic, segments);
+				if (TracebackStage.AVAILABLE) {
+					// Many subjects at once, their tracebacks as lanes: each subject's own array, as it stays in use.
+					new TracebackStage(redo).run(() -> {
+						final int i = next.getAndIncrement();
+						if (i >= ordered.size()) {
+							return null;
+						}
+						final Hit h = ordered.get(i);
+						return new TracebackStage.Job(i, redo.new Subject(h.hsps(),
+								db.withSentinels(h.subject(), null), 1, db.length(h.subject()), evalue, h.subject()));
+					}, (i, r) -> results[i] = r);
+					return null;
+				}
 				byte[] subject = null;
 				for (int i; (i = next.getAndIncrement()) < ordered.size();) {
 					Hit h = ordered.get(i);

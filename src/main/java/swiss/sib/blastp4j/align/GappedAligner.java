@@ -87,6 +87,14 @@ public final class GappedAligner {
 	}
 
 	/** Uses {@code m} as the score matrix from now on. */
+	public int gapOpen() {
+		return gapOpen;
+	}
+
+	public int gapExtend() {
+		return gapExtend;
+	}
+
 	public void setMatrix(ScoreMatrix m) {
 		matrix = m;
 		rows = m == ScoreMatrix.BLOSUM62 ? rowLoopsBlosum62 : rowLoops;
@@ -408,14 +416,28 @@ public final class GappedAligner {
 		left.clear();
 		right.clear();
 		int scoreLeft = alignEx(query, 0, qStart + 1, residues, subjectBase, sStart + 1, true, xDrop, left);
-		queryStart = qStart - aOffset + 1;
-		subjectStart = sStart - bOffset + 1;
+		final int aLeft = aOffset, bLeft = bOffset;
 		int scoreRight = 0;
 		if (qStart < queryLength && sStart < subjectLength) {
 			scoreRight = alignEx(query, qStart, queryLength - qStart - 1, residues, subjectBase + sStart,
 					subjectLength - sStart - 1, false, xDrop, right);
-			queryStop = qStart + aOffset + 1;
-			subjectStop = sStart + bOffset + 1;
+		}
+		joinTraceback(queryLength, subjectLength, qStart, sStart, scoreLeft, aLeft, bLeft, left, scoreRight,
+				aOffset, bOffset, right);
+	}
+
+	/**
+	 * The end of {@link #extendWithTraceback}, from its two alignEx results (the right one 0, 0, 0 and no operations
+	 * where it does not run): sets {@link #score}, the bounds and {@link #editScript}. Also for alignEx's results
+	 * computed elsewhere ({@link TracebackLanes}).
+	 */
+	public void joinTraceback(int queryLength, int subjectLength, int qStart, int sStart, int scoreLeft, int aLeft,
+			int bLeft, EditScript left, int scoreRight, int aRight, int bRight, EditScript right) {
+		queryStart = qStart - aLeft + 1;
+		subjectStart = sStart - bLeft + 1;
+		if (qStart < queryLength && sStart < subjectLength) {
+			queryStop = qStart + aRight + 1;
+			subjectStop = sStart + bRight + 1;
 		} else {
 			queryStop = qStart - 1;
 			subjectStop = sStart - 1;

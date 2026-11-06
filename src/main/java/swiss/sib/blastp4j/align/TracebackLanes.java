@@ -83,7 +83,7 @@ public final class TracebackLanes {
 	 * extension was submitted with; {@code laneMatrix} is which.
 	 */
 	private final int[] mats = new int[L << 10];
-	private final int[][] laneMatrix = new int[L][];
+	private final long[] laneMatrix = new long[L];
 	private static final IntVector LANE_BASE = IntVector.zero(S).addIndex(1).lanewise(VectorOperators.LSHL, 10);
 
 	// The queue of submitted extensions.
@@ -92,6 +92,7 @@ public final class TracebackLanes {
 			qid = new int[16];
 	private boolean[] qrev = new boolean[16];
 	private int[][] qmat = new int[16][];
+	private long[] qver = new long[16];
 	private int head, size;
 
 	/** Lanes for the given gap costs, and for extensions with A of at most {@code maxA} letters. */
@@ -115,10 +116,21 @@ public final class TracebackLanes {
 		aRing = new int[aSize * L];
 		steps = Integer.highestOneBit(maxA + 2) * 2;
 		trace = new byte[steps][];
+		java.util.Arrays.fill(laneMatrix, Long.MIN_VALUE);
 		traceLo = new int[steps];
 		for (int l = 0; l < L; l++) {
 			idle(l);
 		}
+	}
+
+	/** Whether these lanes take extensions with these gap costs and A of up to {@code maxA} letters. */
+	public boolean fits(int gapOpen, int gapExtend, int maxA) {
+		return goe == gapOpen + gapExtend && ext == gapExtend && maxA <= this.maxA;
+	}
+
+	/** The longest A an extension may have. */
+	public int maxA() {
+		return maxA;
 	}
 
 	/** Extensions submitted and not yet in a lane. */
@@ -131,12 +143,22 @@ public final class TracebackLanes {
 	 * {@code n > 0}; {@link #step} reports its result under {@code id}.
 	 */
 	public void submit(byte[] a, int aBase, int m, byte[] b, int bBase, int n, boolean reverse, int xDrop, int id) {
-		submit(a, aBase, m, b, bBase, n, reverse, xDrop, id, MAT);
+		submit(a, aBase, m, b, bBase, n, reverse, xDrop, id, MAT, 0);
 	}
 
 	/** As {@link #submit}, with the score matrix {@code matrix[a << 5 | b]} (32 x 32) instead of BLOSUM62. */
 	public void submit(byte[] a, int aBase, int m, byte[] b, int bBase, int n, boolean reverse, int xDrop, int id,
 			int[] matrix) {
+		submit(a, aBase, m, b, bBase, n, reverse, xDrop, id, matrix, -1 - System.identityHashCode(matrix));
+	}
+
+	/**
+	 * As {@link #submit}, with the matrix's {@code version}: a lane copies the matrix only where its version is not
+	 * the one the lane has (0 is BLOSUM62), so the caller may refill one array with another matrix under a new
+	 * version, once no extension it submitted with the old one is queued.
+	 */
+	public void submit(byte[] a, int aBase, int m, byte[] b, int bBase, int n, boolean reverse, int xDrop, int id,
+			int[] matrix, long version) {
 		if (m <= 0 || n <= 0 || m > maxA) {
 			throw new IllegalArgumentException("m " + m + ", n " + n);
 		}
@@ -155,6 +177,7 @@ public final class TracebackLanes {
 		qx[i] = xDrop;
 		qid[i] = id;
 		qmat[i] = matrix;
+		qver[i] = version;
 		size++;
 	}
 
@@ -165,6 +188,7 @@ public final class TracebackLanes {
 				ids = new int[c2];
 		final boolean[] rev = new boolean[c2];
 		final int[][] mat = new int[c2][];
+		final long[] ver = new long[c2];
 		for (int k = 0; k < size; k++) {
 			final int i = (head + k) % c;
 			a[k] = qa[i];
@@ -177,6 +201,7 @@ public final class TracebackLanes {
 			x[k] = qx[i];
 			ids[k] = qid[i];
 			mat[k] = qmat[i];
+			ver[k] = qver[i];
 		}
 		qa = a;
 		qaBase = aBase;
@@ -188,6 +213,7 @@ public final class TracebackLanes {
 		qx = x;
 		qid = ids;
 		qmat = mat;
+		qver = ver;
 		head = 0;
 	}
 
@@ -310,7 +336,8 @@ public final class TracebackLanes {
 		final int need = (kHi - kLo + reach + 4) * L;
 		byte[] tr = trace[t & (steps - 1)];
 		if (tr == null || tr.length < need) {
-			tr = new byte[Math.max(need, 64 * L)];
+			// With room to spare, so that a step's array is rarely replaced.
+			tr = new byte[Math.max(2 * need, 256 * L)];
 			trace[t & (steps - 1)] = tr;
 		}
 		traceLo[t & (steps - 1)] = kLo;
@@ -527,8 +554,8 @@ public final class TracebackLanes {
 			dpGap[k] = score - goe;
 			score -= ext;
 		}
-		if (laneMatrix[l] != qmat[i]) {
-			laneMatrix[l] = qmat[i];
+		if (laneMatrix[l] != qver[i]) {
+			laneMatrix[l] = qver[i];
 			System.arraycopy(qmat[i], 0, mats, l << 10, 1 << 10);
 		}
 		qmat[i] = null;
