@@ -64,7 +64,7 @@ public final class EditScript {
 		size--;
 	}
 
-	EditScript copy() {
+	public EditScript copy() {
 		EditScript c = new EditScript();
 		c.ops = Arrays.copyOf(ops, Math.max(size, 1));
 		c.nums = Arrays.copyOf(nums, Math.max(size, 1));
