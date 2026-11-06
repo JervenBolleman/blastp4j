@@ -610,6 +610,12 @@ fewer cycles; memory up about 15% (the trace rings).
 40-85% more cycles locally (plain and vector lanes), 45-52% more wall time on the runners. The traceback filter (`exp/traceback-filter`, b881f5c): a proven bound on the traceback score from a
 score-only extension, so that a subject with one preliminary alignment whose bound cannot reach the E-value cutoff
 skips its traceback; -1.9% cycles locally, -0.3% to -0.4% wall on the runners, within noise.
+The traceback row loop's stack reloads on AArch64 (`ExRows.rows` on the Neoverse-N2 reloads 7 values from the stack
+per cell): the best score, its X-drop floor and column in locals (`exp/exrows-registers`, c02ad8f), then `best` and
+`bestGap` interleaved in one array (`exp/exrows-interleaved`, 9a1f896), then the matrix row copied per row
+(`exp/exrows-rowscores`, 8e5f20b). Against b6e51a2 on the ARM runner: 6, 5 and 5 reloads per cell; instructions
+-1.3%, -2.5% and +3.9%; cycles +0.5%, 0.0% and +2.8%; wall within noise on both runners. Fewer reloads save
+instructions but not cycles: the reloads are not what limits this loop.
 
 ## Composition-based statistics
 
