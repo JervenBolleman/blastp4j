@@ -50,6 +50,8 @@ public final class GappedAligner {
 	public int score, queryStart, queryStop, subjectStart, subjectStop;
 	/** Result of {@link #extendWithTraceback}. */
 	public EditScript editScript;
+	/** {@link #extendScoreOnly}'s scores of the left extension (with the start point) and of the right one. */
+	public int scoreLeft, scoreRight;
 
 	private final EditScript left = new EditScript(), right = new EditScript();
 	/**
@@ -395,6 +397,22 @@ public final class GappedAligner {
 			subjectStop = sOff;
 		}
 		score = scoreLeft + scoreRight;
+		this.scoreLeft = scoreLeft;
+		this.scoreRight = scoreRight;
+	}
+
+	/**
+	 * An upper bound of {@link #extendWithTraceback}'s score from a start point, given {@link #extendScoreOnly}'s
+	 * from the same point with the same matrix and X-drop (not restricted). The two compute the same scores, but the
+	 * traceback then removes leading and trailing gaps and adds their cost back. Such a gap can only start at the
+	 * start point, on a side whose extension found nothing better than 0: elsewhere the cell before the gap scored
+	 * higher than the gap's end, so the best cell is never the end of a gap. And a gap from the start point costs at
+	 * most the X-drop, as cells below the best (at least 0) minus the X-drop are dropped. On the 500 bean queries the
+	 * scores before the trim were the score-only ones in all 164,781 tracebacks of the composition-based stage, and no
+	 * trim exceeded this bound.
+	 */
+	public int tracebackBound(int xDrop) {
+		return score + (scoreLeft <= 0 ? xDrop : 0) + (scoreRight <= 0 ? xDrop : 0);
 	}
 
 	/**

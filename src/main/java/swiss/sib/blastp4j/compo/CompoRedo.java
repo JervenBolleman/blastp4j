@@ -62,6 +62,14 @@ public final class CompoRedo {
 			ScoreMatrix finalMatrix) {
 	}
 
+	/**
+	 * The preliminary E-value from which a subject with one preliminary alignment is first tested with the score-only
+	 * extension ({@link GappedAligner#tracebackBound}): most such subjects end empty. Cycles on the 500 bean queries
+	 * against no test (interleaved, noisy): -1.9% from 0.1, -2.0% from 1, -1.6% from 10, -0.4% from 0.01, -0.7% from
+	 * 0.001.
+	 * {@code -Dblastp4j.filterEvalue} sets it.
+	 */
+	static final double FILTER_EVALUE = Double.parseDouble(System.getProperty("blastp4j.filterEvalue", "0.1"));
 	private final Query query;
 	private final Statistics statistics;
 	private final double lambda; // scaled
@@ -198,6 +206,17 @@ public final class CompoRedo {
 						stale = true; // BLAST would use the matrix of an earlier subject here
 					}
 					Hsp p = in.hsp();
+					if (prelim.size() == 1 && p.evalue >= FILTER_EVALUE) {
+						// A subject likely to end empty: its alignment's upper bound first, from the score-only
+						// extension. If even that fails the E-value cutoff, the traceback's alignment would be
+						// removed, and the subject's result is empty (whose best E-value nobody reads).
+						aligner.extendScoreOnly(q, subject, 1, length, p.queryGappedStart, p.subjectGappedStart, false,
+								xDrop);
+						if (!(statistics.evalueScaled(aligner.tracebackBound(xDrop), SCALE, queryLength,
+								length) <= evalueCutoff)) {
+							return new Result(List.of(), Double.MAX_VALUE, 0, stale, adjustedMatrix);
+						}
+					}
 					aligner.extendWithTraceback(q, subject, 1, length, p.queryGappedStart, p.subjectGappedStart,
 							xDrop);
 					if (aligner.score >= 1) {

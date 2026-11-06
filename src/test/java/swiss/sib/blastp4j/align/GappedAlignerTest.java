@@ -87,6 +87,35 @@ class GappedAlignerTest {
 	}
 
 	@Test
+	void theTracebackScoresAtMostTheBound() {
+		// Related pairs and unrelated ones, from random start points: the latter often have a side that finds
+		// nothing, where the traceback can drop a gap at the start point.
+		Random rnd = new Random(11);
+		GappedAligner a = new GappedAligner(11, 1);
+		int trimmed = 0, atBound = 0;
+		for (int round = 0; round < 4000; round++) {
+			byte[][] p = pair(rnd, 30 + rnd.nextInt(300));
+			if (round % 2 == 1) {
+				p[1] = pair(rnd, p[1].length - 2)[0];
+				final byte[] s = new byte[p[1].length + 2];
+				System.arraycopy(p[1], 0, s, 1, p[1].length);
+				p[1] = s;
+			}
+			final int subjectLength = p[1].length - 2;
+			final int qStart = rnd.nextInt(p[0].length), sStart = rnd.nextInt(subjectLength);
+			final int xDrop = 16 + rnd.nextInt(60);
+			a.extendScoreOnly(p[0], p[1], 1, subjectLength, qStart, sStart, false, xDrop);
+			final int scoreOnly = a.score, bound = a.tracebackBound(xDrop);
+			a.extendWithTraceback(p[0], p[1], 1, subjectLength, qStart, sStart, xDrop);
+			assertTrue(a.score <= bound, "round " + round + ": " + a.score + " > " + bound);
+			trimmed += a.score > scoreOnly ? 1 : 0;
+			atBound += a.score == bound && bound > scoreOnly ? 1 : 0;
+		}
+		// The trims happen, so the bound is tested where it adds the X-drop.
+		assertTrue(trimmed > 20, "trimmed: " + trimmed);
+	}
+
+	@Test
 	void restrictedAlignmentScoresAtMostTheExactOne() {
 		Random rnd = new Random(7);
 		GappedAligner a = new GappedAligner(11, 1);
