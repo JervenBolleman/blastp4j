@@ -261,6 +261,33 @@ jobs:
           } | tee -a "$GITHUB_STEP_SUMMARY" "$REPORT/report.md"
           cp target/compare/jvm-profile.html "$REPORT/" 2>/dev/null || true
 
+      # Where blastp4j's output is not BLAST+'s: the lines of each system's first round that are not in BLAST+'s, and
+      # the columns where the paired lines differ (outfmt 6 std btop: qseqid sseqid pident length mismatch gapopen
+      # qstart qend sstart send evalue bitscore btop). The outputs themselves are in the compare artifact.
+      - name: Output differences
+        if: always()
+        working-directory: blastp4j/target/compare
+        run: |
+          {
+            echo
+            echo "### Output against BLAST+'s (round 1)"
+            echo
+            echo '```'
+            for s in jvm almost ref; do
+              [ -f "time-$s-1.tsv" ] || continue
+              echo "$s: $(wc -l <time-$s-1.tsv) lines, BLAST+ $(wc -l <time-blast-1.tsv); only in $s: $(comm -13 <(sort time-blast-1.tsv) <(sort time-$s-1.tsv) | wc -l), only in BLAST+: $(comm -23 <(sort time-blast-1.tsv) <(sort time-$s-1.tsv) | wc -l)"
+              # Lines in the same place that differ: which columns, how often.
+              paste -d '\n' time-blast-1.tsv "time-$s-1.tsv" | awk -F'\t' -v s="$s" '
+                NR % 2 { split($0, b, "\t"); line = $0; next }
+                $0 != line { n++; for (i = 1; i <= NF; i++) if ($i != b[i]) col[i]++
+                  if (n <= 10) { printf "  blast:"; for (i = 1; i <= 12; i++) printf " %s", b[i]
+                    printf "\n  %-6s", s ":"; for (i = 1; i <= 12; i++) printf " %s", $i; print "" } }
+                END { printf "%s: %d of %d paired lines differ; by column:", s, n, NR / 2
+                  for (i = 1; i <= 13; i++) if (col[i]) printf " %d:%d", i, col[i]; print "" }'
+            done
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY" "$REPORT/report.md"
+
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -269,6 +296,7 @@ jobs:
             blastp4j/target/jmh-*
             blastp4j/target/compare/*.log
             blastp4j/target/compare/*.txt
+            blastp4j/target/compare/time-*-1.tsv
             blastp4j/target/compare/jvm-profile.html
       - uses: actions/upload-artifact@v7
         if: always()
@@ -318,7 +346,9 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
         run: |
-          python3 code/.github/scripts/report.py run "site/runs/$RUN_ID" reports/*
+          # One artifact is unpacked into reports/ itself, several into a directory each.
+          if [ -f reports/machine.txt ]; then jobs=(reports); else jobs=(reports/*); fi
+          python3 code/.github/scripts/report.py run "site/runs/$RUN_ID" "${jobs[@]}"
           python3 code/.github/scripts/report.py index site
       - name: Push the reports branch
         working-directory: site
