@@ -23,9 +23,18 @@ public final class ScoreMatrix {
 
 	/** The scores, {@code scores[query * N + subject]}. */
 	final int[] scores;
+	/**
+	 * The same scores 32 wide, {@code wide[query << 5 | subject]}, zero outside 28 x 28: 1024 entries, so that an index
+	 * masked with {@code wide.length - 1} needs no bounds check in C2's loops.
+	 */
+	final int[] wide;
 
 	private ScoreMatrix(int[] scores) {
 		this.scores = scores;
+		this.wide = new int[32 * 32];
+		for (int a = 0; a < N; a++) {
+			System.arraycopy(scores, a * N, wide, a << 5, N);
+		}
 	}
 
 	/** A copy of {@code m[query * 28 + subject]} (28 x 28, row-major). */
