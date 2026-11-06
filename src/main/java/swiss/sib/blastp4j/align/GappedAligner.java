@@ -643,6 +643,10 @@ public final class GappedAligner {
 				final int row = letterA(a, aBase, m, ai, reverse) * N;
 				score = MININT;
 				int gapRow = MININT, last = first;
+				// The inner loop's state in as few values as possible, so that C2 keeps them in registers (AArch64 spilled
+				// seven per cell): the X-drop as a floor (no overflow, as scores are at least MININT), and the column of
+				// this row's best cell instead of the aligner's fields.
+				int floor = bestScore - xDrop, bestB = -1;
 				int bi;
 				for (bi = first; bi < bSize; bi++) {
 					int gapCol = bestGap[bi];
@@ -652,7 +656,7 @@ public final class GappedAligner {
 					final int afterCol = Math.max(score, gapCol);
 					script = gapRow > afterCol ? EditScript.DEL : script;
 					score = Math.max(afterCol, gapRow);
-					if (bestScore - score > xDrop) {
+					if (score < floor) {
 						if (first == bi) {
 							first++;
 						} else {
@@ -662,8 +666,8 @@ public final class GappedAligner {
 						last = bi;
 						if (score > bestScore) {
 							bestScore = score;
-							g.aOffset = ai;
-							g.bOffset = bi;
+							floor = score - xDrop;
+							bestB = bi;
 						}
 						gapRow -= ext;
 						gapCol -= ext;
@@ -682,6 +686,10 @@ public final class GappedAligner {
 					}
 					score = next;
 					tb[base + bi] = (byte) script;
+				}
+				if (bestB >= 0) {
+					g.aOffset = ai;
+					g.bOffset = bestB;
 				}
 				if (first == bSize) {
 					break;
