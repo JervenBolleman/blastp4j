@@ -1,0 +1,85 @@
+{
+ "run_id": "42188352355",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/42188352355",
+ "date": "2026-11-06 09:05 UTC",
+ "event": "workflow_dispatch",
+ "code": [
+  "`629e776` (Traceback lanes, step 3: the composition-based stage's tracebacks as lanes (experiment))"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 28.39,
+   "jvm_wall": 32.45,
+   "ref_wall": 32.28,
+   "wall": 1.1430081014441706,
+   "cycles": 1.1372046683746087,
+   "instructions": 1.3032748538011696,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html",
+   "jvm_commit": "629e776",
+   "ref_commit": "b6e51a2",
+   "rounds": {
+    "blast": [
+     28.39,
+     28.33,
+     28.58
+    ],
+    "jvm": [
+     32.6,
+     32.45,
+     32.17
+    ],
+    "almost": [
+     31.55,
+     31.26,
+     31.33
+    ],
+    "ref": [
+     32.45,
+     32.28,
+     32.2
+    ]
+   }
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 9V74 80-Core Processor",
+   "cpus": "4",
+   "blast_wall": 41.93,
+   "jvm_wall": 35.07,
+   "ref_wall": 39.06,
+   "wall": 0.8363939899833055,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html",
+   "jvm_commit": "629e776",
+   "ref_commit": "b6e51a2",
+   "rounds": {
+    "blast": [
+     41.99,
+     41.84,
+     41.93
+    ],
+    "jvm": [
+     34.71,
+     35.07,
+     35.18
+    ],
+    "almost": [
+     34.18,
+     33.15,
+     33.17
+    ],
+    "ref": [
+     38.8,
+     39.06,
+     39.08
+    ]
+   }
+  }
+ ]
+}
