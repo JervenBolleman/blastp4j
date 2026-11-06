@@ -86,7 +86,6 @@ public final class GappedAligner {
 		this.exRows = exRows;
 	}
 
-	/** Uses {@code m} as the score matrix from now on. */
 	public int gapOpen() {
 		return gapOpen;
 	}
@@ -95,6 +94,7 @@ public final class GappedAligner {
 		return gapExtend;
 	}
 
+	/** Uses {@code m} as the score matrix from now on. */
 	public void setMatrix(ScoreMatrix m) {
 		matrix = m;
 		rows = m == ScoreMatrix.BLOSUM62 ? rowLoopsBlosum62 : rowLoops;
@@ -416,14 +416,19 @@ public final class GappedAligner {
 		left.clear();
 		right.clear();
 		int scoreLeft = alignEx(query, 0, qStart + 1, residues, subjectBase, sStart + 1, true, xDrop, left);
-		final int aLeft = aOffset, bLeft = bOffset;
+		queryStart = qStart - aOffset + 1;
+		subjectStart = sStart - bOffset + 1;
 		int scoreRight = 0;
 		if (qStart < queryLength && sStart < subjectLength) {
 			scoreRight = alignEx(query, qStart, queryLength - qStart - 1, residues, subjectBase + sStart,
 					subjectLength - sStart - 1, false, xDrop, right);
+			queryStop = qStart + aOffset + 1;
+			subjectStop = sStart + bOffset + 1;
+		} else {
+			queryStop = qStart - 1;
+			subjectStop = sStart - 1;
 		}
-		joinTraceback(queryLength, subjectLength, qStart, sStart, scoreLeft, aLeft, bLeft, left, scoreRight,
-				aOffset, bOffset, right);
+		trimEndGaps(left, scoreLeft, right, scoreRight);
 	}
 
 	/**
@@ -442,6 +447,14 @@ public final class GappedAligner {
 			queryStop = qStart - 1;
 			subjectStop = sStart - 1;
 		}
+		trimEndGaps(left, scoreLeft, right, scoreRight);
+	}
+
+	/**
+	 * Joins the two sides' edit scripts into {@link #editScript} and sets {@link #score}, with end gaps trimmed (their
+	 * cost added back) as BLAST does.
+	 */
+	private void trimEndGaps(EditScript left, int scoreLeft, EditScript right, int scoreRight) {
 		EditScript e = EditScript.join(left, right);
 		while (e.size > 0 && e.ops[0] != EditScript.SUB) {
 			scoreLeft += gapOpen + e.nums[0] * gapExtend;

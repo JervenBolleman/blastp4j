@@ -157,15 +157,86 @@ public final class CompoRedo {
 		if (inherited != null) {
 			aligner.setMatrix(inherited);
 		}
-		final Subject s = new Subject(prelim, residues, base, length, evalueCutoff, subjectNumber);
-		while (s.advance()) {
-			// The aligner has the subject's matrix (or the last one, where its adjustment failed).
-			final Hsp p = s.traceback();
-			aligner.extendWithTraceback(query.data, s.subject(), 1, length, p.queryGappedStart, p.subjectGappedStart,
-					xDrop);
-			s.tracebackDone(aligner);
+		// The same steps as Subject's, in one loop: for the scalar traceback, as fast as before the lanes.
+		final byte[] q = query.data;
+		final int queryLength = query.original.length;
+		List<Align> alignments = new ArrayList<>(); // head first
+		byte[] subject = null;
+		boolean subjectMaybeBiased = true, nearIdentical = true, oldNearIdentical = false, stale = false;
+		ScoreMatrix adjustedMatrix = null; // the last adjustment for this subject
+		int numAdjustments = 0;
+		Align first = toAlign(prelim.get(0));
+		for (int h = 0; h < prelim.size(); h++) {
+			Align in = toAlign(prelim.get(h));
+			if (h == 0 || subjectMaybeBiased) {
+				nearIdentical = preliminaryTestNearIdentical(in, queryLength);
+			}
+			if (h == 0 || (subjectMaybeBiased && nearIdentical != oldNearIdentical)) {
+				// s_SequenceGetProteinRange: a copy of the subject, masked with SEG when it may be biased
+				subject = new byte[length + 2];
+				System.arraycopy(residues, base, subject, 1, length);
+				if (subjectMaybeBiased) {
+					if (!nearIdentical || !testNearIdentical(subject, q, first)) {
+						subjectMaybeBiased = Seg.mask(subject, 1, segments(subject, length, subjectNumber));
+					}
+				}
+			}
+			if (!isContained(in, alignments)) {
+				boolean failed = false;
+				if (h == 0 || nearIdentical != oldNearIdentical) {
+					CompositionAdjustment.Composition sc = CompositionAdjustment.composition(subject, 1, length);
+					CompositionAdjustment.Adjustment adj = CompositionAdjustment.adjustScores(matrix,
+							query.composition, queryLength, sc, length, query.matrixInfo, workspace);
+					failed = adj.status() != 0;
+					if (!failed) {
+						adjustedMatrix = ScoreMatrix.of(matrix);
+						aligner.setMatrix(adjustedMatrix);
+					}
+					numAdjustments++;
+				}
+				if (!failed) {
+					if (adjustedMatrix == null) {
+						stale = true; // BLAST would use the matrix of an earlier subject here
+					}
+					Hsp p = in.hsp();
+					aligner.extendWithTraceback(q, subject, 1, length, p.queryGappedStart, p.subjectGappedStart,
+							xDrop);
+					if (aligner.score >= 1) {
+						Hsp n = new Hsp(aligner.score, aligner.queryStart, aligner.queryStop, aligner.subjectStart,
+								aligner.subjectStop, 0, 0);
+						n.editScript = aligner.editScript;
+						withDistinctEnds(new Align(n.score, n.queryStart, n.queryEnd, n.subjectStart, n.subjectEnd, n),
+								alignments, numAdjustments == 1);
+					}
+				}
+			}
+			oldNearIdentical = nearIdentical;
 		}
-		return s.result();
+		final ScoreMatrix finalMatrix = adjustedMatrix;
+		if (alignments.isEmpty()) {
+			return new Result(List.of(), Double.MAX_VALUE, 0, stale, finalMatrix);
+		}
+		// s_HSPListFromDistinctAlignments, s_HitlistReapContained, s_HitlistEvaluateAndPurge
+		List<Hsp> hsps = new ArrayList<>();
+		for (Align a : alignments) {
+			hsps.add(a.hsp());
+		}
+		hsps.sort(Hsp.BY_SCORE);
+		reapContained(hsps);
+		double best = Double.MAX_VALUE;
+		for (Hsp h : hsps) {
+			h.evalue = statistics.evalueScaled(h.score, SCALE, queryLength, length);
+			best = Math.min(best, h.evalue);
+		}
+		hsps.removeIf(h -> h.evalue > evalueCutoff);
+		if (hsps.isEmpty()) {
+			return new Result(List.of(), best, 0, stale, finalMatrix);
+		}
+		int bestScore = hsps.get(0).score;
+		for (Hsp h : hsps) {
+			h.score = (int) nint((double) h.score / SCALE);
+		}
+		return new Result(hsps, best, bestScore, stale, finalMatrix);
 	}
 
 	/**
