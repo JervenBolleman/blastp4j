@@ -1,0 +1,43 @@
+{
+ "run_id": "42230373970",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/42230373970",
+ "date": "2026-11-06 14:04 UTC",
+ "event": "push",
+ "code": [
+  "`f830c9e` (README: 512-bit vectors on Zen 5 measured, -2.7% wall on an EPYC 9V45)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": null,
+   "jvm_wall": null,
+   "ref_wall": null,
+   "wall": null,
+   "cycles": null,
+   "instructions": null,
+   "identical": false,
+   "profile": "",
+   "jvm_commit": "f830c9e",
+   "ref_commit": "",
+   "rounds": {}
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 9V74 80-Core Processor",
+   "cpus": "4",
+   "blast_wall": null,
+   "jvm_wall": null,
+   "ref_wall": null,
+   "wall": null,
+   "cycles": null,
+   "instructions": null,
+   "identical": false,
+   "profile": "",
+   "jvm_commit": "f830c9e",
+   "ref_commit": "",
+   "rounds": {}
+  }
+ ]
+}
