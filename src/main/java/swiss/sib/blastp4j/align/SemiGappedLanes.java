@@ -79,12 +79,20 @@ public final class SemiGappedLanes {
 	private final boolean[] reverse = new boolean[L];
 	private final byte[][] subject = new byte[L][];
 	private final int[] tmp = new int[L], idx = new int[L];
+	/**
+	 * Each lane's score matrix, 32 x 32 ({@code [a << 5 | b]}), at {@code l << 10}: BLOSUM62, or the matrix its
+	 * extension was submitted with; {@code laneMatrix} is which.
+	 */
+	private final int[] mats = new int[L << 10];
+	private final int[][] laneMatrix = new int[L][];
+	private static final IntVector LANE_BASE = IntVector.zero(S).addIndex(1).lanewise(VectorOperators.LSHL, 10);
 
 	// The queue of submitted extensions.
 	private byte[][] qa = new byte[16][], qb = new byte[16][];
 	private int[] qaBase = new int[16], qm = new int[16], qbBase = new int[16], qn = new int[16], qx = new int[16],
 			qid = new int[16];
 	private boolean[] qrev = new boolean[16];
+	private int[][] qmat = new int[16][];
 	private int head, size;
 
 	/** Lanes for the given gap costs, and for extensions with A of at most {@code maxA} letters. */
@@ -121,6 +129,12 @@ public final class SemiGappedLanes {
 	 * {@code n > 0}; {@link #step} reports its result under {@code id}.
 	 */
 	public void submit(byte[] a, int aBase, int m, byte[] b, int bBase, int n, boolean reverse, int xDrop, int id) {
+		submit(a, aBase, m, b, bBase, n, reverse, xDrop, id, MAT);
+	}
+
+	/** As {@link #submit}, with the score matrix {@code matrix[a << 5 | b]} (32 x 32) instead of BLOSUM62. */
+	public void submit(byte[] a, int aBase, int m, byte[] b, int bBase, int n, boolean reverse, int xDrop, int id,
+			int[] matrix) {
 		if (m <= 0 || n <= 0 || m > maxA) {
 			throw new IllegalArgumentException("m " + m + ", n " + n);
 		}
@@ -138,6 +152,7 @@ public final class SemiGappedLanes {
 		qrev[i] = reverse;
 		qx[i] = xDrop;
 		qid[i] = id;
+		qmat[i] = matrix;
 		size++;
 	}
 
@@ -147,6 +162,7 @@ public final class SemiGappedLanes {
 		final int[] aBase = new int[c2], mm = new int[c2], bBase = new int[c2], nn = new int[c2], x = new int[c2],
 				ids = new int[c2];
 		final boolean[] rev = new boolean[c2];
+		final int[][] mat = new int[c2][];
 		for (int k = 0; k < size; k++) {
 			final int i = (head + k) % c;
 			a[k] = qa[i];
@@ -158,6 +174,7 @@ public final class SemiGappedLanes {
 			rev[k] = qrev[i];
 			x[k] = qx[i];
 			ids[k] = qid[i];
+			mat[k] = qmat[i];
 		}
 		qa = a;
 		qaBase = aBase;
@@ -168,6 +185,7 @@ public final class SemiGappedLanes {
 		qrev = rev;
 		qx = x;
 		qid = ids;
+		qmat = mat;
 		head = 0;
 	}
 
@@ -274,7 +292,7 @@ public final class SemiGappedLanes {
 	/** The cells of slots [kLo, kHi) of the current rows of all lanes. */
 	private void row(int kLo, int kHi) {
 		final IntVector kStartV = IntVector.fromArray(S, kStart, 0), widthV = IntVector.fromArray(S, width, 0);
-		final IntVector rowV = IntVector.fromArray(S, row, 0);
+		final IntVector rowV = IntVector.fromArray(S, row, 0).add(LANE_BASE);
 		final IntVector xDropV = IntVector.fromArray(S, xDrop, 0);
 		final IntVector bestBefore = IntVector.fromArray(S, best, 0);
 		final int goe = this.goe, ext = this.ext;
@@ -289,7 +307,7 @@ public final class SemiGappedLanes {
 			// starts a row with MININT).
 			final IntVector d = kv.sub(kStartV);
 			rowV.or(IntVector.fromArray(S, rg, (base + k) * L)).intoArray(ix, 0);
-			final IntVector diag = IntVector.fromArray(S, MAT, 0, ix, 0)
+			final IntVector diag = IntVector.fromArray(S, mats, 0, ix, 0)
 					.blend(MININT, d.compare(VectorOperators.EQ, 0));
 			final int at = (k - dp) * L;
 			final IntVector oldBest = IntVector.fromArray(S, db, at);
@@ -445,6 +463,11 @@ public final class SemiGappedLanes {
 			dpGap[k] = score - goe;
 			score -= ext;
 		}
+		if (laneMatrix[l] != qmat[i]) {
+			laneMatrix[l] = qmat[i];
+			System.arraycopy(qmat[i], 0, mats, l << 10, 1 << 10);
+		}
+		qmat[i] = null;
 		id[l] = qid[i];
 		ai[l] = 0;
 		m[l] = mm;
