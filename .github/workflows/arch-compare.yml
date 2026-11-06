@@ -207,6 +207,19 @@ jobs:
       - name: Add BLAST+ to the path
         run: echo "$PWD/ncbi-blast/bin" >>"$GITHUB_PATH"
 
+      - name: Cache async-profiler
+        id: profiler
+        uses: actions/cache@v6
+        with:
+          path: async-profiler
+          key: async-profiler-${{ env.ASYNC_PROFILER_VERSION }}-${{ matrix.profiler }}
+      - name: Download async-profiler
+        if: steps.profiler.outputs.cache-hit != 'true'
+        run: |
+          curl -sSfL "https://github.com/async-profiler/async-profiler/releases/download/v$ASYNC_PROFILER_VERSION/async-profiler-$ASYNC_PROFILER_VERSION-${{ matrix.profiler }}.tar.gz" |
+            tar xz
+          mv "async-profiler-$ASYNC_PROFILER_VERSION-${{ matrix.profiler }}" async-profiler
+
       - name: Build
         run: |
           mvn -B -q -f cssw4j/pom.xml install -DskipTests
@@ -281,8 +294,6 @@ jobs:
       - name: Full search
         working-directory: blastp4j
         run: |
-          curl -sSfL "https://github.com/async-profiler/async-profiler/releases/download/v$ASYNC_PROFILER_VERSION/async-profiler-$ASYNC_PROFILER_VERSION-${{ matrix.profiler }}.tar.gz" |
-            tar xz -C ..
           {
             echo
             echo "### Full search, $(nproc) threads"
@@ -300,7 +311,7 @@ jobs:
               echo "jvm: $(git rev-parse --short HEAD), ref: $(git -C ../reference rev-parse --short HEAD)"
             fi
             QUERY=../data/queries.fasta DB=../data/blastdb/sprot THREADS="$(nproc)" ROUNDS="$ROUNDS" OUT=target/compare \
-              ASYNC_PROFILER="$(ls "$PWD"/../async-profiler-*/lib/libasyncProfiler.so)" bin/compare-blastp.sh "${systems[@]}"
+              ASYNC_PROFILER="$(cd .. && pwd)/async-profiler/lib/libasyncProfiler.so" bin/compare-blastp.sh "${systems[@]}"
             } | tee "$REPORT/full-search.txt"
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY" "$REPORT/report.md"
