@@ -1,7 +1,6 @@
 package swiss.sib.blastp4j.align;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -22,20 +21,11 @@ class SemiGappedLanesTest {
 		extend(8);
 	}
 
-	/** The copy with the gap costs as constants ({@link SemiGappedLanes#of}), a hidden class. */
-	@Test
-	void theCopyExtendsAsSemiGapped() {
-		assertTrue(SemiGappedLanes.of(11, 1, 400).getClass().isHidden());
-		extend(0);
-	}
-
-	/** With {@code slots} slots to start with; 0: the copy, with its 256. */
 	private static void extend(int slots) {
 		Random random = new Random(1);
 		for (int[] costs : new int[][] { { 11, 1 }, { 10, 1 }, { 9, 2 }, { 13, 3 } }) {
 			GappedAligner aligner = new GappedAligner(costs[0], costs[1]);
-			ScoreOnlyLanes lanes = slots == 0 ? SemiGappedLanes.of(costs[0], costs[1], 400)
-					: new SemiGappedLanes(costs[0], costs[1], 400, slots);
+			SemiGappedLanes lanes = new SemiGappedLanes(costs[0], costs[1], 400, slots);
 			// Related pairs (a mutated copy, with insertions and deletions, so that bands drift apart, some with a long
 			// insertion, so that a band drifts far from the others) and unrelated ones, extended both ways from random
 			// points, more of them than there are lanes.

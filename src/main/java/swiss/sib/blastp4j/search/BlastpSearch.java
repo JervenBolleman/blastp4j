@@ -15,7 +15,6 @@ import swiss.sib.blastp4j.align.GappedAligner;
 import swiss.sib.blastp4j.align.Hsp;
 import swiss.sib.blastp4j.align.HspTree;
 import swiss.sib.blastp4j.align.ScoreMatrix;
-import swiss.sib.blastp4j.align.ScoreOnlyLanes;
 import swiss.sib.blastp4j.align.SemiGappedLanes;
 import swiss.sib.blastp4j.compo.CompoHeap;
 import swiss.sib.blastp4j.compo.CompoRedo;
@@ -605,7 +604,7 @@ public final class BlastpSearch {
 		}
 
 		private final GappedAligner aligner;
-		private final ScoreOnlyLanes lanes;
+		private final SemiGappedLanes lanes;
 		private final List<List<Hit>> found;
 		private Job[] jobs = new Job[64];
 		private int[] free = new int[64];
@@ -614,7 +613,7 @@ public final class BlastpSearch {
 
 		LaneStage(GappedAligner aligner, int longestQuery, List<List<Hit>> found) {
 			this.aligner = aligner;
-			this.lanes = SemiGappedLanes.of(gapOpen, gapExtend, longestQuery);
+			this.lanes = new SemiGappedLanes(gapOpen, gapExtend, longestQuery);
 			this.found = found;
 		}
 
