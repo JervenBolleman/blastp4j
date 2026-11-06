@@ -1,0 +1,85 @@
+{
+ "run_id": "42207826589",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/42207826589",
+ "date": "2026-11-06 11:40 UTC",
+ "event": "workflow_dispatch",
+ "code": [
+  "`657a932` (Zen 5: 512-bit lanes for the score-only extensions and almostblastp's optimizer (experiment))"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 28.37,
+   "jvm_wall": 32.59,
+   "ref_wall": 32.58,
+   "wall": 1.1487486781811773,
+   "cycles": 1.095064498037016,
+   "instructions": 1.2003231017770597,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html",
+   "jvm_commit": "657a932",
+   "ref_commit": "b6e51a2",
+   "rounds": {
+    "blast": [
+     28.37,
+     28.5,
+     27.67
+    ],
+    "jvm": [
+     32.59,
+     32.3,
+     32.67
+    ],
+    "almost": [
+     31.68,
+     31.46,
+     31.25
+    ],
+    "ref": [
+     32.58,
+     32.43,
+     32.66
+    ]
+   }
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 9V74 80-Core Processor",
+   "cpus": "4",
+   "blast_wall": 42.26,
+   "jvm_wall": 39.15,
+   "ref_wall": 38.89,
+   "wall": 0.9264079507808802,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html",
+   "jvm_commit": "657a932",
+   "ref_commit": "b6e51a2",
+   "rounds": {
+    "blast": [
+     42.07,
+     42.5,
+     42.26
+    ],
+    "jvm": [
+     39.15,
+     39.16,
+     39.07
+    ],
+    "almost": [
+     37.21,
+     38.04,
+     37.76
+    ],
+    "ref": [
+     38.76,
+     38.89,
+     39.29
+    ]
+   }
+  }
+ ]
+}
