@@ -1,0 +1,43 @@
+{
+ "run_id": "42301834031",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/42301834031",
+ "date": "2026-11-06 22:25 UTC",
+ "event": "workflow_dispatch",
+ "code": [
+  "`d45aeb3` (macOS workflow: the outputs kept, their differences summarized; the report job fixed)"
+ ],
+ "rows": [
+  {
+   "architecture": "arm64-macos",
+   "cpu": "Apple M1 (Virtual)",
+   "cpus": "3",
+   "blast_wall": 36.76,
+   "jvm_wall": 45.72,
+   "ref_wall": null,
+   "wall": 1.2437431991294887,
+   "cycles": null,
+   "instructions": null,
+   "identical": false,
+   "profile": "arm64-macos/jvm-profile.html",
+   "jvm_commit": "d45aeb3",
+   "ref_commit": "",
+   "rounds": {
+    "blast": [
+     34.07,
+     39.18,
+     36.76
+    ],
+    "jvm": [
+     40.91,
+     45.72,
+     48.7
+    ],
+    "almost": [
+     43.31,
+     45.25,
+     55.62
+    ]
+   }
+  }
+ ]
+}
