@@ -110,4 +110,9 @@ reaches BLASTP's sensitivity in `--ultra-sensitive` mode at 80–360 times its s
 2. The composition stage's traceback filter with a proven upper bound (exact; up to about 12% of the traceback work).
 3. Ungapped extensions across hits in lanes (exact; ordering makes it hard).
 4. Traceback lanes across subjects (exact; x86-64 only, likely).
-5. A database index for the daemon (exact; a redesign, worth it only for many small jobs).
+5. A database index for the daemon (exact; a redesign, worth it only for many small jobs). Skipped for now: an index
+   finds the same hits as the scan and saves only the scan's cost per database position, which matters only for
+   short jobs (about 0.6 hits per position for one query, about 21 for a 10,000-letter batch), at the price of
+   restoring BLAST's hit order and about 0.85 GB per Swiss-Prot. Cheaper for the same case, if jobs queue up: one
+   scan shared by the queued jobs' queries (the preliminary stage's hits do not depend on the batch), with each job's
+   composition-based stage kept in its own batches.
