@@ -27,7 +27,13 @@ public final class TracebackLanes {
 		void done(int id, int score, int aOffset, int bOffset, EditScript ops);
 	}
 
-	private static final VectorSpecies<Integer> S = IntVector.SPECIES_256;
+	/**
+	 * The machine's preferred vectors, as SemiGappedLanes' (bin/jvm.options chooses the width), where they have the 8
+	 * ints or more that the lanes run with; 256 bits elsewhere (AArch64's 128), where only the tests use the class: the
+	 * traceback bytes need a byte vector of 8 x lanes bits, at least 64.
+	 */
+	private static final VectorSpecies<Integer> S = IntVector.SPECIES_PREFERRED.length() >= 8 ? IntVector.SPECIES_PREFERRED
+			: IntVector.SPECIES_256;
 	/** Lanes. */
 	public static final int L = S.length();
 	private static final VectorSpecies<Byte> B = VectorSpecies.of(byte.class, VectorShape.forBitSize(8 * L));
