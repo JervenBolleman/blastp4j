@@ -29,7 +29,8 @@ public final class SemiGappedLanes {
 		void done(int id, int score, int aOffset, int bOffset);
 	}
 
-	private static final VectorSpecies<Integer> S = IntVector.SPECIES_256;
+	/** The machine's preferred vectors (bin/jvm.options selects AVX-512 where it pays). */
+	private static final VectorSpecies<Integer> S = IntVector.SPECIES_PREFERRED;
 	/** Lanes. */
 	public static final int L = S.length();
 	/**

@@ -79,12 +79,11 @@ public final class WordFinder implements WordScan {
 	private boolean rightExtended;
 
 	/**
-	 * The machine's preferred vector of ints, at most 256 bits: one subject position per lane. With AVX-512 (16 lanes)
-	 * a single-query search of CDK1 took 10% longer than with 256 bits on a Xeon 8573C (BlastpSearchBench, two runs),
-	 * and the full search of 500 bean queries 8% longer on an EPYC 9V45.
+	 * The machine's preferred vector of ints: one subject position per lane. bin/jvm.options selects the width (AVX-512
+	 * on Zen 5). Capped at 256 bits before: with AVX-512 (16 lanes) a single-query search of CDK1 took 10% longer on a
+	 * Xeon 8573C (BlastpSearchBench, two runs), and the full search of 500 bean queries 8% longer on an EPYC 9V45.
 	 */
-	private static final VectorSpecies<Integer> INTS = IntVector.SPECIES_PREFERRED.length() > 8 ? IntVector.SPECIES_256
-			: IntVector.SPECIES_PREFERRED;
+	private static final VectorSpecies<Integer> INTS = IntVector.SPECIES_PREFERRED;
 	/** Positions per vector. */
 	private static final int LANES = INTS.length();
 	/**

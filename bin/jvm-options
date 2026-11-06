@@ -1,11 +1,14 @@
 #!/usr/bin/env sh
 # Prints the JVM options in bin/jvm.options that apply to this machine, on one line: every line that is not a comment,
-# and the lines starting with "[arch] " only where uname -m prints arch.
+# the lines starting with "[arch] " only where uname -m prints arch, and those starting with "[zen5] " only on AMD Zen 5
+# (the first CPU of /proc/cpuinfo: vendor AuthenticAMD, CPU family 26, with the avx512f flag).
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-awk -v arch="$(uname -m)" '
+zen5=$(awk -F': *' '/^vendor_id/ { v = $2 } /^cpu family/ { f = $2 } /^flags/ { a = (" " $2 " ") ~ / avx512f /; exit }
+	END { print (v == "AuthenticAMD" && f == 26 && a) ? "zen5" : "" }' /proc/cpuinfo 2>/dev/null)
+awk -v arch="$(uname -m)" -v zen5="$zen5" '
 	/^#/ || NF == 0 { next }
 	/^\[/ {
-		if ($1 != "[" arch "]") next
+		if ($1 != "[" arch "]" && !(zen5 != "" && $1 == "[" zen5 "]")) next
 		sub(/^\[[^]]*\] */, "")
 	}
 	{ printf "%s ", $0 }' "$HERE/bin/jvm.options"
