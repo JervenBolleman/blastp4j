@@ -628,7 +628,9 @@ public final class GappedAligner {
 				int bSize, EditScript ops) {
 			final int goe = this.goe, ext = this.ext;
 			final int[] dp = g.dp, rowStart = g.rowStart;
-			final int[] mat = g.matrix.scores;
+			// The 32-wide matrix: with its index masked with mat.length - 1 (1024 entries), C2 drops the bounds check.
+			final int[] mat = g.matrix.wide;
+			final int mask = mat.length - 1;
 			final int numExtraCells = ext > 0 ? xDrop / ext + 3 : n + 3;
 			byte[] tb = g.trace;
 			int score;
@@ -641,13 +643,13 @@ public final class GappedAligner {
 				final int base = used + 1 - first; // tb[base + bi] is cell (ai, bi)
 				rowStart[ai] = base;
 				final int origFirst = first;
-				final int row = letterA(a, aBase, m, ai, reverse) * N;
+				final int row = letterA(a, aBase, m, ai, reverse) << 5;
 				score = MININT;
 				int gapRow = MININT, last = first;
 				int bi;
 				for (bi = first; bi < bSize; bi++) {
 					int gapCol = dp[2 * bi + 1];
-					int next = dp[2 * bi] + mat[row + bs[bi]];
+					int next = dp[2 * bi] + mat[(row + bs[bi]) & mask];
 					// The best of the three moves, and which one (ties keep the earlier one), without branches on the scores.
 					int script = gapCol > score ? EditScript.INS : EditScript.SUB;
 					final int afterCol = Math.max(score, gapCol);
