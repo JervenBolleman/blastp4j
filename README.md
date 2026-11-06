@@ -595,6 +595,20 @@ reverted) gained nothing. `RowsTest` compares the copies' tracebacks with `ExRow
 | e9d5cb1 | ungapped extension loops unrolled by four (54574b8) | +2.3% | +4.7% |
 | 36f465f | score-only row's last live cell found after the row (aa1ef5b) | +2.4% | rounds mixed |
 
+*Kept:* the composition-based stage's tracebacks in lanes, many subjects at once (`align.TracebackLanes`,
+`compo.TracebackStage`; branch `exp/traceback-lanes`, ea8ac72 to c08e2df), where `SemiGappedLanes` runs (x86-64,
+preferred vectors of 8 ints or more). Each lane runs one side of one traceback, alignEx's dynamic program with a
+traceback byte per cell and the subject's own adjusted matrix; 16 subjects per task are in flight, each driven by
+`CompoRedo.Subject`, the scalar redo's steps. Alone the kernel took 1432 ms where the scalar one took 2848 ms. On the
+runners (500 bean queries): x64 wall -10.2% on an EPYC 9V74 and -8.2% on an EPYC 7763, AArch64 unchanged (the lanes
+are off there; the scalar redo is main's own loop, as driving `Subject` there cost 7% more instructions). Locally 7.8%
+fewer cycles; memory up about 15% (the trace rings).
+
+*Tried, kept as branches only:* ungapped extensions in lanes across hits (`exp/ungapped-lanes`, c2aecec, 1200971):
+40-85% more cycles locally (plain and vector lanes), 45-52% more wall time on the runners. The traceback filter (`exp/traceback-filter`, b881f5c): a proven bound on the traceback score from a
+score-only extension, so that a subject with one preliminary alignment whose bound cannot reach the E-value cutoff
+skips its traceback; -1.9% cycles locally, -0.3% to -0.4% wall on the runners, within noise.
+
 ## Composition-based statistics
 
 blastp's default, mode 2 ("conditional compositional score matrix adjustment", Altschul et al. 2005; Yu and
