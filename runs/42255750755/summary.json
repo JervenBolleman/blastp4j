@@ -1,0 +1,25 @@
+{
+ "run_id": "42255750755",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/42255750755",
+ "date": "2026-11-06 16:49 UTC",
+ "event": "push",
+ "code": [],
+ "rows": [
+  {
+   "architecture": "*",
+   "cpu": "?",
+   "cpus": "?",
+   "blast_wall": null,
+   "jvm_wall": null,
+   "ref_wall": null,
+   "wall": null,
+   "cycles": null,
+   "instructions": null,
+   "identical": false,
+   "profile": "",
+   "jvm_commit": "",
+   "ref_commit": "",
+   "rounds": {}
+  }
+ ]
+}
