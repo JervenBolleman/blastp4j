@@ -391,6 +391,11 @@ public final class WordFinder implements WordScan, UngappedLanes.Owner {
 	}
 
 	@Override
+	public int base() {
+		return diagBase;
+	}
+
+	@Override
 	public int xDrop() {
 		return xDrop;
 	}
