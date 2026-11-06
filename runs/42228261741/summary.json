@@ -1,0 +1,85 @@
+{
+ "run_id": "42228261741",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/42228261741",
+ "date": "2026-11-06 14:27 UTC",
+ "event": "workflow_dispatch",
+ "code": [
+  "`acab61e` (Diagnostic: the JIT's work per system in compare-blastp.sh (not for main))"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 27.97,
+   "jvm_wall": 32.42,
+   "ref_wall": 32.04,
+   "wall": 1.1590990346800145,
+   "cycles": 1.0777653003930376,
+   "instructions": 1.1962520119567717,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html",
+   "jvm_commit": "acab61e",
+   "ref_commit": "b6e51a2",
+   "rounds": {
+    "blast": [
+     27.89,
+     28.18,
+     27.97
+    ],
+    "jvm": [
+     32.42,
+     32.48,
+     32.26
+    ],
+    "almost": [
+     32.55,
+     31.55,
+     30.93
+    ],
+    "ref": [
+     32.04,
+     32.02,
+     32.12
+    ]
+   }
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+   "cpus": "4",
+   "blast_wall": 53.95,
+   "jvm_wall": 50.16,
+   "ref_wall": 54.22,
+   "wall": 0.929749768303985,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html",
+   "jvm_commit": "acab61e",
+   "ref_commit": "b6e51a2",
+   "rounds": {
+    "blast": [
+     53.93,
+     53.95,
+     54.33
+    ],
+    "jvm": [
+     51.21,
+     49.67,
+     50.16
+    ],
+    "almost": [
+     50.31,
+     48.72,
+     48.4
+    ],
+    "ref": [
+     54.22,
+     54.38,
+     53.38
+    ]
+   }
+  }
+ ]
+}
