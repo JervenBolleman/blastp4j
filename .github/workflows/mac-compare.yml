@@ -1,0 +1,335 @@
+# Compares blastp4j (C2) with BLAST+ on GitHub's macOS runners (Apple Silicon: M1, virtualized), as
+# arch-compare.yml does on Linux, to see the scalar paths on a third ARM core: Apple's cores have 128-bit NEON and no
+# SVE (SPECIES_PREFERRED is 4 ints, so no SemiGappedLanes or TracebackLanes, as on the Linux ARM runners), but are
+# wider than the Neoverse N2.
+#
+# Manual only (workflow_dispatch). Per runner:
+# 1. The JMH benchmarks (the BENCHMARK input) with this machine's options from bin/jvm.options plus each variant's.
+# 2. A full search, BLAST+ and blastp4j interleaved (bin/compare-blastp.sh), almostblastp where the code has it, and
+#    the REFERENCE commit when given, with an async-profiler flame graph.
+# macOS has no perf and no hsdis here, so no hardware counters, no machine code and no spill counts; the timing uses
+# GNU time from Homebrew (gtime). bin/compare-blastp.sh is this workflow's ref's, copied into the code's tree (older
+# code's copy has no TIME setting).
+#
+# The report: as arch-compare.yml's, into the same reports branch and GitHub Pages (runs/<run id>/ and the index),
+# with the architecture "arm64-macos"; the report jobs of both workflows take turns (concurrency group reports).
+#
+# Needs cssw4j: the repository in the CSSW4J_REPOSITORY variable, default <owner>/cssw4j.
+name: macOS comparison
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "macOS runner label (macos-15: M1, 3 CPUs; macos-15-xlarge needs a paid plan)"
+        default: macos-15
+      queries:
+        description: Number of proteome sequences used as queries in the full search
+        default: "500"
+      rounds:
+        description: Timing rounds of the full search
+        default: "3"
+      variants:
+        description: "Benchmark variants, label=JVM options after bin/jvm.options, separated by ;"
+        default: "launcher=;oops-on=-XX:+UseCompressedOops;oops-off=-XX:-UseCompressedOops"
+      bench_rounds:
+        description: Benchmark rounds, the variants interleaved in each
+        default: "1"
+      code:
+        description: blastp4j branch, tag or commit (full 40-character SHA) to measure; empty for the workflow's ref
+        default: ""
+      reference:
+        description: blastp4j branch, tag or commit (full 40-character SHA) to compare with in the same job; empty for none
+        default: ""
+      benchmark:
+        description: "JMH benchmarks (a regular expression) for the benchmark step; . for all, empty to skip"
+        default: "."
+      bench_args:
+        description: "Further JMH arguments for the benchmark step, such as -p query=HBA_HUMAN or -wi 5 -i 20 (default: each benchmark's own)"
+        default: ""
+      almostblastp:
+        description: "Also time almostblastp (the code's cli.AlmostBlastp, results may differ slightly) in the full search: true or false"
+        default: "true"
+
+permissions:
+  contents: read
+
+env:
+  QUERIES: ${{ inputs.queries }}
+  ROUNDS: ${{ inputs.rounds }}
+  VARIANTS: ${{ inputs.variants }}
+  BENCH_ROUNDS: ${{ inputs.bench_rounds }}
+  BENCHMARK: ${{ inputs.benchmark }}
+  BENCH_ARGS: ${{ inputs.bench_args }}
+  ALMOSTBLASTP: ${{ inputs.almostblastp }}
+  REFERENCE: ${{ inputs.reference }}
+  BLAST_VERSION: 2.17.0
+  JAVA_VERSION: "27"
+  ASYNC_PROFILER_VERSION: "4.5"
+  PROTEOME_URL: https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/Eukaryota/UP000000226/UP000000226_3885.fasta.gz
+
+jobs:
+  compare:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 240
+    env:
+      REPORT: ${{ github.workspace }}/report
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: workflow
+          sparse-checkout: |
+            bin/compare-blastp.sh
+            .github/scripts/jmh-table.py
+          sparse-checkout-cone-mode: false
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.code }}
+          path: blastp4j
+      - uses: actions/checkout@v7
+        if: env.REFERENCE
+        with:
+          ref: ${{ env.REFERENCE }}
+          path: reference
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ vars.CSSW4J_REPOSITORY || format('{0}/cssw4j', github.repository_owner) }}
+          path: cssw4j
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+          cache-dependency-path: |
+            blastp4j/pom.xml
+            cssw4j/pom.xml
+
+      - name: Install packages
+        run: |
+          brew install gnu-time
+          echo "TIME=$(command -v gtime)" >>"$GITHUB_ENV"
+
+      - name: Machine
+        run: |
+          mkdir -p "$REPORT"
+          {
+            echo "Architecture: arm64-macos"
+            echo "CPU model: $(sysctl -n machdep.cpu.brand_string)"
+            echo "Vendor: Apple"
+            echo "CPUs: $(sysctl -n hw.ncpu)"
+            echo "Core types: $(sysctl -n hw.nperflevels 2>/dev/null || echo 1) ($(for l in 0 1; do
+              n=$(sysctl -n hw.perflevel$l.name 2>/dev/null) && printf '%s %s; ' "$n" "$(sysctl -n hw.perflevel$l.logicalcpu)"; done))"
+            echo "Memory: $(( $(sysctl -n hw.memsize) / 1073741824 )) GB"
+            echo "Kernel: Darwin $(uname -r), macOS $(sw_vers -productVersion)"
+            echo "Runner: ${{ inputs.runner }}, image $ImageOS $ImageVersion"
+            echo "JDK: $(java -version 2>&1 | sed -n 2p)"
+            # What C2 vectorizes with here: NEON only (no SVE on Apple Silicon), and the widest vector (bytes).
+            echo "JVM vectors: $(java -XX:+PrintFlagsFinal -version 2>/dev/null |
+              awk '$2 ~ /^(UseSVE|MaxVectorSize|UseSIMDForMemoryOps)$/ { printf "%s%s=%s", s, $2, $4; s = " " }')"
+            echo "CPU features: $(sysctl hw.optional 2>/dev/null | awk -F': ' '$2 == 1 { sub(/^hw\.optional\.(arm\.)?/, "", $1); printf "%s%s", s, $1; s = " " }')"
+            echo "Caches: L1d $(( $(sysctl -n hw.perflevel0.l1dcachesize 2>/dev/null || sysctl -n hw.l1dcachesize) / 1024 )) KB, L2 $(( $(sysctl -n hw.perflevel0.l2cachesize 2>/dev/null || sysctl -n hw.l2cachesize) / 1048576 )) MB, cache line $(sysctl -n hw.cachelinesize) B"
+            echo "BLAST+: $BLAST_VERSION"
+            echo "Code: \`$(git -C blastp4j rev-parse --short HEAD)\` ($(git -C blastp4j log -1 --format=%s | cut -c1-100))"
+            if [ -d reference ]; then echo "Reference: \`$(git -C reference rev-parse --short HEAD)\`"; fi
+            echo "Queries: $QUERIES; rounds: $ROUNDS"
+          } >"$REPORT/machine.txt"
+          {
+            echo "## arm64 on ${{ inputs.runner }} (macOS)"
+            echo
+            echo '```'
+            cat "$REPORT/machine.txt"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+          cat "$REPORT/machine.txt"
+
+      - name: Cache BLAST+
+        id: blast
+        uses: actions/cache@v6
+        with:
+          path: ncbi-blast
+          key: blast-${{ env.BLAST_VERSION }}-aarch64-macosx
+      - name: Download BLAST+
+        if: steps.blast.outputs.cache-hit != 'true'
+        run: |
+          curl -sSfL "https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/$BLAST_VERSION/ncbi-blast-$BLAST_VERSION+-aarch64-macosx.tar.gz" |
+            tar xz "ncbi-blast-$BLAST_VERSION+/bin/blastp" "ncbi-blast-$BLAST_VERSION+/bin/makeblastdb"
+          mv "ncbi-blast-$BLAST_VERSION+" ncbi-blast
+      - name: Add BLAST+ to the path
+        run: echo "$PWD/ncbi-blast/bin" >>"$GITHUB_PATH"
+
+      - name: Cache async-profiler
+        id: profiler
+        uses: actions/cache@v6
+        with:
+          path: async-profiler
+          key: async-profiler-${{ env.ASYNC_PROFILER_VERSION }}-macos
+      - name: Download async-profiler
+        if: steps.profiler.outputs.cache-hit != 'true'
+        run: |
+          curl -sSfL -o async-profiler.zip "https://github.com/async-profiler/async-profiler/releases/download/v$ASYNC_PROFILER_VERSION/async-profiler-$ASYNC_PROFILER_VERSION-macos.zip"
+          unzip -q async-profiler.zip
+          mv "async-profiler-$ASYNC_PROFILER_VERSION-macos" async-profiler
+          rm async-profiler.zip
+
+      - name: Build
+        run: |
+          mvn -B -q -f cssw4j/pom.xml install -DskipTests
+          mvn -B -q -f blastp4j/pom.xml package -DskipTests
+          mvn -B -q -f blastp4j/pom.xml dependency:build-classpath -Dmdep.outputFile="$PWD/blastp4j/target/cp.txt"
+          if [ -d reference ]; then
+            mvn -B -q -f reference/pom.xml package -DskipTests
+            mvn -B -q -f reference/pom.xml dependency:build-classpath -Dmdep.outputFile="$PWD/reference/target/cp.txt"
+          fi
+          # This workflow's comparison script (with its TIME setting), whatever the code's.
+          cp workflow/bin/compare-blastp.sh blastp4j/bin/compare-blastp.sh
+
+      - name: Data
+        run: |
+          mkdir -p data/blastdb
+          curl -sSfL "$PROTEOME_URL" | gunzip >data/proteome.fasta
+          makeblastdb -in data/proteome.fasta -dbtype prot -parse_seqids -out data/blastdb/sprot >/dev/null
+          ln -s proteome.fasta data/uniprot_sprot.fasta
+          gzip -c data/proteome.fasta >data/uniprot_sprot.fasta.gz
+          awk -v n="$QUERIES" '/^>/ { if (++k > n) exit } { print }' data/proteome.fasta >data/queries.fasta
+          echo "database: $(grep -c '^>' data/proteome.fasta) sequences; queries: $(grep -c '^>' data/queries.fasta)"
+
+      - name: Benchmark
+        if: env.BENCHMARK != ''
+        working-directory: blastp4j
+        run: |
+          base="$(bin/jvm-options)"
+          data="$(cd ../data && pwd)"
+          out="$PWD/target"
+          IFS=';' read -ra variants <<<"$VARIANTS"
+          codes=("$(git rev-parse --abbrev-ref HEAD | sed 's/^HEAD$/code/') $(git rev-parse --short HEAD)=$PWD")
+          [ -d ../reference ] && codes+=("reference $(git -C ../reference rev-parse --short HEAD)=$(cd ../reference && pwd)")
+          for r in $(seq 1 "$BENCH_ROUNDS"); do
+            for v in "${variants[@]}"; do
+              for k in "${!codes[@]}"; do
+                (cd "${codes[$k]#*=}" &&
+                  java --add-modules jdk.incubator.vector -cp "target/test-classes:target/classes:$(cat target/cp.txt)" \
+                    org.openjdk.jmh.Main "$BENCHMARK" $BENCH_ARGS \
+                    -jvmArgsAppend "$(bin/jvm-options)-Dblastp4j.sprot=$data ${v#*=}" \
+                    -rf csv -rff "$out/jmh-$k-${v%%=*}-$r.csv" >"$out/jmh-$k-${v%%=*}-$r.log" 2>&1)
+              done
+            done
+          done
+          runs=()
+          for r in $(seq 1 "$BENCH_ROUNDS"); do
+            for v in "${variants[@]}"; do
+              for k in "${!codes[@]}"; do
+                label="${codes[$k]%%=*} ${v%%=*}"
+                [ "$BENCH_ROUNDS" -gt 1 ] && label+=" $r"
+                runs+=("$label=target/jmh-$k-${v%%=*}-$r.csv")
+              done
+            done
+          done
+          {
+            echo
+            echo "### Benchmarks: $BENCHMARK $BENCH_ARGS (one thread; score ± 99.9% error)"
+            echo
+            echo "bin/jvm-options: \`$base\`"
+            echo
+            echo "Variants: $(for v in "${variants[@]}"; do printf '%s `%s`; ' "${v%%=*}" "${v#*=}"; done)"
+            echo
+            python3 "$GITHUB_WORKSPACE/workflow/.github/scripts/jmh-table.py" "${runs[@]}"
+          } | tee -a "$GITHUB_STEP_SUMMARY" "$REPORT/report.md"
+
+      - name: Full search
+        working-directory: blastp4j
+        run: |
+          {
+            echo
+            echo "### Full search, $(sysctl -n hw.ncpu) threads"
+            echo '```'
+            {
+            systems=(blast jvm)
+            if [ "$ALMOSTBLASTP" = true ] && unzip -l target/blastp4j-*[0-9T].jar 2>/dev/null | grep -q 'cli/AlmostBlastp.class'; then
+              systems+=(almost)
+            fi
+            if [ -d ../reference ]; then
+              systems+=(ref)
+              export REF_JAR="$(ls "$PWD"/../reference/target/blastp4j-*.jar | grep -v -e sources -e javadoc | head -1)"
+              export REF_HOME="$(cd ../reference && pwd)"
+              echo "jvm: $(git rev-parse --short HEAD), ref: $(git -C ../reference rev-parse --short HEAD)"
+            fi
+            QUERY=../data/queries.fasta DB=../data/blastdb/sprot THREADS="$(sysctl -n hw.ncpu)" ROUNDS="$ROUNDS" \
+              OUT=target/compare ASYNC_PROFILER="$(cd .. && pwd)/async-profiler/lib/libasyncProfiler.dylib" \
+              bin/compare-blastp.sh "${systems[@]}"
+            } | tee "$REPORT/full-search.txt"
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY" "$REPORT/report.md"
+          cp target/compare/jvm-profile.html "$REPORT/" 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: compare-macos-${{ runner.arch }}
+          path: |
+            blastp4j/target/jmh-*
+            blastp4j/target/compare/*.log
+            blastp4j/target/compare/*.txt
+            blastp4j/target/compare/jvm-profile.html
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: report-macos-${{ runner.arch }}
+          path: report
+
+  # As arch-compare.yml's report job: this run's page and the index, in the reports branch and on GitHub Pages.
+  report:
+    needs: compare
+    if: always()
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: reports
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/scripts
+          path: code
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: report-*
+          path: reports
+      - name: Reports branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          url="https://x-access-token:$GH_TOKEN@github.com/${{ github.repository }}.git"
+          if git ls-remote --exit-code --heads "$url" reports >/dev/null; then
+            git clone -q --depth 1 --branch reports "$url" site
+          else
+            git init -q -b reports site
+            git -C site remote add origin "$url"
+          fi
+      - name: Build the pages
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_EVENT: ${{ github.event_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          python3 code/.github/scripts/report.py run "site/runs/$RUN_ID" reports/*
+          python3 code/.github/scripts/report.py index site
+      - name: Push the reports branch
+        working-directory: site
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Report of macOS run ${{ github.run_id }} ($(git -C ../code rev-parse --short HEAD))"
+          git push -q origin reports
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v5

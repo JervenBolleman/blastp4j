@@ -11,7 +11,7 @@
 # Every output is compared with the first one written (BLAST+'s when blast is chosen).
 #
 # Settings (environment): QUERY, DB, THREADS (8), ROUNDS (5), OUT (target/compare), BLASTP (blastp on PATH),
-# JAVA_HOME or JAVA, NATIVE (the native executable, needed for native), ASYNC_PROFILER (libasyncProfiler.so; without
+# TIME (GNU time, for -o and -f; default /usr/bin/time, on macOS gtime from Homebrew's gnu-time), JAVA_HOME or JAVA, NATIVE (the native executable, needed for native), ASYNC_PROFILER (libasyncProfiler.so; without
 # it the profile run is skipped). The JVM runs the jar built by "mvn package", with this machine's options from
 # bin/jvm.options (as bin/blastp4j). ref runs another build's jar, REF_JAR, with the options of that build's tree,
 # REF_HOME (default this tree's): blastp4j at another commit, to compare code and options on the same machine.
@@ -25,6 +25,7 @@ OUT="${OUT:-$HERE/target/compare}"
 BLASTP="${BLASTP:-blastp}"
 JAVA="${JAVA:-${JAVA_HOME:+$JAVA_HOME/bin/}java}"
 ASYNC_PROFILER="${ASYNC_PROFILER:-}"
+TIME="${TIME:-/usr/bin/time}"
 
 SYSTEMS=()
 for a in "${@:-all}"; do
@@ -80,7 +81,7 @@ echo "systems: ${SYSTEMS[*]}; query $QUERY; db $DB; $THREADS threads; output in 
 echo "== timing, $ROUNDS rounds (wall s, user s, sys s)"
 for r in $(seq 1 "$ROUNDS"); do
 	for s in "${SYSTEMS[@]}"; do
-		search "$s" "time-$s-$r" /usr/bin/time -o "$OUT/time-$s-$r.txt" -f "%e %U %S"
+		search "$s" "time-$s-$r" "$TIME" -o "$OUT/time-$s-$r.txt" -f "%e %U %S"
 		echo "round $r $s: $(cat "$OUT/time-$s-$r.txt") ($SAME)"
 	done
 done
