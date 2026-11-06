@@ -1,0 +1,85 @@
+{
+ "run_id": "42268459548",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/42268459548",
+ "date": "2026-11-06 18:48 UTC",
+ "event": "push",
+ "code": [
+  "`220cc89` (ExRows: the matrix 32 wide with a masked index, no bounds check)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 27.65,
+   "jvm_wall": 32.28,
+   "ref_wall": 32.53,
+   "wall": 1.1674502712477397,
+   "cycles": 1.0992130410342889,
+   "instructions": 1.1996281663955382,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html",
+   "jvm_commit": "220cc89",
+   "ref_commit": "f8b0cba",
+   "rounds": {
+    "blast": [
+     28.32,
+     27.65,
+     27.55
+    ],
+    "jvm": [
+     32.5,
+     32.09,
+     32.28
+    ],
+    "almost": [
+     31.29,
+     30.65,
+     31.23
+    ],
+    "ref": [
+     32.53,
+     34.53,
+     32.14
+    ]
+   }
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 7763 64-Core Processor",
+   "cpus": "4",
+   "blast_wall": 51.12,
+   "jvm_wall": 44.42,
+   "ref_wall": 43.69,
+   "wall": 0.8689358372456965,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html",
+   "jvm_commit": "220cc89",
+   "ref_commit": "f8b0cba",
+   "rounds": {
+    "blast": [
+     51.12,
+     52.21,
+     50.94
+    ],
+    "jvm": [
+     44.79,
+     44.42,
+     42.92
+    ],
+    "almost": [
+     43.51,
+     43.21,
+     41.61
+    ],
+    "ref": [
+     45.96,
+     43.69,
+     43.09
+    ]
+   }
+  }
+ ]
+}
