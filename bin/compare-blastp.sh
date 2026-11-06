@@ -99,6 +99,27 @@ else
 	echo "skipped: no hardware counters (perf stat -e cycles:u)"
 fi
 
+# Diagnostic (exp/arm-instructions-diag): where the JVM's instructions go, jvm and ref both sampled on instructions.
+if [ -f "$ASYNC_PROFILER" ] && grep -q '^[0-9]' "$OUT/perf-check.txt" 2>/dev/null; then
+	JFRCONV="$(dirname "$ASYNC_PROFILER")/../bin/jfrconv"
+	for s in jvm ref; do
+		[[ " ${SYSTEMS[*]} " == *" $s "* ]] || continue
+		echo "== instructions profile ($s)"
+		JVM_EXTRA="-agentpath:$ASYNC_PROFILER=start,event=instructions,interval=1000000,threads,file=$OUT/instr-$s.jfr" \
+			search "$s" "instr-$s"
+		"$JFRCONV" --norm --simple --threads -o collapsed "$OUT/instr-$s.jfr" "$OUT/instr-$s.collapsed" >/dev/null
+		"$JFRCONV" --norm -o html "$OUT/instr-$s.jfr" "$OUT/jvm-instr-$s.html" >/dev/null
+		awk '{ n = $NF; total += n } END { printf "total samples %d (1 per 1M instructions) (%s)\n", total, "'"$SAME"'" }' \
+			"$OUT/instr-$s.collapsed"
+		echo "by thread (names with digits merged):"
+		awk '{ n = $NF; sub(/ [0-9]+$/, ""); split($0, f, ";"); t = f[1]; gsub(/[0-9]+/, "#", t); c[t] += n }
+			END { for (t in c) printf "%12d  %s\n", c[t], t }' "$OUT/instr-$s.collapsed" | sort -rn | head -20
+		echo "self, top 40 frames:"
+		awk '{ n = $NF; sub(/ [0-9]+$/, ""); k = split($0, f, ";"); c[f[k]] += n }
+			END { for (m in c) printf "%12d  %s\n", c[m], m }' "$OUT/instr-$s.collapsed" | sort -rn | head -40
+	done
+fi
+
 if [[ " ${SYSTEMS[*]} " == *" jvm "* ]]; then
 	echo "== async-profiler (JVM)"
 	if [ -f "$ASYNC_PROFILER" ]; then
