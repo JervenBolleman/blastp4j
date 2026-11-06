@@ -53,7 +53,7 @@ public class TracebackLanesBound {
 		}
 		final GappedAligner g = new GappedAligner(GAP_OPEN, GAP_EXTEND);
 		final int[] scoreOnly = new int[n];
-		long tbBest = Long.MAX_VALUE, soBest = Long.MAX_VALUE, lanesBest = Long.MAX_VALUE;
+		long tbBest = Long.MAX_VALUE, soBest = Long.MAX_VALUE, lanesBest = Long.MAX_VALUE, tlBest = Long.MAX_VALUE;
 		int bad = 0;
 		for (int pass = 0; pass < passes; pass++) {
 			long t0 = System.nanoTime();
@@ -91,6 +91,33 @@ public class TracebackLanesBound {
 			while (lanes.step((id, score, a, b) -> lanesScore[id >> 1] += score)) {
 			}
 			long t3 = System.nanoTime();
+			final int[] tlScore = new int[n];
+			final long[] opsCount = new long[1];
+			final TracebackLanes tl = new TracebackLanes(GAP_OPEN, GAP_EXTEND, maxQ);
+			for (int c = 0; c < n; c++) {
+				final Object[] k = calls.get(c);
+				final byte[] q = (byte[]) k[0], s = (byte[]) k[1];
+				final int length = (int) k[2];
+				final int[] v = (int[]) k[5], m32 = (int[]) k[4];
+				final int qs = v[0], ss = v[1];
+				tl.submit(q, 0, qs + 1, s, 1, ss + 1, true, v[2], 2 * c, m32);
+				if (qs + 1 < q.length && ss + 1 < length) {
+					tl.submit(q, qs, q.length - qs - 1, s, 1 + ss, length - ss - 1, false, v[2], 2 * c + 1, m32);
+				}
+			}
+			while (tl.step((id, score, a, b, ops) -> {
+				tlScore[id >> 1] += score;
+				opsCount[0] += ops.size();
+			})) {
+			}
+			long t4 = System.nanoTime();
+			if (pass == 0) {
+				int tlBad = 0;
+				for (int c = 0; c < n; c++) {
+					tlBad += tlScore[c] != scoreOnly[c] ? 1 : 0;
+				}
+				System.out.printf("traceback lanes differ from score-only in %d (%d operations)%n", tlBad, opsCount[0]);
+			}
 			if (pass == 0) {
 				int laneBad = 0;
 				for (int c = 0; c < n; c++) {
@@ -103,9 +130,11 @@ public class TracebackLanesBound {
 				tbBest = Math.min(tbBest, t1 - t0);
 				soBest = Math.min(soBest, t2 - t1);
 				lanesBest = Math.min(lanesBest, t3 - t2);
+				tlBest = Math.min(tlBest, t4 - t3);
 			}
 		}
-		System.out.printf("best of %d passes: traceback %.1f ms, score-only %.1f ms, score-only lanes (%d) %.1f ms%n",
-				passes - 1, tbBest / 1e6, soBest / 1e6, SemiGappedLanes.L, lanesBest / 1e6);
+		System.out.printf(
+				"best of %d passes: traceback %.1f ms, score-only %.1f ms, score-only lanes (%d) %.1f ms, traceback lanes %.1f ms%n",
+				passes - 1, tbBest / 1e6, soBest / 1e6, SemiGappedLanes.L, lanesBest / 1e6, tlBest / 1e6);
 	}
 }
