@@ -61,9 +61,6 @@ public final class GappedAligner {
 	private RowLoops rows;
 	/** alignEx's row loop, with this aligner's gap costs as constants where that can be done ({@link ExRows#of}). */
 	private final ExRowLoops exRows;
-	/** {@link #exRows} for the X-drop of the last alignEx, {@link #exRowsXDrop}, as a constant too where it can be. */
-	private ExRowLoops exRowsX;
-	private int exRowsXDrop = -1;
 
 	/**
 	 * @param gapOpen   BLAST's gap open cost (11): a gap of k letters costs {@code gapOpen + k * gapExtend}
@@ -372,13 +369,8 @@ public final class GappedAligner {
 			score -= gapExtend;
 			tb[i] = EditScript.DEL;
 		}
-		// The rest in a copy of ExRows with this aligner's gap costs and this X-drop as constants (ExRows.of): one X-drop
-		// per stage for a whole search, so the copy changes only between stages.
-		if (xDrop != exRowsXDrop) {
-			exRowsX = exRows.withXDrop(xDrop);
-			exRowsXDrop = xDrop;
-		}
-		return exRowsX.rows(this, a, aBase, m, bs, n, reverse, xDrop, i, ops);
+		// The rest in a copy of ExRows with this aligner's gap costs as constants (ExRows.of).
+		return exRows.rows(this, a, aBase, m, bs, n, reverse, xDrop, i, ops);
 	}
 
 
@@ -567,30 +559,26 @@ public final class GappedAligner {
 		return null;
 	}
 
-	/**
-	 * A row loop copy's constants: the gap costs, the X-drop (0: none) and the matrix (by identity; only
-	 * {@link Rows#BLOSUM62} for now).
-	 */
-	record Key(int goe, int ext, int xDrop, int[] matrix) {
+	/** A row loop copy's constants: the gap costs and the matrix (by identity; only {@link Rows#BLOSUM62} for now). */
+	record Key(int goe, int ext, int[] matrix) {
 		@Override
 		public boolean equals(Object o) {
-			return o instanceof Key k && k.goe == goe && k.ext == ext && k.xDrop == xDrop && k.matrix == matrix;
+			return o instanceof Key k && k.goe == goe && k.ext == ext && k.matrix == matrix;
 		}
 
 		@Override
 		public int hashCode() {
-			return 31 * (31 * (31 * goe + ext) + xDrop) + System.identityHashCode(matrix);
+			return 31 * (31 * goe + ext) + System.identityHashCode(matrix);
 		}
 	}
 
 	/**
 	 * A copy of the row loop class {@code c} ({@link Rows} or {@link ExRows}), made with the class-file API and defined
 	 * as a hidden class in this nest (so it reads the aligner's private fields as {@code c} does), with each read of
-	 * {@code goe}, {@code ext} and {@code xd} (the X-drop, 0 for none) replaced by the constant and, with a matrix, each
-	 * read of {@code MATRIX} by the hidden class's class data, a dynamic constant. Returns an instance, made with the
-	 * constructor of the two gap costs.
+	 * {@code goe} and {@code ext} replaced by the constant and, with a matrix, each read of {@code MATRIX} by the hidden
+	 * class's class data, a dynamic constant. Returns an instance, made with the constructor of the two gap costs.
 	 */
-	private static Object copy(Class<?> c, int goe, int ext, int xd, int[] matrix) throws Throwable {
+	private static Object copy(Class<?> c, int goe, int ext, int[] matrix) throws Throwable {
 		final byte[] bytes;
 		try (java.io.InputStream in = c.getResourceAsStream(c.getName().substring(c.getName().lastIndexOf('.') + 1)
 				+ ".class")) {
@@ -602,9 +590,9 @@ public final class GappedAligner {
 		final java.lang.classfile.CodeTransform constants = (code, element) -> {
 			if (element instanceof java.lang.classfile.instruction.FieldInstruction f
 					&& f.opcode() == java.lang.classfile.Opcode.GETFIELD && f.owner().asSymbol().equals(self)
-					&& (f.name().equalsString("goe") || f.name().equalsString("ext") || f.name().equalsString("xd"))) {
+					&& (f.name().equalsString("goe") || f.name().equalsString("ext"))) {
 				code.pop(); // the receiver
-				code.loadConstant(f.name().equalsString("goe") ? goe : f.name().equalsString("ext") ? ext : xd);
+				code.loadConstant(f.name().equalsString("goe") ? goe : ext);
 			} else if (matrix != null && element instanceof java.lang.classfile.instruction.FieldInstruction f
 					&& f.opcode() == java.lang.classfile.Opcode.GETSTATIC && f.owner().asSymbol().equals(self)
 					&& f.name().equalsString("MATRIX")) {
@@ -633,11 +621,6 @@ public final class GappedAligner {
 	interface ExRowLoops {
 		int rows(GappedAligner g, byte[] a, int aBase, int m, byte[] bs, int n, boolean reverse, int xDrop, int bSize,
 				EditScript ops);
-
-		/** The row loop for this X-drop: this one, or a copy with it as a constant. */
-		default ExRowLoops withXDrop(int xDrop) {
-			return this;
-		}
 	}
 
 	/**
@@ -649,38 +632,25 @@ public final class GappedAligner {
 	static final class ExRows implements ExRowLoops {
 		private static final java.util.Map<Key, ExRowLoops> COPIES = new java.util.concurrent.ConcurrentHashMap<>();
 
-		/** The gap costs, and the X-drop: 0 here, for the argument's; a copy's constant ({@link #of}). */
-		private final int goe, ext, xd;
+		private final int goe, ext;
 
 		ExRows(int goe, int ext) {
 			this.goe = goe;
 			this.ext = ext;
-			this.xd = 0;
 		}
 
 		/** The row loop for these gap costs: a copy with them as constants, or this class where that fails. */
 		static ExRowLoops of(int goe, int ext) {
-			return of(goe, ext, 0);
-		}
-
-		/** As {@link #of(int, int)}, with the X-drop {@code xDrop} as a constant too unless it is 0. */
-		static ExRowLoops of(int goe, int ext, int xDrop) {
 			if (Rows.NATIVE_IMAGE) {
 				return new ExRows(goe, ext);
 			}
-			return COPIES.computeIfAbsent(new Key(goe, ext, xDrop, null), key -> {
+			return COPIES.computeIfAbsent(new Key(goe, ext, null), key -> {
 				try {
-					return (ExRowLoops) copy(ExRows.class, goe, ext, xDrop, null);
+					return (ExRowLoops) copy(ExRows.class, goe, ext, null);
 				} catch (Throwable e) {
 					return new ExRows(goe, ext);
 				}
 			});
-		}
-
-		/** A copy for this X-drop; ExRows itself (the tests' loop with fields) stays as it is. */
-		@Override
-		public ExRowLoops withXDrop(int xDrop) {
-			return xd != 0 || !getClass().isHidden() ? this : of(goe, ext, xDrop);
 		}
 
 		/**
@@ -691,9 +661,6 @@ public final class GappedAligner {
 		public int rows(GappedAligner g, byte[] a, int aBase, int m, byte[] bs, int n, boolean reverse, int xDrop,
 				int bSize, EditScript ops) {
 			final int goe = this.goe, ext = this.ext;
-			if (xd != 0) {
-				xDrop = xd; // the same value, as a constant
-			}
 			final int[] best = g.best, bestGap = g.bestGap, rowStart = g.rowStart;
 			// The 32-wide matrix: with its index masked with mat.length - 1 (1024 entries), C2 drops the bounds check.
 			final int[] mat = g.matrix.wide;
@@ -863,9 +830,9 @@ public final class GappedAligner {
 			if (NATIVE_IMAGE) {
 				return new Rows(goe, ext);
 			}
-			return COPIES.computeIfAbsent(new Key(goe, ext, 0, matrix), key -> {
+			return COPIES.computeIfAbsent(new Key(goe, ext, matrix), key -> {
 				try {
-					return (RowLoops) copy(Rows.class, goe, ext, 0, matrix);
+					return (RowLoops) copy(Rows.class, goe, ext, matrix);
 				} catch (Throwable e) {
 					return new Rows(goe, ext);
 				}
