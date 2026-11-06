@@ -507,8 +507,10 @@ took 16 positions per vector: on a Xeon 8573C a search of CDK1 took 10% longer w
 search of the 500 bean queries took 7.6% less wall time with the cap, which brought it to BLAST+'s (33.1 s, BLAST+
 33.6 s). Machines without AVX-512 already used 8 lanes or fewer. *Since:* the code uses the preferred width everywhere
 and `bin/jvm.options` chooses it: 256 bits on x86-64 (`-XX:MaxVectorSize=32`, also on Zen 4 and Intel's AVX-512
-Xeons), 512 bits on AMD Zen 5 (`[zen5]`: `-XX:UseAVX=3 -XX:MaxVectorSize=64`), there for the word scan too, despite
-the measurement above (ea24369, d17f101; not measured again on purpose).
+Xeons), 512 bits on AMD Zen 5 (`[zen5]`: `-XX:UseAVX=3 -XX:MaxVectorSize=64`), there for the word scan too (ea24369,
+d17f101). Measured since on an EPYC 9V45 (main's push run 42221716347, against 752525a): 29.33 s wall against
+30.15 s (-2.7%), BLAST+ 33.82 s, almostblastp 27.89 s; output identical. The earlier loss with 16 lanes did not come
+back: the scan has changed much since.
 
 ## Gapped extension and traceback
 
