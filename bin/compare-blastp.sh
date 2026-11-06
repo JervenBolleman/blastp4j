@@ -119,6 +119,29 @@ if [ -f "$ASYNC_PROFILER" ] && grep -q '^[0-9]' "$OUT/perf-check.txt" 2>/dev/nul
 			END { for (m in c) printf "%12d  %s\n", c[m], m }' "$OUT/instr-$s.collapsed" | sort -rn | head -40
 	done
 fi
+# Diagnostic: the JIT's work, in a run of its own (the logs would add instructions to the profile above).
+for s in jvm ref; do
+	[[ " ${SYSTEMS[*]} " == *" $s "* ]] || continue
+	echo "== JIT ($s)"
+	JVM_EXTRA="-XX:+CITime -Xlog:jit+compilation=debug:file=$OUT/jit-$s.txt:none -Xlog:deoptimization=debug:file=$OUT/deopt-$s.txt:none" \
+		search "$s" "jit-$s" /usr/bin/time -o "$OUT/jit-time-$s.txt" -f "%e %U %S"
+	echo "wall, user, sys: $(cat "$OUT/jit-time-$s.txt") ($SAME)"
+	echo "CITime:"
+	grep -E "C[12] Compile Time|Total compiled methods|nmethod code size|Tier[0-9] |On stack replacement|Invalidated" "$OUT/jit-$s.log" | head -20
+	# A compilation line: id, flags, tier, method (with ::), size; the tier is the number before the method.
+	awk '{ for (i = 2; i <= NF; i++) if ($i ~ /::/) { t = $(i - 1); if (t !~ /^[0-9]$/) t = "?"; tier[t]++; n++; break } }
+		END { printf "compilations %d, by tier:", n; for (t in tier) printf " %s=%d", t, tier[t]; print "" }' "$OUT/jit-$s.txt"
+	echo "most compiled methods:"
+	awk '{ for (i = 2; i <= NF; i++) if ($i ~ /::/) { m[$i]++; break } } END { for (x in m) printf "%6d  %s\n", m[x], x }' \
+		"$OUT/jit-$s.txt" | sort -rn | head -25
+	# A deoptimization line: "cid= N [osr] level=L Class.method(sig) trap_bci=B [osr_bci=O] reason action pc=...".
+	echo "deoptimizations: $(grep -c . "$OUT/deopt-$s.txt"); by reason and action:"
+	awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^trap_bci=/) { j = i + 1; if ($j ~ /^osr_bci=/) j++; c[$j " " $(j + 1)]++; break } }
+		END { for (x in c) printf "%6d  %s\n", c[x], x }' "$OUT/deopt-$s.txt" | sort -rn | head -10
+	echo "most deoptimized methods:"
+	awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^level=/) { m = $(i + 1); sub(/\(.*/, "", m); c[m]++; break } }
+		END { for (x in c) printf "%6d  %s\n", c[x], x }' "$OUT/deopt-$s.txt" | sort -rn | head -15
+done
 
 if [[ " ${SYSTEMS[*]} " == *" jvm "* ]]; then
 	echo "== async-profiler (JVM)"
