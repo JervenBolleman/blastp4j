@@ -1,5 +1,7 @@
 package swiss.sib.blastp4j.compo;
 
+import jdk.incubator.vector.DoubleVector;
+import jdk.incubator.vector.VectorSpecies;
 import swiss.sib.blastp4j.util.Arithmetic;
 
 /**
@@ -12,6 +14,13 @@ import swiss.sib.blastp4j.util.Arithmetic;
  */
 final class OptimizeTargetFreq implements CompoKernels {
 	private static final CompoKernels BLAST = new OptimizeTargetFreq(), FAST = new OptimizeTargetFreqFast();
+	/**
+	 * The machine's preferred vectors of doubles, for the loops whose outputs are each computed on their own: a vector
+	 * of outputs at a time, each with BLAST's operations in BLAST's order (a multiply, then an add or subtract, never
+	 * fused), so the results are BLAST's to the bit. Sums over one output stay scalar.
+	 */
+	private static final VectorSpecies<Double> D = DoubleVector.SPECIES_PREFERRED;
+	private static final int L = D.length();
 
 	private OptimizeTargetFreq() {
 	}
@@ -63,8 +72,14 @@ final class OptimizeTargetFreq implements CompoKernels {
 				y[yOff + i] *= beta;
 			}
 		}
+		final int bound = D.loopBound(alphsize);
 		for (int i = 0; i < alphsize; i++) {
-			for (int j = 0; j < alphsize; j++) {
+			int j = 0;
+			for (; j < bound; j += L) {
+				DoubleVector.fromArray(D, y, yOff + j)
+						.add(DoubleVector.fromArray(D, x, i * alphsize + j).mul(alpha)).intoArray(y, yOff + j);
+			}
+			for (; j < alphsize; j++) {
 				y[yOff + j] += alpha * x[i * alphsize + j];
 			}
 		}
@@ -87,12 +102,27 @@ final class OptimizeTargetFreq implements CompoKernels {
 				y[k] *= beta;
 			}
 		}
+		final int bound = D.loopBound(alphsize);
 		for (int i = 0; i < alphsize; i++) {
-			for (int j = 0; j < alphsize; j++) {
-				int k = i * alphsize + j;
-				y[k] += alpha * x[j];
-				if (i > 0) {
-					y[k] += alpha * x[i + alphsize - 1];
+			int j = 0;
+			if (i > 0) {
+				final double c = alpha * x[i + alphsize - 1];
+				for (; j < bound; j += L) {
+					final int k = i * alphsize + j;
+					DoubleVector.fromArray(D, y, k).add(DoubleVector.fromArray(D, x, j).mul(alpha)).add(c)
+							.intoArray(y, k);
+				}
+				for (; j < alphsize; j++) {
+					final int k = i * alphsize + j;
+					y[k] += alpha * x[j];
+					y[k] += c;
+				}
+			} else {
+				for (; j < bound; j += L) {
+					DoubleVector.fromArray(D, y, j).add(DoubleVector.fromArray(D, x, j).mul(alpha)).intoArray(y, j);
+				}
+				for (; j < alphsize; j++) {
+					y[j] += alpha * x[j];
 				}
 			}
 		}
@@ -115,7 +145,12 @@ final class OptimizeTargetFreq implements CompoKernels {
 		int n = alphsize * alphsize;
 		if (constrainRelEntropy) {
 			double eta = z[2 * alphsize - 1];
-			for (int i = 0; i < n; i++) {
+			int i = 0;
+			for (; i < D.loopBound(n); i += L) {
+				DoubleVector.fromArray(D, grads, i).neg().add(DoubleVector.fromArray(D, grads, n + i).mul(eta))
+						.intoArray(residsX, i);
+			}
+			for (; i < n; i++) {
 				residsX[i] = -grads[i] + eta * grads[n + i];
 			}
 		} else {
@@ -193,8 +228,14 @@ final class OptimizeTargetFreq implements CompoKernels {
 		for (int j = n - 1; j >= 0; j--) {
 			final int rj = j * (j + 1) / 2;
 			x[j] /= l[rj + j];
-			for (int i = 0; i < (j < d ? 0 : j); i++) {
-				x[i] -= l[rj + i] * x[j];
+			final int end = j < d ? 0 : j;
+			final double xj = x[j];
+			int i = 0;
+			for (; i < D.loopBound(end); i += L) {
+				DoubleVector.fromArray(D, x, i).sub(DoubleVector.fromArray(D, l, rj + i).mul(xj)).intoArray(x, i);
+			}
+			for (; i < end; i++) {
+				x[i] -= l[rj + i] * xj;
 			}
 		}
 	}
