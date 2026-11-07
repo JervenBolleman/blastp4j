@@ -14,6 +14,7 @@ final class FastWordFinder {
 	private static final int WORD = CompressedTable.WORD;
 	private static final byte[] PADDED = WordFinder.PADDED;
 	private static final int EXTENDED = WordFinder.EXTENDED;
+	private static final boolean BRANCH_FREE_MAX = WordFinder.BRANCH_FREE_MAX;
 
 	private final byte[] query;
 	private final int[] rowOfQuery;
@@ -119,7 +120,11 @@ final class FastWordFinder {
 		final int sBase = start + sOff - n, qBase = qOff - n;
 		for (int i = n; i >= 0; i--) {
 			score += PADDED[(rowOfQuery[qBase + i] + residues[sBase + i]) & 1023];
-			if (score > maxScore) {
+			if (BRANCH_FREE_MAX) {
+				best = score > maxScore ? i : best;
+				maxScore = Math.max(maxScore, score);
+				floor = maxScore - xDrop;
+			} else if (score > maxScore) {
 				maxScore = score;
 				best = i;
 				floor = maxScore - xDrop;
@@ -138,7 +143,11 @@ final class FastWordFinder {
 		int floor = Math.max(0, maxScore - xDrop);
 		for (i = 0; i < n; i++) {
 			score += PADDED[(rowOfQuery[qOff + i] + residues[start + sOff + i]) & 1023];
-			if (score > maxScore) {
+			if (BRANCH_FREE_MAX) {
+				best = score > maxScore ? i : best;
+				maxScore = Math.max(maxScore, score);
+				floor = Math.max(0, maxScore - xDrop);
+			} else if (score > maxScore) {
 				maxScore = score;
 				best = i;
 				floor = Math.max(0, maxScore - xDrop);

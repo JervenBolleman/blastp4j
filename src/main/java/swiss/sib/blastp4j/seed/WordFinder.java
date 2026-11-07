@@ -72,6 +72,13 @@ public final class WordFinder implements WordScan {
 	private final int diagBase;
 	/** Set in a diagonal's state while hits on it are ignored, as they lie within the extension. */
 	static final int EXTENDED = 1 << 30;
+	/**
+	 * Whether the ungapped extensions track their best score without a branch on a new maximum (a select instead, which
+	 * the predictor need not learn), so that only the X-drop exit branches: on AArch64 only. On the runners (654b5e5,
+	 * run 42000813261) that took 0.8% less wall time on the Neoverse-N2, with 6% fewer branch misses, and 1.8% more on
+	 * x86-64 (an EPYC 9V74).
+	 */
+	static final boolean BRANCH_FREE_MAX = "aarch64".equals(System.getProperty("os.arch"));
 	private final int diagMask;
 	private int diagOffset;
 	// Output of the last extension.
@@ -414,7 +421,11 @@ public final class WordFinder implements WordScan {
 		final int sBase = start + sOff - n, qBase = qOff - n;
 		for (int i = n; i >= 0; i--) {
 			score += PADDED[(rowOfQuery[qBase + i] + residues[sBase + i]) & 1023];
-			if (score > maxScore) {
+			if (BRANCH_FREE_MAX) {
+				best = score > maxScore ? i : best;
+				maxScore = Math.max(maxScore, score);
+				floor = maxScore - xDrop;
+			} else if (score > maxScore) {
 				maxScore = score;
 				best = i;
 				floor = maxScore - xDrop;
@@ -434,7 +445,11 @@ public final class WordFinder implements WordScan {
 		int floor = Math.max(0, maxScore - xDrop);
 		for (i = 0; i < n; i++) {
 			score += PADDED[(rowOfQuery[qOff + i] + residues[start + sOff + i]) & 1023];
-			if (score > maxScore) {
+			if (BRANCH_FREE_MAX) {
+				best = score > maxScore ? i : best;
+				maxScore = Math.max(maxScore, score);
+				floor = Math.max(0, maxScore - xDrop);
+			} else if (score > maxScore) {
 				maxScore = score;
 				best = i;
 				floor = Math.max(0, maxScore - xDrop);
