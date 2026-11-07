@@ -48,7 +48,7 @@ public final class WordFinder implements WordScan {
 	 * BLOSUM62 with 32 columns per row, so that a row starts at a multiple of 32. Static, so that C2 knows its length and
 	 * need not check the lookups against it.
 	 */
-	private static final byte[] PADDED = new byte[32 * 32];
+	static final byte[] PADDED = new byte[32 * 32];
 	static {
 		byte[] matrix = Blosum62.matrix();
 		for (int a = 0; a < Blosum62.SIZE; a++) {

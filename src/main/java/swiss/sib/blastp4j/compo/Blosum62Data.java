@@ -4,8 +4,13 @@ package swiss.sib.blastp4j.compo;
  * BLOSUM62 data used by composition-based statistics, copied from BLAST+ ({@code matrix_frequency_data.c} and
  * {@code matrix_freq_ratios.c}).
  */
-final class Blosum62Data {
+public final class Blosum62Data {
 	private Blosum62Data() {
+	}
+
+	/** BLOSUM62's frequency ratios ({@code _PSIMatrixFrequencyRatiosNew}), 28 x 28 by NCBIstdaa codes, row-major. */
+	public static double[] freqRatios() {
+		return FREQ_RATIOS.clone();
 	}
 
 	/** Joint probabilities of the 20 true amino acids, in ARNDCQEGHILKMFPSTWYV order (20 x 20, row-major). */

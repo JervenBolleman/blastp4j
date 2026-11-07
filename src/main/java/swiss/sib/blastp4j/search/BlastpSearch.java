@@ -22,6 +22,8 @@ import swiss.sib.blastp4j.compo.TracebackStage;
 import swiss.sib.blastp4j.db.SequenceDatabase;
 import swiss.sib.blastp4j.seed.BatchScan;
 import swiss.sib.blastp4j.seed.BatchWordFinder;
+import swiss.sib.blastp4j.seed.CompressedTable;
+import swiss.sib.blastp4j.seed.FastBatchWordFinder;
 import swiss.sib.blastp4j.seed.LookupTable;
 import swiss.sib.blastp4j.seed.SeedParameters;
 import swiss.sib.blastp4j.seed.UngappedHsp;
@@ -81,6 +83,8 @@ public final class BlastpSearch {
 	private final boolean compositionBased, restrictedAlign;
 	/** How the composition-based stage computes: BLAST's way, or {@link Arithmetic#FAST} for almostblastp. */
 	private final Arithmetic arithmetic;
+	/** The blastp task: its seeding, and for {@link Task#BLASTP_FAST} the chaining estimate. */
+	private final Task task;
 	/** SEG's segments of the subjects, shared by the queries' composition-based stages ({@link CompoRedo}). */
 	private final java.util.Map<Integer, List<int[]>> segments = CompoRedo.segmentCache();
 	private final int hitlistSize, prelimHitlistSize, maxHsps;
@@ -120,7 +124,14 @@ public final class BlastpSearch {
 	 */
 	public BlastpSearch(SequenceDatabase db, Statistics statistics, double evalue, boolean compositionBased,
 			int maxTargetSeqs, int maxHsps, Arithmetic arithmetic) {
+		this(db, statistics, evalue, compositionBased, maxTargetSeqs, maxHsps, arithmetic, Task.BLASTP);
+	}
+
+	/** @param task the blastp task whose seeding to use: {@link Task#BLASTP_FAST} for {@code -task blastp-fast} */
+	public BlastpSearch(SequenceDatabase db, Statistics statistics, double evalue, boolean compositionBased,
+			int maxTargetSeqs, int maxHsps, Arithmetic arithmetic, Task task) {
 		this.arithmetic = arithmetic;
+		this.task = task;
 		if (maxTargetSeqs < 1 || maxHsps < 0) {
 			throw new IllegalArgumentException("max_target_seqs must be at least 1 and max_hsps at least 0");
 		}
@@ -226,6 +237,10 @@ public final class BlastpSearch {
 	 */
 	public Result search(byte[] query, ExecutorService pool, int tasks, boolean earlyTermination)
 			throws InterruptedException {
+		if (task == Task.BLASTP_FAST) {
+			// BLAST's batch of one query: the fast seeding exists for batches only.
+			return finish(query, prelim(List.of(query), pool, tasks).get(0), pool, tasks, earlyTermination);
+		}
 		SeedParameters seeds = seedParameters(query);
 		LookupTable table = LookupTable.of(query, seeds.threshold());
 		int cutoff = cutoff(query);
@@ -261,14 +276,20 @@ public final class BlastpSearch {
 			tables[i] = LookupTable.of(qs[i], seeds[i].threshold());
 			cutoffs[i] = cutoff(qs[i]);
 		}
-		final BatchWordFinder.Table table = BatchWordFinder.Table.of(qs, tables, seeds[0].window());
+		final BatchWordFinder.Table table = task == Task.BLASTP
+				? BatchWordFinder.Table.of(qs, tables, seeds[0].window())
+				: null;
+		final CompressedTable fastTable = task == Task.BLASTP_FAST
+				? CompressedTable.of(qs, CompressedTable.THRESHOLD, seeds[0].window())
+				: null;
 		if (compositionBased && !WARMED_UP.getAndSet(true)) {
 			Thread.ofPlatform().daemon().name("blastp4j-warm-up").start(() -> warmUp(qs, seeds, tables, cutoffs));
 		}
 		AtomicInteger next = new AtomicInteger();
 		List<Callable<List<List<Hit>>>> prelimTasks = new ArrayList<>();
 		for (int t = 0; t < tasks; t++) {
-			prelimTasks.add(() -> prelim(qs, BatchWordFinder.of(qs, tables, seeds, table), cutoffs, next));
+			prelimTasks.add(() -> prelim(qs, table != null ? BatchWordFinder.of(qs, tables, seeds, table)
+					: new FastBatchWordFinder(qs, seeds, fastTable), seeds, cutoffs, next));
 		}
 		List<List<Hit>> found = new ArrayList<>();
 		for (int i = 0; i < n; i++) {
@@ -519,9 +540,10 @@ public final class BlastpSearch {
 		return found;
 	}
 
-	/** The preliminary stage of a batch's task: {@link #prelim(byte[], WordScan, int, AtomicInteger)} per query. */
+	/** The preliminary stage of a batch's task: {@link #prelim(byte[], WordScan, int, AtomicInteger)} per query, after {@link Chaining} for {@link Task#BLASTP_FAST}. */
 	@SuppressWarnings("unchecked")
-	private List<List<Hit>> prelim(byte[][] queries, BatchScan finder, int[] cutoffs, AtomicInteger next) {
+	private List<List<Hit>> prelim(byte[][] queries, BatchScan finder, SeedParameters[] params, int[] cutoffs,
+			AtomicInteger next) {
 		final GappedAligner aligner = new GappedAligner(gapOpen, gapExtend);
 		final int n = queries.length;
 		final List<List<Hit>> found = new ArrayList<>();
@@ -543,6 +565,9 @@ public final class BlastpSearch {
 				// The lanes' jobs keep the subject: one copy for all queries.
 				byte[] residues = null;
 				for (int q = 0; q < n; q++) {
+					if (task == Task.BLASTP_FAST && !seeds[q].isEmpty()) {
+						Chaining.filter(seeds[q], params[q].cutoff(), cutoffs[q], gapOpen, gapExtend);
+					}
 					if (seeds[q].isEmpty()) {
 						continue;
 					}
