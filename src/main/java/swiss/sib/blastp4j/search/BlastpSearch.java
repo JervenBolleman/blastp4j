@@ -279,6 +279,20 @@ public final class BlastpSearch {
 	 */
 	public List<List<Hit>> prelim(List<byte[]> queries, List<SeedParameters> parameters, ExecutorService pool, int tasks)
 			throws InterruptedException {
+		return prelim(prepare(queries, parameters), pool, tasks);
+	}
+
+	/**
+	 * What the preliminary stage of a batch needs before it scans: the queries, their seeding parameters, cutoffs and
+	 * lookup tables. Independent of the batches before it, so it can be built while they are searched
+	 * ({@link #batch}).
+	 */
+	public record Prepared(byte[][] queries, SeedParameters[] seeds, LookupTable[] tables, int[] cutoffs,
+			BatchWordFinder.Table table, CompressedTable fastTable) {
+	}
+
+	/** The {@link Prepared} batch of {@code queries} with their {@link #seedParameters}. */
+	public Prepared prepare(List<byte[]> queries, List<SeedParameters> parameters) {
 		final int n = queries.size();
 		final byte[][] qs = queries.toArray(byte[][]::new);
 		final SeedParameters[] seeds = parameters.toArray(SeedParameters[]::new);
@@ -295,6 +309,51 @@ public final class BlastpSearch {
 		final CompressedTable fastTable = task == Task.BLASTP_FAST
 				? CompressedTable.of(qs, CompressedTable.THRESHOLD, seeds[0].window())
 				: null;
+		return new Prepared(qs, seeds, tables, cutoffs, table, fastTable);
+	}
+
+	/**
+	 * A batch of the command line's queries, from {@code first}, as blastp makes them: queries until it holds
+	 * {@code batchSize} residues. {@code skipped[q - first]} is the reason query {@code q} is skipped (its composition
+	 * gives no Karlin-Altschul parameters, as in blastp), or null; {@code searched} are the others, and
+	 * {@code prepared} their preliminary stage when there are two or more (one is searched alone, {@link #search}).
+	 * Independent of the batches before it, so the command line builds the next one while it searches this one.
+	 */
+	public record Batch(int first, int end, String[] skipped, List<byte[]> searched, Prepared prepared) {
+	}
+
+	/** The {@link Batch} of {@code queries} from {@code first}. */
+	public Batch batch(SequenceDatabase queries, int first, long batchSize) {
+		long residues = 0;
+		int end = first;
+		for (; end < queries.size() && residues < batchSize; end++) {
+			residues += queries.length(end);
+		}
+		final String[] skipped = new String[end - first];
+		final List<byte[]> searched = new ArrayList<>();
+		final List<SeedParameters> parameters = new ArrayList<>();
+		for (int q = first; q < end; q++) {
+			try {
+				final SeedParameters p = seedParameters(queries.sequence(q));
+				cutoff(queries.sequence(q));
+				searched.add(queries.sequence(q));
+				parameters.add(p);
+			} catch (IllegalArgumentException e) {
+				skipped[q - first] = e.getMessage();
+			}
+		}
+		return new Batch(first, end, skipped, searched, searched.size() > 1 ? prepare(searched, parameters) : null);
+	}
+
+	/** The preliminary stage of a {@link Prepared} batch, as {@link #prelim(List, ExecutorService, int)}. */
+	public List<List<Hit>> prelim(Prepared p, ExecutorService pool, int tasks) throws InterruptedException {
+		final byte[][] qs = p.queries();
+		final int n = qs.length;
+		final SeedParameters[] seeds = p.seeds();
+		final LookupTable[] tables = p.tables();
+		final int[] cutoffs = p.cutoffs();
+		final BatchWordFinder.Table table = p.table();
+		final CompressedTable fastTable = p.fastTable();
 		if (compositionBased && !WARMED_UP.getAndSet(true)) {
 			Thread.ofPlatform().daemon().name("blastp4j-warm-up").start(() -> warmUp(qs, seeds, tables, cutoffs));
 		}
