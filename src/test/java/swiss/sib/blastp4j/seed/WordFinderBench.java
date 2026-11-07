@@ -1,6 +1,8 @@
 package swiss.sib.blastp4j.seed;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import org.openjdk.jmh.annotations.Benchmark;
@@ -69,7 +71,7 @@ public class WordFinderBench {
 	@Benchmark
 	public long find(Blackhole bh) {
 		WordScan finder = WordFinder.of(sequence, table, seeds);
-		SeedList out = new SeedList();
+		List<UngappedHsp> out = new ArrayList<>();
 		long count = 0;
 		byte[] subject = null;
 		for (int i = 0; i < db.size(); i++) {

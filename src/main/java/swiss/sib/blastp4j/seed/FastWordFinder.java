@@ -1,5 +1,6 @@
 package swiss.sib.blastp4j.seed;
 
+import java.util.List;
 
 /**
  * {@link WordFinder}'s two-hit logic and ungapped extension for words of {@link CompressedTable#WORD} letters, for
@@ -50,7 +51,7 @@ final class FastWordFinder {
 	}
 
 	/** As {@link WordFinder#hit}. */
-	void hit(byte[] residues, int start, int length, int q, int s, SeedList out) {
+	void hit(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
 		final int diag = (diagBase + q - s) & diagMask;
 		final int state = diagState[diag];
 		if ((state & EXTENDED) != 0) {
@@ -74,11 +75,7 @@ final class FastWordFinder {
 		}
 		int score = extendTwoHit(residues, start, length, last + WORD, s, q);
 		if (score >= cutoff) {
-			// SeedList.add written out: no call but where the array is full.
-			if (out.size == out.items.length) {
-				out.grow();
-			}
-			out.items[out.size++] = new UngappedHsp(hspQuery, hspSubject, hspLength, score, q, s);
+			out.add(new UngappedHsp(hspQuery, hspSubject, hspLength, score, q, s));
 		}
 		if (rightExtended) {
 			diagState[diag] = (lastSubjectOffset - (WORD - 1) + diagOffset) | EXTENDED;

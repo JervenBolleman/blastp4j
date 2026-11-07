@@ -1,5 +1,6 @@
 package swiss.sib.blastp4j.seed;
 
+import java.util.List;
 
 /**
  * The word finder of {@code blastp -task blastp-fast} for a batch of queries: {@link BatchWordFinder} with BLAST's
@@ -37,7 +38,7 @@ public final class FastBatchWordFinder implements BatchScan {
 	}
 
 	@Override
-	public void find(byte[] residues, int start, int length, SeedList[] out) {
+	public void find(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
 		final int[] cellStart = table.start(), entry = table.entry(), query = table.query(), base = table.base();
 		final int[] d = diags;
 		final int diagMask = this.diagMask & (d.length - 1);

@@ -3,6 +3,7 @@ package swiss.sib.blastp4j.seed;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.util.List;
 import java.util.Map;
 
 import jdk.incubator.vector.ByteVector;
@@ -202,7 +203,7 @@ public final class WordFinder implements WordScan {
 	 * {@code out}, in the order BLAST finds them (BLAST later sorts them by score). Scans one position at a time.
 	 */
 	@Override
-	public void find(byte[] residues, int start, int length, SeedList out) {
+	public void find(byte[] residues, int start, int length, List<UngappedHsp> out) {
 		final int[] cellStart = table.start(), offsets = table.offsets();
 		final int wordSize = LookupTable.WORD_SIZE;
 		final int mask = LookupTable.WORDS - 1;
@@ -241,7 +242,7 @@ public final class WordFinder implements WordScan {
 
 	/** As {@link #find}, scanning blocks of positions and finding those whose words have neighbours with vectors. */
 	@Override
-	public void findBlocks(byte[] residues, int start, int length, SeedList out) {
+	public void findBlocks(byte[] residues, int start, int length, List<UngappedHsp> out) {
 		final int[] cellStart = table.start(), offsets = table.offsets(), presence = table.presence();
 		final int[] words = blockWords, pairs = blockPairs;
 		final int positions = length - LookupTable.WORD_SIZE + 1;
@@ -333,7 +334,7 @@ public final class WordFinder implements WordScan {
 	 * A word hit: query offset {@code q} at subject position {@code s}. Also called by {@link BatchWordFinder} for a
 	 * hit that is not just stored.
 	 */
-	void hit(byte[] residues, int start, int length, int q, int s, SeedList out) {
+	void hit(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
 		final int diag = (diagBase + q - s) & diagMask;
 		final int state = diagState[diag];
 		if ((state & EXTENDED) != 0) {
@@ -360,11 +361,7 @@ public final class WordFinder implements WordScan {
 		}
 		int score = extendTwoHit(residues, start, length, last + LookupTable.WORD_SIZE, s, q);
 		if (score >= cutoff) {
-			// SeedList.add written out: no call but where the array is full.
-			if (out.size == out.items.length) {
-				out.grow();
-			}
-			out.items[out.size++] = new UngappedHsp(hspQuery, hspSubject, hspLength, score, q, s);
+			out.add(new UngappedHsp(hspQuery, hspSubject, hspLength, score, q, s));
 		}
 		if (rightExtended) {
 			diagState[diag] = (lastSubjectOffset - (LookupTable.WORD_SIZE - 1) + diagOffset) | EXTENDED;

@@ -11,7 +11,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import swiss.sib.blastp4j.db.SequenceDatabase;
 import swiss.sib.blastp4j.seed.LookupTable;
 import swiss.sib.blastp4j.seed.SeedParameters;
-import swiss.sib.blastp4j.seed.SeedList;
 import swiss.sib.blastp4j.seed.UngappedHsp;
 import swiss.sib.blastp4j.seed.WordFinder;
 import swiss.sib.blastp4j.seed.WordScan;
@@ -60,7 +59,7 @@ public final class SeedSearch {
 	private List<Seeds> scan(WordScan finder, AtomicInteger next) {
 		byte[] subject = null;
 		final List<Seeds> found = new ArrayList<>();
-		SeedList hsps = new SeedList();
+		List<UngappedHsp> hsps = new ArrayList<>();
 		for (int chunk; (chunk = next.getAndIncrement()) * CHUNK < db.size();) {
 			int end = Math.min(db.size(), (chunk + 1) * CHUNK);
 			for (int i = chunk * CHUNK; i < end; i++) {

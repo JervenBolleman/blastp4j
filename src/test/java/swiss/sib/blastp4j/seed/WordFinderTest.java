@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -29,7 +30,7 @@ class WordFinderTest {
 		byte[] q = Alphabet.encode(query);
 		LookupTable table = LookupTable.of(q, PARAMS.threshold());
 		WordScan finder = copy ? WordFinder.of(q, table, PARAMS) : new WordFinder(q, table, PARAMS);
-		SeedList out = new SeedList();
+		List<UngappedHsp> out = new ArrayList<>();
 		for (String s : subjects) {
 			// In the database layout: a sentinel before and after.
 			byte[] residues = new byte[s.length() + 2];
