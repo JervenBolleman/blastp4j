@@ -112,17 +112,19 @@ public final class BatchWordFinder implements BatchScan {
 	private int diagOffset;
 	/**
 	 * The entries of the current subject position whose hits go to a query's finder, handled after the position's
-	 * other hits, where {@link #DEFER} says so: a call in the loop over the hits keeps the loop's values on the stack
-	 * (C2 has no callee-saved registers). The hits of one position are on different diagonals, so their order does not
-	 * matter, except among those that go to the finders, which keep theirs.
+	 * other hits, where {@link #DEFER} says so ({@link #scan}): a call in the loop over the hits keeps the loop's values
+	 * on the stack (C2 has no callee-saved registers). The hits of one position are on different diagonals, so their
+	 * order does not matter, except among those that go to the finders, which keep theirs.
 	 */
 	private final int[] rest;
 	/**
-	 * Whether the finder calls wait until after a position's hits: on AArch64 only. On the Neoverse-N2 runner that took
+	 * Whether the finder calls wait until after a position's hits: on AArch64 only, unless {@code -Dblastp4j.defer}
+	 * says otherwise (for testing that path elsewhere). On the Neoverse-N2 runner that took
 	 * 3.7% less wall time (run 42374103357), as the loop then reloads fewer values from the stack; on x86-64 2.8% more
 	 * (a Xeon 6973P-C, same run) and 1.5% more cycles locally (i7-6700HQ).
 	 */
-	static final boolean DEFER = "aarch64".equals(System.getProperty("os.arch"));
+	static final boolean DEFER = Boolean.parseBoolean(
+			System.getProperty("blastp4j.defer", String.valueOf("aarch64".equals(System.getProperty("os.arch")))));
 
 	/** The queries, their lookup tables and seeding parameters, by query; {@code table} merges the tables. */
 	public BatchWordFinder(byte[][] queries, LookupTable[] tables, SeedParameters[] parameters, Table table) {
@@ -226,16 +228,27 @@ public final class BatchWordFinder implements BatchScan {
 	@Override
 	public void find(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
 		final int[] cellStart = table.start(), entry = table.entry(), query = table.query(), base = table.base();
-		final int[] d = diags, later = rest;
+		final int[] d = diags;
 		final int diagMask = this.diagMask;
 		final int offset = diagOffset, windowL = window, lastL = window - LookupTable.WORD_SIZE - 1;
 		final WordFinder[] f = finders;
 		final int mask = LookupTable.WORDS - 1;
-		if (length >= LookupTable.WORD_SIZE) {
+		if (DEFER) {
+			// The positions without a call (scan, not inlined); the hits it notes for the finders after each position.
+			final int[] later = rest;
+			final int last = length - LookupTable.WORD_SIZE;
+			for (long at = last >= 0 ? scan(residues, start, length, 0) : -1; at >= 0;) {
+				final int s = (int) (at >>> 32), r = (int) at;
+				for (int j = 0; j < r; j++) {
+					final int k = later[j], i = query[k];
+					f[i].hit(residues, start, length, entry[k] - base[i], s, out[i]);
+				}
+				at = s < last ? scan(residues, start, length, s + 1) : -1;
+			}
+		} else if (length >= LookupTable.WORD_SIZE) {
 			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
 			for (int s = 0; s <= length - LookupTable.WORD_SIZE; s++) {
 				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
-				int r = 0;
 				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
 					// The usual hits, decided from the entry: the diagonal's last hit is a window or more back, so
 					// this one replaces it, or it overlaps this one, which is then ignored. Only hits to extend and
@@ -251,17 +264,9 @@ public final class BatchWordFinder implements BatchScan {
 					if ((~(x | (lastL - x)) | state << 1) >= 0) {
 						final int older = (diff - windowL) >> 31; // -1 if the hit overlaps the last one: keep that
 						d[diag] = (state & older) | ((s + offset) & ~older);
-					} else if (DEFER) {
-						later[r++] = k;
 					} else {
 						final int i = query[k];
 						f[i].hit(residues, start, length, e - base[i], s, out[i]);
-					}
-				}
-				if (DEFER) {
-					for (int j = 0; j < r; j++) {
-						final int k = later[j], i = query[k];
-						f[i].hit(residues, start, length, entry[k] - base[i], s, out[i]);
 					}
 				}
 			}
@@ -270,5 +275,42 @@ public final class BatchWordFinder implements BatchScan {
 			finder.endSubject(length);
 		}
 		diagOffset = diagOffset >= Integer.MAX_VALUE / 4 ? window : diagOffset + length + window;
+	}
+
+	/**
+	 * {@link #find}'s loop over the subject's positions for {@link #DEFER}, from position {@code from}, without a call:
+	 * handles the usual hits and notes the others, for the queries' finders, in {@link #rest}; returns at the end of
+	 * the first position that has any, {@code (long) s << 32 | count}, or -1 at the end of the subject. Not inlined
+	 * (bin/jvm.options), so that C2 keeps the loop's values in registers: with the finders' calls in the same method
+	 * they were reloaded from the stack for each hit.
+	 */
+	long scan(byte[] residues, int start, int length, int from) {
+		final int[] cellStart = table.start(), entry = table.entry();
+		final int[] d = diags, later = rest;
+		final int diagMask = this.diagMask;
+		final int offset = diagOffset, windowL = window, lastL = window - LookupTable.WORD_SIZE - 1;
+		final int mask = LookupTable.WORDS - 1;
+		int word = (residues[start + from] << LookupTable.CHAR_BITS) | residues[start + from + 1];
+		for (int s = from; s <= length - LookupTable.WORD_SIZE; s++) {
+			word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
+			int r = 0;
+			for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
+				// As in find.
+				final int e = entry[k];
+				final int diag = (e - s) & diagMask & (d.length - 1);
+				final int state = d[diag];
+				final int diff = s - (state - offset), x = diff - LookupTable.WORD_SIZE;
+				if ((~(x | (lastL - x)) | state << 1) >= 0) {
+					final int older = (diff - windowL) >> 31;
+					d[diag] = (state & older) | ((s + offset) & ~older);
+				} else {
+					later[r++] = k;
+				}
+			}
+			if (r > 0) {
+				return (long) s << 32 | r;
+			}
+		}
+		return -1;
 	}
 }
