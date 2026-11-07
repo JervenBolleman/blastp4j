@@ -15,8 +15,6 @@
 # OptimizeTargetFreq.optimize (8 compiles, 5.7 of 20.5 s of C2 time in a full search), and the code was slower. Only
 # BLAST's: almostblastp's OptimizeTargetFreqFast is a vector at a time, with small helpers to inline.
 -XX:CompileCommand=dontinline,swiss.sib.blastp4j.compo.OptimizeTargetFreq::*
-# The query finders' hit inlined into the batch scan on AArch64 (experiment).
-[aarch64] -XX:CompileCommand=inline,swiss.sib.blastp4j.seed.WordFinder::hit
 # Vector width: the code uses the preferred vectors everywhere, so these choose it. 256 bits on x86-64, also where the
 # CPU has AVX-512 (Zen 4, Intel Xeons): there 512-bit vectors were slower (the word scan 10% on a Xeon 8573C), and
 # MaxVectorSize keeps AVX-512's instructions and registers at 256 bits, which UseAVX=2 would not. 512 bits on AMD Zen 5
