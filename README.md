@@ -624,6 +624,13 @@ runners (500 bean queries): x64 wall -10.2% on an EPYC 9V74 and -8.2% on an EPYC
 are off there; the scalar redo is main's own loop, as driving `Subject` there cost 7% more instructions). Locally 7.8%
 fewer cycles; memory up about 15% (the trace rings).
 
+*Measured, not built:* score-only extensions in 16 lanes of shorts instead of 8 ints, for twice the cells per vector
+(an idea for almostblastp after the G-BLASTN paper). There is no 16-bit gather, and the score matrix is read with a
+gather because both letters differ per lane, so 16 lanes need two 8-int gathers and a narrowing to shorts per slot;
+only the arithmetic and the DP row's memory halve. The bound, `SemiGappedLanes.row`'s cell loop alone with
+saturating adds (a scratch kernel, i7-6700HQ, AVX2, JDK 27 C2, warm): 1.08 to 1.12 ns per cell with 16 short lanes
+against 0.94 to 0.98 ns with 8 int lanes, so 15% slower per cell before any bookkeeping. Not pursued.
+
 *Tried, kept as branches only:* ungapped extensions in lanes across hits (`exp/ungapped-lanes`, c2aecec, 1200971):
 40-85% more cycles locally (plain and vector lanes), 45-52% more wall time on the runners. The traceback filter (`exp/traceback-filter`, b881f5c): a proven bound on the traceback score from a
 score-only extension, so that a subject with one preliminary alignment whose bound cannot reach the E-value cutoff
