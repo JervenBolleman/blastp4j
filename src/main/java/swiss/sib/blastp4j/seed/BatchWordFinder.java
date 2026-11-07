@@ -110,6 +110,13 @@ public final class BatchWordFinder implements BatchScan {
 	private final int window, diagMask;
 	/** As each finder's {@code diagOffset}, which all move together. */
 	private int diagOffset;
+	/**
+	 * The entries of the current subject position whose hits go to a query's finder, handled after the position's
+	 * other hits: a call in the loop over the hits keeps the loop's values on the stack (C2 has no callee-saved
+	 * registers). The hits of one position are on different diagonals, so their order does not matter, except among
+	 * those that go to the finders, which keep theirs.
+	 */
+	private final int[] rest;
 
 	/** The queries, their lookup tables and seeding parameters, by query; {@code table} merges the tables. */
 	public BatchWordFinder(byte[][] queries, LookupTable[] tables, SeedParameters[] parameters, Table table) {
@@ -125,6 +132,11 @@ public final class BatchWordFinder implements BatchScan {
 			finders[i] = new WordFinder(queries[i], tables[i], parameters[i], diags, table.base()[i]);
 		}
 		diagOffset = window;
+		int longest = 0;
+		for (int w = 0; w < LookupTable.WORDS; w++) {
+			longest = Math.max(longest, table.start()[w + 1] - table.start()[w]);
+		}
+		rest = new int[longest];
 	}
 
 	/**
@@ -208,7 +220,7 @@ public final class BatchWordFinder implements BatchScan {
 	@Override
 	public void find(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
 		final int[] cellStart = table.start(), entry = table.entry(), query = table.query(), base = table.base();
-		final int[] d = diags;
+		final int[] d = diags, later = rest;
 		final int diagMask = this.diagMask;
 		final int offset = diagOffset, windowL = window, lastL = window - LookupTable.WORD_SIZE - 1;
 		final WordFinder[] f = finders;
@@ -217,6 +229,7 @@ public final class BatchWordFinder implements BatchScan {
 			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
 			for (int s = 0; s <= length - LookupTable.WORD_SIZE; s++) {
 				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
+				int r = 0;
 				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
 					// The usual hits, decided from the entry: the diagonal's last hit is a window or more back, so
 					// this one replaces it, or it overlaps this one, which is then ignored. Only hits to extend and
@@ -233,9 +246,12 @@ public final class BatchWordFinder implements BatchScan {
 						final int older = (diff - windowL) >> 31; // -1 if the hit overlaps the last one: keep that
 						d[diag] = (state & older) | ((s + offset) & ~older);
 					} else {
-						final int i = query[k];
-						f[i].hit(residues, start, length, e - base[i], s, out[i]);
+						later[r++] = k;
 					}
+				}
+				for (int j = 0; j < r; j++) {
+					final int k = later[j], i = query[k];
+					f[i].hit(residues, start, length, entry[k] - base[i], s, out[i]);
 				}
 			}
 		}
