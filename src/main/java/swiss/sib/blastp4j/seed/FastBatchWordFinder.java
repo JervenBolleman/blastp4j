@@ -1,6 +1,13 @@
 package swiss.sib.blastp4j.seed;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.util.List;
+import java.util.Map;
+
+import swiss.sib.blastp4j.util.HiddenCopies;
+import swiss.sib.blastp4j.util.LruCache;
 
 /**
  * The word finder of {@code blastp -task blastp-fast} for a batch of queries: {@link BatchWordFinder} with BLAST's
@@ -15,6 +22,15 @@ public final class FastBatchWordFinder implements BatchScan {
 	private static final int WORD = CompressedTable.WORD;
 	/** The weight of a word's newest letter: 15^4. */
 	private static final int NEWEST = 50625;
+	/** The copies by their constants, as {@link BatchWordFinder}'s. */
+	private static final LruCache<Key, MethodHandle> COPIES = new LruCache<>(
+			Integer.getInteger("blastp4j.specializations", 256));
+	/** Whether this is a GraalVM native image, which cannot define classes at run time. */
+	private static final boolean NATIVE_IMAGE = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
+
+	/** A copy's constants. */
+	private record Key(int window, int diagMask) {
+	}
 
 	private final CompressedTable table;
 	private final FastWordFinder[] finders;
@@ -35,6 +51,34 @@ public final class FastBatchWordFinder implements BatchScan {
 			finders[i] = new FastWordFinder(queries[i], parameters[i], diags, table.base()[i]);
 		}
 		diagOffset = window;
+	}
+
+	/**
+	 * The word finder for this batch with the window and the diagonal mask as constants, as {@link BatchWordFinder#of}:
+	 * a copy of this class shared by the batches with the same values. In a native image, or where the copy fails, a
+	 * {@link FastBatchWordFinder}.
+	 */
+	public static BatchScan of(byte[][] queries, SeedParameters[] parameters, CompressedTable table) {
+		if (!NATIVE_IMAGE) {
+			try {
+				final Key key = new Key(parameters[0].window(), table.size() - 1);
+				return (BatchScan) COPIES.computeIfAbsent(key, k -> {
+					try {
+						final MethodHandles.Lookup lookup = HiddenCopies.define(MethodHandles.lookup(),
+								FastBatchWordFinder.class, Map.of("window", k.window(), "diagMask", k.diagMask()));
+						return lookup.findConstructor(lookup.lookupClass(), MethodType.methodType(void.class,
+								byte[][].class, SeedParameters[].class, CompressedTable.class));
+					} catch (Throwable e) {
+						throw new IllegalStateException(e);
+					}
+				}).invoke(queries, parameters, table);
+			} catch (IllegalArgumentException e) {
+				throw e;
+			} catch (Throwable e) {
+				// Fall back to the fields.
+			}
+		}
+		return new FastBatchWordFinder(queries, parameters, table);
 	}
 
 	@Override

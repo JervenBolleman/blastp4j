@@ -290,7 +290,7 @@ public final class BlastpSearch {
 		List<Callable<List<List<Hit>>>> prelimTasks = new ArrayList<>();
 		for (int t = 0; t < tasks; t++) {
 			prelimTasks.add(() -> prelim(qs, table != null ? BatchWordFinder.of(qs, tables, seeds, table)
-					: new FastBatchWordFinder(qs, seeds, fastTable), seeds, cutoffs, next));
+					: FastBatchWordFinder.of(qs, seeds, fastTable), seeds, cutoffs, next));
 		}
 		List<List<Hit>> found = new ArrayList<>();
 		for (int i = 0; i < n; i++) {
