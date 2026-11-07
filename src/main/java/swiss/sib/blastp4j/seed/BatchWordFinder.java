@@ -19,10 +19,6 @@ import java.lang.invoke.MethodType;
 import java.util.List;
 import java.util.Map;
 
-import jdk.incubator.vector.IntVector;
-import jdk.incubator.vector.VectorMask;
-import jdk.incubator.vector.VectorOperators;
-import jdk.incubator.vector.VectorSpecies;
 import swiss.sib.blastp4j.util.HiddenCopies;
 import swiss.sib.blastp4j.util.LruCache;
 
@@ -70,8 +66,7 @@ public final class BatchWordFinder implements BatchScan {
 			for (LookupTable t : tables) {
 				total += t.offsets().length;
 			}
-			// The entries are padded with a vector of zeros, so that the scan's lanes can load past a word's last one.
-			final int[] start = new int[LookupTable.WORDS + 1], entry = new int[total + LANES], query = new int[total];
+			final int[] start = new int[LookupTable.WORDS + 1], entry = new int[total], query = new int[total];
 			int k = 0;
 			for (int w = 0; w < LookupTable.WORDS; w++) {
 				start[w] = k;
@@ -103,14 +98,6 @@ public final class BatchWordFinder implements BatchScan {
 			Integer.getInteger("blastp4j.specializations", 256));
 	/** Whether this is a GraalVM native image, which cannot define classes at run time. */
 	private static final boolean NATIVE_IMAGE = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
-	private static final VectorSpecies<Integer> INTS = IntVector.SPECIES_PREFERRED;
-	private static final int LANES = INTS.length();
-	/**
-	 * Whether the scan takes a subject position's hits a vector at a time (needs 8 int lanes with a gather, as
-	 * {@code SemiGappedLanes}). The lanes then read the int entries: the copy does not read the narrow ones.
-	 */
-	public static final boolean SEED_LANES = LANES >= 8 && !NATIVE_IMAGE
-			&& Boolean.parseBoolean(System.getProperty("blastp4j.seedLanes", "true"));
 
 	/** A copy's constants, and whether it reads the table's narrow entries. */
 	private record Key(int window, int diagMask, boolean narrow) {
@@ -123,8 +110,6 @@ public final class BatchWordFinder implements BatchScan {
 	private final int window, diagMask;
 	/** As each finder's {@code diagOffset}, which all move together. */
 	private int diagOffset;
-	/** The lanes' diagonals and their new states, stored to {@link #diags} one lane at a time. */
-	private final int[] laneDiag = new int[LANES], laneState = new int[LANES];
 
 	/** The queries, their lookup tables and seeding parameters, by query; {@code table} merges the tables. */
 	public BatchWordFinder(byte[][] queries, LookupTable[] tables, SeedParameters[] parameters, Table table) {
@@ -152,7 +137,7 @@ public final class BatchWordFinder implements BatchScan {
 	public static BatchScan of(byte[][] queries, LookupTable[] tables, SeedParameters[] parameters, Table table) {
 		if (!NATIVE_IMAGE) {
 			try {
-				final Key key = new Key(parameters[0].window(), table.size() - 1, table.narrow() != null && !SEED_LANES);
+				final Key key = new Key(parameters[0].window(), table.size() - 1, table.narrow() != null);
 				return (BatchScan) COPIES.computeIfAbsent(key, k -> {
 					try {
 						final MethodHandles.Lookup lookup = HiddenCopies.define(MethodHandles.lookup(),
@@ -222,10 +207,6 @@ public final class BatchWordFinder implements BatchScan {
 	 */
 	@Override
 	public void find(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
-		if (SEED_LANES) {
-			findLanes(residues, start, length, out);
-			return;
-		}
 		final int[] cellStart = table.start(), entry = table.entry(), query = table.query(), base = table.base();
 		final int[] d = diags;
 		final int diagMask = this.diagMask;
@@ -254,55 +235,6 @@ public final class BatchWordFinder implements BatchScan {
 					} else {
 						final int i = query[k];
 						f[i].hit(residues, start, length, e - base[i], s, out[i]);
-					}
-				}
-			}
-		}
-		for (WordFinder finder : f) {
-			finder.endSubject(length);
-		}
-		diagOffset = diagOffset >= Integer.MAX_VALUE / 4 ? window : diagOffset + length + window;
-	}
-
-	/**
-	 * {@link #find} with a subject position's hits a vector at a time. The hits of one position are on different
-	 * diagonals (the diagonal array is longer than the concatenation), so a vector of them can be decided at once: the
-	 * same decisions as {@link #find}, and the hits that go to a query's finder go in the same order.
-	 */
-	private void findLanes(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
-		final int[] cellStart = table.start(), entry = table.entry(), query = table.query(), base = table.base();
-		final int[] d = diags, ld = laneDiag, ls = laneState;
-		final int diagMask = this.diagMask & (d.length - 1);
-		final int offset = diagOffset, windowL = window, lastL = window - LookupTable.WORD_SIZE - 1;
-		final WordFinder[] f = finders;
-		final int mask = LookupTable.WORDS - 1;
-		final IntVector iota = IntVector.zero(INTS).addIndex(1);
-		if (length >= LookupTable.WORD_SIZE) {
-			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
-			for (int s = 0; s <= length - LookupTable.WORD_SIZE; s++) {
-				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
-				final int end = cellStart[word + 1];
-				for (int k = cellStart[word]; k < end; k += LANES) {
-					final VectorMask<Integer> valid = iota.compare(VectorOperators.LT, end - k);
-					final IntVector diag = IntVector.fromArray(INTS, entry, k).sub(s).and(diagMask);
-					diag.intoArray(ld, 0);
-					final IntVector state = IntVector.fromArray(INTS, d, 0, ld, 0);
-					// As in find: x in [0, last] and not extended is a hit to extend; the others are usual hits.
-					final IntVector diff = state.neg().add(s + offset), x = diff.sub(LookupTable.WORD_SIZE);
-					final VectorMask<Integer> usual = x.or(x.neg().add(lastL)).not().or(state.lanewise(
-							VectorOperators.LSHL, 1)).compare(VectorOperators.GE, 0).and(valid);
-					final IntVector older = diff.sub(windowL).lanewise(VectorOperators.ASHR, 31);
-					final IntVector replaced = state.and(older).or(older.not().and(s + offset));
-					// The other lanes write back what they read; stored from the last lane down, so that a padding
-					// lane on the diagonal of a hit never overwrites that hit's new state.
-					state.blend(replaced, usual).intoArray(ls, 0);
-					for (int l = LANES - 1; l >= 0; l--) {
-						d[ld[l] & diagMask] = ls[l];
-					}
-					long rest = valid.toLong() & ~usual.toLong();
-					for (; rest != 0; rest &= rest - 1) {
-						final int j = k + Long.numberOfTrailingZeros(rest), i = query[j];
-						f[i].hit(residues, start, length, entry[j] - base[i], s, out[i]);
 					}
 				}
 			}

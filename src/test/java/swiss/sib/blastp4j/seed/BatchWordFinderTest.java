@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -29,7 +28,6 @@ class BatchWordFinderTest {
 
 	@Test
 	void theCharCopyReadsTheNarrowEntries() {
-		assumeFalse(BatchWordFinder.SEED_LANES, "the scan's lanes read the int entries");
 		// A table whose narrow entries are all 0: if the copy reads them, it finds other alignments than the int scan.
 		Random random = new Random(5);
 		byte[][] queries = queries(random, 24, 300);
