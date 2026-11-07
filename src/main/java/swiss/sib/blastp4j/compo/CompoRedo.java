@@ -31,6 +31,11 @@ public final class CompoRedo {
 	private static final int MINIMUM_LENGTH_NEAR_IDENTICAL = 50;
 	/** Score difference, in bits, for an alignment to count as contained in another. */
 	private static final double KAPPA_BIT_TOL = 2.0;
+	/**
+	 * The ungapped lambda of BLOSUM62 with the standard composition ({@code kbp_ideal}), the same for every query:
+	 * computed once rather than per query, which took several percent of the main thread in a fast search.
+	 */
+	private static final double IDEAL_LAMBDA = UngappedKarlin.ideal().lambda();
 
 	/** What does not change between subjects for a query. */
 	public static final class Query {
@@ -49,7 +54,7 @@ public final class CompoRedo {
 			}
 			words = wordArray(query);
 			composition = CompositionAdjustment.composition(query, 0, query.length);
-			matrixInfo = new CompositionAdjustment.MatrixInfo(UngappedKarlin.ideal().lambda(), SCALE);
+			matrixInfo = new CompositionAdjustment.MatrixInfo(IDEAL_LAMBDA, SCALE);
 		}
 	}
 

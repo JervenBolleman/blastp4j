@@ -266,13 +266,25 @@ public final class BlastpSearch {
 	 * hit list size, the same as {@link #search} keeps for the query alone; {@link #finish} completes each query.
 	 */
 	public List<List<Hit>> prelim(List<byte[]> queries, ExecutorService pool, int tasks) throws InterruptedException {
+		final List<SeedParameters> seeds = new ArrayList<>();
+		for (byte[] q : queries) {
+			seeds.add(seedParameters(q));
+		}
+		return prelim(queries, seeds, pool, tasks);
+	}
+
+	/**
+	 * As {@link #prelim(List, ExecutorService, int)}, with the queries' {@link #seedParameters}, which the caller
+	 * already has (their ungapped Karlin-Altschul parameters take a while to compute).
+	 */
+	public List<List<Hit>> prelim(List<byte[]> queries, List<SeedParameters> parameters, ExecutorService pool, int tasks)
+			throws InterruptedException {
 		final int n = queries.size();
 		final byte[][] qs = queries.toArray(byte[][]::new);
-		final SeedParameters[] seeds = new SeedParameters[n];
+		final SeedParameters[] seeds = parameters.toArray(SeedParameters[]::new);
 		final LookupTable[] tables = new LookupTable[n];
 		final int[] cutoffs = new int[n];
 		for (int i = 0; i < n; i++) {
-			seeds[i] = seedParameters(qs[i]);
 			// blastp-fast does not seed with these: only the warm-up does, which builds those it needs.
 			tables[i] = task == Task.BLASTP ? LookupTable.of(qs[i], seeds[i].threshold()) : null;
 			cutoffs[i] = cutoff(qs[i]);

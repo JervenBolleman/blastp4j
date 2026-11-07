@@ -24,6 +24,7 @@ import swiss.sib.blastp4j.db.SequenceDatabase;
 import swiss.sib.blastp4j.output.TabularFormat;
 import swiss.sib.blastp4j.search.BlastpSearch;
 import swiss.sib.blastp4j.search.QueryBatches;
+import swiss.sib.blastp4j.seed.SeedParameters;
 import swiss.sib.blastp4j.stats.ScoringParameters;
 import swiss.sib.blastp4j.stats.Statistics;
 
@@ -261,16 +262,18 @@ public final class Blastp {
 			// As blastp, skip a query whose composition gives no Karlin-Altschul parameters.
 			String[] skipped = new String[end - first];
 			List<byte[]> batch = new ArrayList<>();
+			List<SeedParameters> parameters = new ArrayList<>();
 			for (int q = first; q < end; q++) {
 				try {
-					search.seedParameters(queries.sequence(q));
+					SeedParameters p = search.seedParameters(queries.sequence(q));
 					search.cutoff(queries.sequence(q));
 					batch.add(queries.sequence(q));
+					parameters.add(p);
 				} catch (IllegalArgumentException e) {
 					skipped[q - first] = e.getMessage();
 				}
 			}
-			List<List<BlastpSearch.Hit>> prelim = batch.size() > 1 ? search.prelim(batch, pool, o.threads()) : null;
+			List<List<BlastpSearch.Hit>> prelim = batch.size() > 1 ? search.prelim(batch, parameters, pool, o.threads()) : null;
 			int inBatch = 0;
 			for (int q = first; q < end; q++) {
 				byte[] query = queries.sequence(q);
