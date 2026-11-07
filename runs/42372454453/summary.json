@@ -1,0 +1,56 @@
+{
+ "run_id": "42372454453",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/42372454453",
+ "date": "2026-11-07 12:48 UTC",
+ "event": "workflow_dispatch",
+ "code": [
+  "`40b3efe` (README: 16-bit score-only lanes measured at the bound, not built)"
+ ],
+ "rows": [
+  {
+   "architecture": "arm64-macos",
+   "cpu": "Apple M1 (Virtual)",
+   "cpus": "3",
+   "blast_wall": 34.68,
+   "jvm_wall": 46.76,
+   "ref_wall": null,
+   "blastfast_wall": 7.09,
+   "fast_wall": 12.61,
+   "fast": 1.778561354019746,
+   "wall": 1.3483275663206458,
+   "cycles": null,
+   "instructions": null,
+   "identical": false,
+   "profile": "arm64-macos/jvm-profile.html",
+   "jvm_commit": "40b3efe",
+   "ref_commit": "",
+   "rounds": {
+    "blast": [
+     34.16,
+     34.68,
+     40.18
+    ],
+    "jvm": [
+     46.76,
+     48.11,
+     43.1
+    ],
+    "almost": [
+     40.93,
+     51.99,
+     42.24
+    ],
+    "blastfast": [
+     7.09,
+     8.42,
+     6.55
+    ],
+    "fast": [
+     11.09,
+     13.11,
+     12.61
+    ]
+   }
+  }
+ ]
+}
