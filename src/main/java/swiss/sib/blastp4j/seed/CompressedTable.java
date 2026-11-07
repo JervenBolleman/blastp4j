@@ -18,8 +18,12 @@ import java.util.Arrays;
  * {@code s_BlastCompressedAaScanSubject}). That order is the order of a subject position's hits, which decides ties
  * later. An entry is the offset in the concatenation, {@code base[i]} plus the query offset; {@code query[k]} is the
  * query of entry {@code k}. {@code size} is the length of the diagonal array.
+ * <p>
+ * {@code present} has a bit per cell, set where the cell has hits ({@code present[w >>> 6] >>> w & 1}), so that the
+ * scan reads 95 KB for a position without hits rather than the 3 MB of {@code start}, as BLAST's scan tests its
+ * {@code pv} array: half the cells are empty, and two thirds of the positions (bean queries) fall on one.
  */
-public record CompressedTable(int[] start, int[] entry, int[] query, int[] base, int size) {
+public record CompressedTable(int[] start, int[] entry, int[] query, int[] base, int size, long[] present) {
 	/** Word length. */
 	public static final int WORD = 5;
 	/** Cells: 15^5. */
@@ -65,13 +69,17 @@ public record CompressedTable(int[] start, int[] entry, int[] query, int[] base,
 			query[k] = words.queryOf[h];
 		}
 		final int[] e = new int[CHUNK * 64], qy = new int[CHUNK * 64];
+		final long[] present = new long[(CELLS + 63) >>> 6];
 		for (int c = 0; c < CELLS; c++) {
 			final int from = start[c], count = start[c + 1] - from;
+			if (count > 0) {
+				present[c >>> 6] |= 1L << c;
+			}
 			if (count > BACKBONE) {
 				reorder(entry, query, from, count, e, qy);
 			}
 		}
-		return new CompressedTable(start, entry, query, base, WordFinder.diagonals((int) length, window));
+		return new CompressedTable(start, entry, query, base, WordFinder.diagonals((int) length, window), present);
 	}
 
 	/** A cell's entries after the first 3, in chunks of 4 in insertion order: the chunks reversed. */

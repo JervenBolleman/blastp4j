@@ -40,6 +40,7 @@ public final class FastBatchWordFinder implements BatchScan {
 	@Override
 	public void find(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
 		final int[] cellStart = table.start(), entry = table.entry(), query = table.query(), base = table.base();
+		final long[] present = table.present();
 		final int[] d = diags;
 		final int diagMask = this.diagMask & (d.length - 1);
 		final int offset = diagOffset, windowL = window, lastL = window - WORD - 1;
@@ -58,6 +59,9 @@ public final class FastBatchWordFinder implements BatchScan {
 			word = word / CompressedAlphabet.SIZE + c * NEWEST;
 			if (++good < WORD) {
 				continue;
+			}
+			if ((present[word >>> 6] >>> word & 1) == 0) {
+				continue; // no hits: start, 3 MB, not read
 			}
 			final int s = p - (WORD - 1);
 			for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
