@@ -1,0 +1,121 @@
+{
+ "run_id": "42398294034",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/42398294034",
+ "date": "2026-11-07 18:37 UTC",
+ "event": "push",
+ "code": [
+  "`0aecb1f` (Runners: blastp-fast with 2,500 queries, and the reference's fastblastp)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 28.63,
+   "jvm_wall": 30.44,
+   "ref_wall": 31.09,
+   "blastfast_wall": 33.03,
+   "fast_wall": 44.72,
+   "fast": 1.3539206781713593,
+   "wall": 1.0632203981837234,
+   "cycles": 1.014586255259467,
+   "instructions": 1.18734000465441,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html",
+   "jvm_commit": "0aecb1f",
+   "ref_commit": "f8ba9e9",
+   "rounds": {
+    "blast": [
+     28.4,
+     28.63,
+     28.8
+    ],
+    "jvm": [
+     29.96,
+     30.44,
+     30.5
+    ],
+    "almost": [
+     29.4,
+     29.61,
+     29.85
+    ],
+    "blastfast": [
+     32.92,
+     33.03,
+     33.26
+    ],
+    "fast": [
+     44.72,
+     44.43,
+     45.58
+    ],
+    "ref": [
+     31.09,
+     30.62,
+     31.18
+    ],
+    "fastref": [
+     44.71,
+     45.17,
+     46.05
+    ]
+   }
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+   "cpus": "4",
+   "blast_wall": 53.79,
+   "jvm_wall": 48.43,
+   "ref_wall": 49.27,
+   "blastfast_wall": 60.53,
+   "fast_wall": 58.4,
+   "fast": 0.9648108376011895,
+   "wall": 0.9003532255065998,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html",
+   "jvm_commit": "0aecb1f",
+   "ref_commit": "f8ba9e9",
+   "rounds": {
+    "blast": [
+     53.79,
+     53.48,
+     53.91
+    ],
+    "jvm": [
+     48.43,
+     47.95,
+     49.45
+    ],
+    "almost": [
+     48.72,
+     45.63,
+     47.0
+    ],
+    "blastfast": [
+     60.99,
+     60.24,
+     60.53
+    ],
+    "fast": [
+     59.61,
+     58.21,
+     58.4
+    ],
+    "ref": [
+     48.66,
+     49.67,
+     49.27
+    ],
+    "fastref": [
+     57.47,
+     59.88,
+     58.42
+    ]
+   }
+  }
+ ]
+}
