@@ -1,0 +1,111 @@
+{
+ "run_id": "42383361889",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/42383361889",
+ "date": "2026-11-07 15:23 UTC",
+ "event": "push",
+ "code": [
+  "`c28fe14` (SeedList: the word finders' alignments in an array grown by 64 (experiment))"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 27.69,
+   "jvm_wall": 31.98,
+   "ref_wall": 31.91,
+   "blastfast_wall": 7.04,
+   "fast_wall": 10.38,
+   "fast": 1.4744318181818183,
+   "wall": 1.1549295774647887,
+   "cycles": 1.0830993823694555,
+   "instructions": 1.2263670064874883,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html",
+   "jvm_commit": "c28fe14",
+   "ref_commit": "c2ee363",
+   "rounds": {
+    "blast": [
+     28.62,
+     27.69,
+     27.68
+    ],
+    "jvm": [
+     31.98,
+     31.81,
+     31.98
+    ],
+    "almost": [
+     31.18,
+     31.27,
+     30.9
+    ],
+    "blastfast": [
+     6.94,
+     7.04,
+     7.05
+    ],
+    "fast": [
+     10.27,
+     10.38,
+     10.55
+    ],
+    "ref": [
+     31.91,
+     31.94,
+     31.91
+    ]
+   }
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 9V74 80-Core Processor",
+   "cpus": "4",
+   "blast_wall": 42.49,
+   "jvm_wall": 35.13,
+   "ref_wall": 35.21,
+   "blastfast_wall": 9.71,
+   "fast_wall": 11.45,
+   "fast": 1.1791967044284242,
+   "wall": 0.8267827724170393,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html",
+   "jvm_commit": "c28fe14",
+   "ref_commit": "c2ee363",
+   "rounds": {
+    "blast": [
+     42.49,
+     41.85,
+     42.5
+    ],
+    "jvm": [
+     34.91,
+     35.13,
+     35.69
+    ],
+    "almost": [
+     33.0,
+     33.2,
+     33.65
+    ],
+    "blastfast": [
+     9.71,
+     9.56,
+     10.17
+    ],
+    "fast": [
+     11.29,
+     11.45,
+     11.62
+    ],
+    "ref": [
+     35.05,
+     35.21,
+     35.7
+    ]
+   }
+  }
+ ]
+}
