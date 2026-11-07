@@ -1,0 +1,111 @@
+{
+ "run_id": "42392121631",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/42392121631",
+ "date": "2026-11-07 17:14 UTC",
+ "event": "push",
+ "code": [
+  "`7c4ce9c` (Batch scan on AArch64: the positions in a method without a call (experiment))"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 28.36,
+   "jvm_wall": 29.97,
+   "ref_wall": 29.93,
+   "blastfast_wall": 6.68,
+   "fast_wall": 10.03,
+   "fast": 1.501497005988024,
+   "wall": 1.0567700987306066,
+   "cycles": 1.0222222222222224,
+   "instructions": 1.1963572267920095,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html",
+   "jvm_commit": "7c4ce9c",
+   "ref_commit": "cfdae36",
+   "rounds": {
+    "blast": [
+     28.47,
+     28.35,
+     28.36
+    ],
+    "jvm": [
+     29.97,
+     30.16,
+     29.86
+    ],
+    "almost": [
+     29.16,
+     29.36,
+     29.98
+    ],
+    "blastfast": [
+     6.64,
+     6.68,
+     6.69
+    ],
+    "fast": [
+     10.28,
+     9.87,
+     10.03
+    ],
+    "ref": [
+     30.03,
+     29.93,
+     29.92
+    ]
+   }
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+   "cpus": "4",
+   "blast_wall": 52.75,
+   "jvm_wall": 47.31,
+   "ref_wall": 46.9,
+   "blastfast_wall": 12.26,
+   "fast_wall": 15.57,
+   "fast": 1.269983686786297,
+   "wall": 0.8968720379146919,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html",
+   "jvm_commit": "7c4ce9c",
+   "ref_commit": "cfdae36",
+   "rounds": {
+    "blast": [
+     52.75,
+     52.65,
+     52.98
+    ],
+    "jvm": [
+     47.31,
+     47.53,
+     46.53
+    ],
+    "almost": [
+     44.87,
+     44.78,
+     45.61
+    ],
+    "blastfast": [
+     12.26,
+     12.34,
+     12.26
+    ],
+    "fast": [
+     15.74,
+     15.57,
+     15.38
+    ],
+    "ref": [
+     48.42,
+     46.9,
+     46.86
+    ]
+   }
+  }
+ ]
+}
