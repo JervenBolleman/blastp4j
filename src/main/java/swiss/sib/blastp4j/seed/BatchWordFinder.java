@@ -112,11 +112,17 @@ public final class BatchWordFinder implements BatchScan {
 	private int diagOffset;
 	/**
 	 * The entries of the current subject position whose hits go to a query's finder, handled after the position's
-	 * other hits: a call in the loop over the hits keeps the loop's values on the stack (C2 has no callee-saved
-	 * registers). The hits of one position are on different diagonals, so their order does not matter, except among
-	 * those that go to the finders, which keep theirs.
+	 * other hits, where {@link #DEFER} says so: a call in the loop over the hits keeps the loop's values on the stack
+	 * (C2 has no callee-saved registers). The hits of one position are on different diagonals, so their order does not
+	 * matter, except among those that go to the finders, which keep theirs.
 	 */
 	private final int[] rest;
+	/**
+	 * Whether the finder calls wait until after a position's hits: on AArch64 only. On the Neoverse-N2 runner that took
+	 * 3.7% less wall time (run 42374103357), as the loop then reloads fewer values from the stack; on x86-64 2.8% more
+	 * (a Xeon 6973P-C, same run) and 1.5% more cycles locally (i7-6700HQ).
+	 */
+	static final boolean DEFER = "aarch64".equals(System.getProperty("os.arch"));
 
 	/** The queries, their lookup tables and seeding parameters, by query; {@code table} merges the tables. */
 	public BatchWordFinder(byte[][] queries, LookupTable[] tables, SeedParameters[] parameters, Table table) {
@@ -245,13 +251,18 @@ public final class BatchWordFinder implements BatchScan {
 					if ((~(x | (lastL - x)) | state << 1) >= 0) {
 						final int older = (diff - windowL) >> 31; // -1 if the hit overlaps the last one: keep that
 						d[diag] = (state & older) | ((s + offset) & ~older);
-					} else {
+					} else if (DEFER) {
 						later[r++] = k;
+					} else {
+						final int i = query[k];
+						f[i].hit(residues, start, length, e - base[i], s, out[i]);
 					}
 				}
-				for (int j = 0; j < r; j++) {
-					final int k = later[j], i = query[k];
-					f[i].hit(residues, start, length, entry[k] - base[i], s, out[i]);
+				if (DEFER) {
+					for (int j = 0; j < r; j++) {
+						final int k = later[j], i = query[k];
+						f[i].hit(residues, start, length, entry[k] - base[i], s, out[i]);
+					}
 				}
 			}
 		}
