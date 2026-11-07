@@ -273,7 +273,8 @@ public final class BlastpSearch {
 		final int[] cutoffs = new int[n];
 		for (int i = 0; i < n; i++) {
 			seeds[i] = seedParameters(qs[i]);
-			tables[i] = LookupTable.of(qs[i], seeds[i].threshold());
+			// blastp-fast does not seed with these: only the warm-up does, which builds those it needs.
+			tables[i] = task == Task.BLASTP ? LookupTable.of(qs[i], seeds[i].threshold()) : null;
 			cutoffs[i] = cutoff(qs[i]);
 		}
 		final BatchWordFinder.Table table = task == Task.BLASTP
@@ -319,7 +320,8 @@ public final class BlastpSearch {
 		byte[] subject = null;
 		for (int q = 0; q < queries.length && left > 0; q++) {
 			AtomicInteger next = new AtomicInteger(Math.max(0, (db.size() - 1) / CHUNK + 1 - WARM_UP_CHUNKS));
-			List<Hit> hits = prelim(queries[q], new WordFinder(queries[q], tables[q], seeds[q]), cutoffs[q], next);
+			final LookupTable table = tables[q] != null ? tables[q] : LookupTable.of(queries[q], seeds[q].threshold());
+			List<Hit> hits = prelim(queries[q], new WordFinder(queries[q], table, seeds[q]), cutoffs[q], next);
 			CompoRedo redo = new CompoRedo(new CompoRedo.Query(queries[q]), statistics, arithmetic, segments);
 			if (TracebackStage.AVAILABLE) {
 				// The stage as it will run: its tracebacks as lanes.
