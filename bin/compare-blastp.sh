@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Compares BLAST+ blastp, blastp4j on the JVM and a native blastp4j on one search.
-# Usage: bin/compare-blastp.sh [all|blast|jvm|ref|almost|native|blastfast|fast]...   (default: all, which is blast,
-# jvm and native)
+# Usage: bin/compare-blastp.sh [all|blast|jvm|ref|almost|native|blastfast|fast|fastref]...   (default: all, which is
+# blast, jvm and native)
 # almost is almostblastp (cli.AlmostBlastp) from the same jar as jvm, whose results may differ slightly from blastp's.
 # blastfast is BLAST+ blastp -task blastp-fast, and fast fastblastp (cli.FastBlastp) from the same jar, which gives
-# blastp-fast's results.
+# blastp-fast's results; fastref is fastblastp from REF_JAR. These three search FAST_QUERY (default QUERY): blastp-fast
+# is so much faster that it needs more queries for a search long enough to leave the JIT's warm-up behind.
 #
 # 1. ROUNDS timing rounds (default 5), the chosen systems interleaved in each round (/usr/bin/time: wall, user, sys).
 # 2. One perf stat run per system (instructions, cycles, branches, branch misses), after all timing rounds; skipped
@@ -12,7 +13,7 @@
 # 3. For the JVM, one run with async-profiler (CPU samples, flame graph in jvm-profile.html), and one that prints the
 #    machine code of the seed and align packages with the samples of each instruction (machcode.txt).
 # Every output is compared with the first one written of its task (BLAST+'s when blast, or blastfast, is chosen):
-# blastfast and fast with each other, the others with each other.
+# blastfast, fast and fastref with each other, the others with each other.
 #
 # Settings (environment): QUERY, DB, THREADS (8), ROUNDS (5), OUT (target/compare), BLASTP (blastp on PATH),
 # TIME (GNU time, for -o and -f; default /usr/bin/time, on macOS gtime from Homebrew's gnu-time), JAVA_HOME or JAVA, NATIVE (the native executable, needed for native), ASYNC_PROFILER (libasyncProfiler.so; without
@@ -22,6 +23,7 @@
 set -e
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 QUERY="${QUERY:-$HERE/src/test/resources/queries/uniprot_human.fasta}"
+FAST_QUERY="${FAST_QUERY:-$QUERY}"
 DB="${DB:-$HOME/data/uniprot/blastdb/sprot}"
 THREADS="${THREADS:-8}"
 ROUNDS="${ROUNDS:-5}"
@@ -35,9 +37,9 @@ SYSTEMS=()
 for a in "${@:-all}"; do
 	case "$a" in
 	all) SYSTEMS=(blast jvm native) ;;
-	blast | jvm | ref | almost | native | blastfast | fast) SYSTEMS+=("$a") ;;
+	blast | jvm | ref | almost | native | blastfast | fast | fastref) SYSTEMS+=("$a") ;;
 	*)
-		echo "usage: $0 [all|blast|jvm|ref|almost|native|blastfast|fast]..." >&2
+		echo "usage: $0 [all|blast|jvm|ref|almost|native|blastfast|fast|fastref]..." >&2
 		exit 1
 		;;
 	esac
@@ -47,7 +49,7 @@ JAR="$(ls "$HERE"/target/blastp4j-*.jar 2>/dev/null | grep -v -e sources -e java
 for s in "${SYSTEMS[@]}"; do
 	case $s in
 	jvm | almost | fast) [ -n "$JAR" ] || { echo "compare-blastp: no jar in $HERE/target; run 'mvn package' first" >&2; exit 1; } ;;
-	ref) [ -f "${REF_JAR:-}" ] || { echo "compare-blastp: set REF_JAR to the jar to compare with" >&2; exit 1; } ;;
+	ref | fastref) [ -f "${REF_JAR:-}" ] || { echo "compare-blastp: set REF_JAR to the jar to compare with" >&2; exit 1; } ;;
 	native) [ -x "${NATIVE:-}" ] || { echo "compare-blastp: set NATIVE to the native blastp4j executable" >&2; exit 1; } ;;
 	esac
 done
@@ -61,6 +63,7 @@ command_of() {
 	almost) echo "$JAVA $("$HERE/bin/jvm-options") ${2:-} -cp $JAR swiss.sib.blastp4j.cli.AlmostBlastp" ;;
 	blastfast) echo "$BLASTP -task blastp-fast" ;;
 	fast) echo "$JAVA $("$HERE/bin/jvm-options") ${2:-} -cp $JAR swiss.sib.blastp4j.cli.FastBlastp" ;;
+	fastref) echo "$JAVA $("${REF_HOME:-$HERE}/bin/jvm-options") ${2:-} -cp $REF_JAR swiss.sib.blastp4j.cli.FastBlastp" ;;
 	ref) echo "$JAVA $("${REF_HOME:-$HERE}/bin/jvm-options") ${2:-} -jar $REF_JAR" ;;
 	native) echo "$NATIVE" ;;
 	esac
@@ -71,10 +74,10 @@ REFERENCE_blastp=""
 REFERENCE_fast=""
 # Runs one search, its output in $OUT/$2.tsv, and compares it with its task's reference.
 search() {
-	local system=$1 name=$2 task=blastp reference
-	case $1 in blastfast | fast) task=fast ;; esac
+	local system=$1 name=$2 task=blastp reference query=$QUERY
+	case $1 in blastfast | fast | fastref) task=fast query=$FAST_QUERY ;; esac
 	shift 2
-	"$@" $(command_of "$system" "${JVM_EXTRA:-}") -query "$QUERY" -db "$DB" -outfmt '6 std btop' -num_threads "$THREADS" \
+	"$@" $(command_of "$system" "${JVM_EXTRA:-}") -query "$query" -db "$DB" -outfmt '6 std btop' -num_threads "$THREADS" \
 		-out "$OUT/$name.tsv" >"$OUT/$name.log" 2>&1
 	eval "reference=\$REFERENCE_$task"
 	if [ -z "$reference" ]; then
@@ -87,7 +90,7 @@ search() {
 	fi
 }
 
-echo "systems: ${SYSTEMS[*]}; query $QUERY; db $DB; $THREADS threads; output in $OUT"
+echo "systems: ${SYSTEMS[*]}; query $QUERY (blastp-fast: $FAST_QUERY); db $DB; $THREADS threads; output in $OUT"
 echo "== timing, $ROUNDS rounds (wall s, user s, sys s)"
 for r in $(seq 1 "$ROUNDS"); do
 	for s in "${SYSTEMS[@]}"; do

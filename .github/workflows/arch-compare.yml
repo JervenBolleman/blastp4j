@@ -69,6 +69,9 @@ on:
       fastblastp:
         description: "Also time BLAST+ blastp -task blastp-fast and fastblastp (the code's cli.FastBlastp, its results) in the full search: true or false"
         default: "true"
+      fast_queries:
+        description: "Number of proteome sequences used as queries by blastp-fast and fastblastp (more than for blastp, so that the JIT's warm-up does not dominate)"
+        default: "2500"
 
 permissions:
   contents: read
@@ -83,6 +86,7 @@ env:
   BENCH_ARGS: ${{ inputs.bench_args }}
   ALMOSTBLASTP: ${{ inputs.almostblastp || 'true' }}
   FASTBLASTP: ${{ inputs.fastblastp || 'true' }}
+  FAST_QUERIES: ${{ inputs.fast_queries || '2500' }}
   # The reference: the input, or for a push the commit main pointed to before it.
   REFERENCE: ${{ inputs.reference || (github.event_name == 'push' && github.event.before) || '' }}
   BLAST_VERSION: 2.17.0
@@ -157,7 +161,7 @@ jobs:
             echo "BLAST+: $BLAST_VERSION"
             echo "Code: \`$(git -C blastp4j rev-parse --short HEAD)\` ($(git -C blastp4j log -1 --format=%s | cut -c1-100))"
             if [ -d reference ]; then echo "Reference: \`$(git -C reference rev-parse --short HEAD)\`"; fi
-            echo "Queries: $QUERIES; rounds: $ROUNDS"
+            echo "Queries: $QUERIES (blastp-fast: $FAST_QUERIES); rounds: $ROUNDS"
           } >"$REPORT/machine.txt"
           {
             echo "## $(uname -m) on ${{ matrix.runner }}"
@@ -244,6 +248,7 @@ jobs:
           ln -s proteome.fasta data/uniprot_sprot.fasta
           gzip -c data/proteome.fasta >data/uniprot_sprot.fasta.gz
           awk -v n="$QUERIES" '/^>/ { if (++k > n) exit } { print }' data/proteome.fasta >data/queries.fasta
+          awk -v n="$FAST_QUERIES" '/^>/ { if (++k > n) exit } { print }' data/proteome.fasta >data/fast-queries.fasta
           echo "database: $(grep -c '^>' data/proteome.fasta) sequences; queries: $(grep -c '^>' data/queries.fasta)"
 
       - name: Spills
@@ -315,11 +320,15 @@ jobs:
             fi
             if [ -d ../reference ]; then
               systems+=(ref)
+              # The reference's fastblastp too, where it has one and fastblastp runs.
+              if [[ " ${systems[*]} " == *" fast "* ]] && unzip -l ../reference/target/blastp4j-*[0-9T].jar 2>/dev/null | grep -q 'cli/FastBlastp.class'; then
+                systems+=(fastref)
+              fi
               export REF_JAR="$(ls "$PWD"/../reference/target/blastp4j-*.jar | grep -v -e sources -e javadoc | head -1)"
               export REF_HOME="$(cd ../reference && pwd)"
               echo "jvm: $(git rev-parse --short HEAD), ref: $(git -C ../reference rev-parse --short HEAD)"
             fi
-            QUERY=../data/queries.fasta DB=../data/blastdb/sprot THREADS="$(nproc)" ROUNDS="$ROUNDS" OUT=target/compare \
+            QUERY=../data/queries.fasta FAST_QUERY=../data/fast-queries.fasta DB=../data/blastdb/sprot THREADS="$(nproc)" ROUNDS="$ROUNDS" OUT=target/compare \
               ASYNC_PROFILER="$(cd .. && pwd)/async-profiler/lib/libasyncProfiler.so" bin/compare-blastp.sh "${systems[@]}"
             } | tee "$REPORT/full-search.txt"
             echo '```'

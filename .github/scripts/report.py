@@ -324,7 +324,7 @@ def per_commit(site, runs):
             if measured(rounds, "jvm") and (measured(rounds, "blast") or measured(rounds, "ref")):
                 run["measured"] = True
                 job = {"run": d, "arch": r.get("architecture", "?"), "cpu": r.get("cpu", "?"), "ref_commit": ref[:7]}
-                job.update({k: rounds[k] for k in ("blast", "jvm", "ref", "almost", "blastfast", "fast") if k in rounds})
+                job.update({k: rounds[k] for k in ("blast", "jvm", "ref", "almost", "blastfast", "fast", "fastref") if k in rounds})
                 g["jobs"].append(job)
     ordered = sorted(groups.values(), key=lambda g: g["date"], reverse=True)
     for g in ordered:
@@ -340,13 +340,14 @@ PLOT_SCRIPT = """
 (function () {
   const data = JSON.parse(document.getElementById("perf-data").textContent);
   const NAMES = {blast: "BLAST+", ref: "reference", jvm: "blastp4j", almost: "almostblastp",
-    blastfast: "BLAST+ blastp-fast", fast: "fastblastp"};
+    blastfast: "BLAST+ blastp-fast", fast: "fastblastp", fastref: "reference fastblastp"};
   // Numerator, denominator, title.
   const METRICS = [
     ["jvm", "blast", "blastp4j / BLAST+, wall time per round"],
     ["jvm", "ref", "blastp4j / reference commit, wall time per round"],
     ["almost", "blast", "almostblastp / BLAST+, wall time per round"],
     ["fast", "blastfast", "fastblastp / BLAST+ blastp-fast, wall time per round"],
+    ["fast", "fastref", "fastblastp / reference commit's, wall time per round"],
   ];
   const ARCH = {aarch64: "--arm", x86_64: "--x86"};
   function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
@@ -361,7 +362,7 @@ PLOT_SCRIPT = """
         const t = by[j.arch] || (by[j.arch] = {y: [], text: []});
         t.y.push(a[i] / b[i]);
         t.text.push("run " + j.run + ", round " + (i + 1) + "<br>" + j.cpu + "<br>" + NAMES[num] + " " + a[i].toFixed(2)
-          + " s, " + NAMES[den] + (den === "ref" && j.ref_commit ? " " + j.ref_commit : "") + " " + b[i].toFixed(2) + " s");
+          + " s, " + NAMES[den] + ((den === "ref" || den === "fastref") && j.ref_commit ? " " + j.ref_commit : "") + " " + b[i].toFixed(2) + " s");
       }
     }
     const fg = css("--fg"), bg = css("--bg");
