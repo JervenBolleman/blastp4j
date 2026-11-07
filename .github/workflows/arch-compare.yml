@@ -7,7 +7,8 @@
 # 2. The JMH benchmarks (the BENCHMARK input, default all) with this machine's options from bin/jvm.options
 #    plus each variant's own (the VARIANTS input), the variants interleaved over BENCH_ROUNDS rounds.
 # 3. A full search, BLAST+ and blastp4j interleaved (bin/compare-blastp.sh), and almostblastp when the code has it
-#    (the ALMOSTBLASTP input, default true), with an async-profiler flame graph and
+#    (the ALMOSTBLASTP input, default true), and BLAST+ blastp -task blastp-fast and fastblastp when the code has it
+#    (the FASTBLASTP input, default true), with an async-profiler flame graph and
 #    the JVM's machine code with the samples of each instruction (machcode.txt, printed with hsdis).
 # The code measured is the CODE input (a branch, tag or commit; default the ref the workflow runs from). With a
 # REFERENCE (for a push to main, main before the push), that blastp4j is built too and run in the same rounds of 2
@@ -65,6 +66,9 @@ on:
       almostblastp:
         description: "Also time almostblastp (the code's cli.AlmostBlastp, results may differ slightly) in the full search: true or false"
         default: "true"
+      fastblastp:
+        description: "Also time BLAST+ blastp -task blastp-fast and fastblastp (the code's cli.FastBlastp, its results) in the full search: true or false"
+        default: "true"
 
 permissions:
   contents: read
@@ -78,6 +82,7 @@ env:
   BENCHMARK: ${{ inputs.benchmark || '.' }}
   BENCH_ARGS: ${{ inputs.bench_args }}
   ALMOSTBLASTP: ${{ inputs.almostblastp || 'true' }}
+  FASTBLASTP: ${{ inputs.fastblastp || 'true' }}
   # The reference: the input, or for a push the commit main pointed to before it.
   REFERENCE: ${{ inputs.reference || (github.event_name == 'push' && github.event.before) || '' }}
   BLAST_VERSION: 2.17.0
@@ -303,6 +308,10 @@ jobs:
             # almostblastp from the same jar, where the code has it.
             if [ "$ALMOSTBLASTP" = true ] && unzip -l target/blastp4j-*[0-9T].jar 2>/dev/null | grep -q 'cli/AlmostBlastp.class'; then
               systems+=(almost)
+            fi
+            # blastp -task blastp-fast and fastblastp, compared with each other, where the code has fastblastp.
+            if [ "$FASTBLASTP" = true ] && unzip -l target/blastp4j-*[0-9T].jar 2>/dev/null | grep -q 'cli/FastBlastp.class'; then
+              systems+=(blastfast fast)
             fi
             if [ -d ../reference ]; then
               systems+=(ref)

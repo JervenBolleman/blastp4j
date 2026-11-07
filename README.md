@@ -151,6 +151,24 @@ analysis should bound the combined difference of all FAST changes, from the floa
   * `-XX:+TrustFinalNonStaticFields`, which lets C2 treat every final instance field as a constant (by default only
     those of records, hidden classes and some JDK classes), was tried (9ee5ac4, reverted): within the noise on the
     GitHub runners (1.4% less wall time on AArch64, 0.2% on x86-64) and here.
+* `bin/fastblastp` (`cli.FastBlastp`) gives the results of BLAST+'s `blastp -task blastp-fast`, identical to it, with
+  the same options; `-task blastp-fast`, `-word_size 5` and `-threshold 20` are accepted with these values only. A copy
+  of `cli.AlmostBlastp` with exact arithmetic and `search.Task.BLASTP_FAST`, which changes two things:
+  * The seeding: words of 5 letters of BLAST's 15-letter compressed alphabet (`seed.CompressedAlphabet`: the groups
+    `ST IJV LM KR EQZ A G BD P N F Y H C W`, scored from BLOSUM62's frequency ratios), neighbours scoring at least 20
+    (`seed.CompressedTable`), scanned by `seed.FastBatchWordFinder`; the two-hit logic is a copy for 5-letter words
+    (`seed.FastWordFinder`). The table keeps BLAST's order of a word's hits (the first 3, then chunks of 4, the last
+    first), which decides ties later.
+  * Before the gapped extensions, BLAST's chaining estimate (`search.Chaining`, `s_ChainingAlignment`) drops the
+    ungapped alignments that cannot reach the gapped cutoff.
+
+  On the bean queries blastp-fast takes 4.4 times fewer cycles than blastp but misses 30% of its query-subject pairs
+  (7.2% of those with E < 1e-10); see [docs/blast-determinism.md](docs/blast-determinism.md) for the comparison with
+  4-letter words. fastblastp's output is BLAST+'s: the bean queries (30,538 lines; 39,448 with `-comp_based_stats 0`),
+  the human queries against Swiss-Prot (8,706 lines), a single query, and the CLI sample (`FastBlastpTest`). Locally
+  (bean, 4 threads, three interleaved rounds) it took 13.0 s against BLAST+'s 11.9 s, 1.37 times its cycles. The
+  architecture comparison workflows time both in the full search (their `fastblastp` input, default true) and compare
+  their outputs with each other.
 * The word finder uses the Vector API, still the incubator module `jdk.incubator.vector`: `bin/jvm.options` adds it,
   and the JVM then prints a warning about incubator modules on stderr. Other ways of running blastp4j need
   `--add-modules jdk.incubator.vector` too.

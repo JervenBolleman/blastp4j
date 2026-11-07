@@ -5,8 +5,9 @@
 #
 # Manual only (workflow_dispatch). Per runner:
 # 1. The JMH benchmarks (the BENCHMARK input) with this machine's options from bin/jvm.options plus each variant's.
-# 2. A full search, BLAST+ and blastp4j interleaved (bin/compare-blastp.sh), almostblastp where the code has it, and
-#    the REFERENCE commit when given, with an async-profiler flame graph.
+# 2. A full search, BLAST+ and blastp4j interleaved (bin/compare-blastp.sh), almostblastp where the code has it,
+#    BLAST+ blastp -task blastp-fast and fastblastp where the code has fastblastp, and the REFERENCE commit when given,
+#    with an async-profiler flame graph.
 # macOS has no perf and no hsdis here, so no hardware counters, no machine code and no spill counts; the timing uses
 # GNU time from Homebrew (gtime). bin/compare-blastp.sh is this workflow's ref's, copied into the code's tree (older
 # code's copy has no TIME setting).
@@ -50,6 +51,9 @@ on:
       almostblastp:
         description: "Also time almostblastp (the code's cli.AlmostBlastp, results may differ slightly) in the full search: true or false"
         default: "true"
+      fastblastp:
+        description: "Also time BLAST+ blastp -task blastp-fast and fastblastp (the code's cli.FastBlastp, its results) in the full search: true or false"
+        default: "true"
 
 permissions:
   contents: read
@@ -62,6 +66,7 @@ env:
   BENCHMARK: ${{ inputs.benchmark }}
   BENCH_ARGS: ${{ inputs.bench_args }}
   ALMOSTBLASTP: ${{ inputs.almostblastp }}
+  FASTBLASTP: ${{ inputs.fastblastp }}
   REFERENCE: ${{ inputs.reference }}
   BLAST_VERSION: 2.17.0
   JAVA_VERSION: "27"
@@ -247,6 +252,10 @@ jobs:
             if [ "$ALMOSTBLASTP" = true ] && unzip -l target/blastp4j-*[0-9T].jar 2>/dev/null | grep -q 'cli/AlmostBlastp.class'; then
               systems+=(almost)
             fi
+            # blastp -task blastp-fast and fastblastp, compared with each other, where the code has fastblastp.
+            if [ "$FASTBLASTP" = true ] && unzip -l target/blastp4j-*[0-9T].jar 2>/dev/null | grep -q 'cli/FastBlastp.class'; then
+              systems+=(blastfast fast)
+            fi
             if [ -d ../reference ]; then
               systems+=(ref)
               export REF_JAR="$(ls "$PWD"/../reference/target/blastp4j-*.jar | grep -v -e sources -e javadoc | head -1)"
@@ -273,11 +282,13 @@ jobs:
             echo "### Output against BLAST+'s (round 1)"
             echo
             echo '```'
-            for s in jvm almost ref; do
+            for s in jvm almost ref fast; do
               [ -f "time-$s-1.tsv" ] || continue
-              echo "$s: $(wc -l <time-$s-1.tsv) lines, BLAST+ $(wc -l <time-blast-1.tsv); only in $s: $(comm -13 <(sort time-blast-1.tsv) <(sort time-$s-1.tsv) | wc -l), only in BLAST+: $(comm -23 <(sort time-blast-1.tsv) <(sort time-$s-1.tsv) | wc -l)"
+              # fastblastp against BLAST+ with -task blastp-fast, the others against BLAST+.
+              b=blast; [ "$s" = fast ] && b=blastfast
+              echo "$s: $(wc -l <time-$s-1.tsv) lines, $b $(wc -l <time-$b-1.tsv); only in $s: $(comm -13 <(sort time-$b-1.tsv) <(sort time-$s-1.tsv) | wc -l), only in $b: $(comm -23 <(sort time-$b-1.tsv) <(sort time-$s-1.tsv) | wc -l)"
               # Lines in the same place that differ: which columns, how often.
-              paste -d '\n' time-blast-1.tsv "time-$s-1.tsv" | awk -F'\t' -v s="$s" '
+              paste -d '\n' "time-$b-1.tsv" "time-$s-1.tsv" | awk -F'\t' -v s="$s" '
                 NR % 2 { split($0, b, "\t"); line = $0; next }
                 $0 != line { n++; for (i = 1; i <= NF; i++) if ($i != b[i]) col[i]++
                   if (n <= 10) { printf "  blast:"; for (i = 1; i <= 12; i++) printf " %s", b[i]

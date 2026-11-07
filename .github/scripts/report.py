@@ -230,6 +230,8 @@ def run(out, jobs):
         row = {
             "architecture": arch, "cpu": m.get("CPU model", "?"), "cpus": m.get("CPUs", "?"),
             "blast_wall": wall.get("blast"), "jvm_wall": wall.get("jvm"), "ref_wall": wall.get("ref"),
+            "blastfast_wall": wall.get("blastfast"), "fast_wall": wall.get("fast"),
+            "fast": ratio(wall.get("fast"), wall.get("blastfast")),
             "wall": ratio(wall.get("jvm"), wall.get("blast")),
             "cycles": ratio(jvm.get("cycles"), blast.get("cycles")),
             "instructions": ratio(jvm.get("instructions"), blast.get("instructions")),
@@ -247,6 +249,8 @@ def run(out, jobs):
             f"<td class=num><b>{times(row['wall'])}</b></td>"
             f"<td class=num>{times(row['cycles'])}</td><td class=num>{times(row['instructions'])}</td>"
             + (f"<td class=num>{row['ref_wall'] or '–'}</td>" if "ref" in wall else "")
+            + (f"<td class=num>{row['blastfast_wall'] or '–'}</td><td class=num>{row['fast_wall'] or '–'}</td>"
+               f"<td class=num><b>{times(row['fast'])}</b></td>" if "fast" in wall else "")
             + f"<td>{'identical' if identical else '<b class=bad>different</b>'}</td>"
             f"<td>{link}</td></tr>")
         facts = "".join(f"<dt>{html.escape(k)}</dt><dd>{inline(v)}</dd>" for k, v in m.items())
@@ -256,6 +260,7 @@ def run(out, jobs):
             + markdown(read(os.path.join(job, "report.md")), shift=1)
             + "</section>")
     has_ref = any(r["ref_wall"] is not None for r in rows)
+    has_fast = any(r["fast_wall"] is not None for r in rows)
     code = sorted(c for c in commits if c)
     date = os.environ.get("RUN_DATE") or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     body = f"""<p class="muted"><a href="../../">All runs</a></p>
@@ -265,10 +270,11 @@ Hosted runners are virtual machines and differ from run to run: compare the rati
 <div class="scroll"><table>
 <thead><tr><th>architecture</th><th>CPU model</th><th class=num>CPUs</th><th class=num>BLAST+ wall s</th>
 <th class=num>blastp4j wall s</th><th class=num>wall</th><th class=num>cycles</th><th class=num>instructions</th>
-{'<th class=num>reference wall s</th>' if has_ref else ''}<th>output</th><th></th></tr></thead>
+{'<th class=num>reference wall s</th>' if has_ref else ''}{'<th class=num>BLAST+ blastp-fast wall s</th><th class=num>fastblastp wall s</th><th class=num>fast wall</th>' if has_fast else ''}<th>output</th><th></th></tr></thead>
 <tbody>{''.join(summary)}</tbody>
 </table></div>
-<p class="muted">Wall times are medians of the full-search rounds; the ratios are blastp4j over BLAST+.</p>
+<p class="muted">Wall times are medians of the full-search rounds; the ratios are blastp4j over BLAST+, and fastblastp
+over BLAST+ with <code>-task blastp-fast</code>. Each output is compared with BLAST+'s for its task.</p>
 {''.join(sections)}"""
     write(os.path.join(out, "index.html"), page("blastp4j vs BLAST+, " + date, body))
     write(os.path.join(out, "summary.json"), json.dumps(
@@ -318,7 +324,7 @@ def per_commit(site, runs):
             if measured(rounds, "jvm") and (measured(rounds, "blast") or measured(rounds, "ref")):
                 run["measured"] = True
                 job = {"run": d, "arch": r.get("architecture", "?"), "cpu": r.get("cpu", "?"), "ref_commit": ref[:7]}
-                job.update({k: rounds[k] for k in ("blast", "jvm", "ref", "almost") if k in rounds})
+                job.update({k: rounds[k] for k in ("blast", "jvm", "ref", "almost", "blastfast", "fast") if k in rounds})
                 g["jobs"].append(job)
     ordered = sorted(groups.values(), key=lambda g: g["date"], reverse=True)
     for g in ordered:
@@ -333,12 +339,14 @@ PLOTLY = "https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"
 PLOT_SCRIPT = """
 (function () {
   const data = JSON.parse(document.getElementById("perf-data").textContent);
-  const NAMES = {blast: "BLAST+", ref: "reference", jvm: "blastp4j", almost: "almostblastp"};
+  const NAMES = {blast: "BLAST+", ref: "reference", jvm: "blastp4j", almost: "almostblastp",
+    blastfast: "BLAST+ blastp-fast", fast: "fastblastp"};
   // Numerator, denominator, title.
   const METRICS = [
     ["jvm", "blast", "blastp4j / BLAST+, wall time per round"],
     ["jvm", "ref", "blastp4j / reference commit, wall time per round"],
     ["almost", "blast", "almostblastp / BLAST+, wall time per round"],
+    ["fast", "blastfast", "fastblastp / BLAST+ blastp-fast, wall time per round"],
   ];
   const ARCH = {aarch64: "--arm", x86_64: "--x86"};
   function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
