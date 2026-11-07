@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 
 import jdk.incubator.vector.IntVector;
+import jdk.incubator.vector.ShortVector;
 import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorSpecies;
@@ -86,7 +87,7 @@ public final class BatchWordFinder implements BatchScan {
 			start[LookupTable.WORDS] = k;
 			char[] narrow = null;
 			if (length <= Character.MAX_VALUE) {
-				narrow = new char[total];
+				narrow = new char[total + LANES];
 				for (int j = 0; j < total; j++) {
 					narrow[j] = (char) entry[j];
 				}
@@ -105,9 +106,13 @@ public final class BatchWordFinder implements BatchScan {
 	private static final boolean NATIVE_IMAGE = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
 	private static final VectorSpecies<Integer> INTS = IntVector.SPECIES_PREFERRED;
 	private static final int LANES = INTS.length();
+	/** As many shorts as {@link #INTS} has ints: the narrow entries of a vector. */
+	private static final VectorSpecies<Short> CHARS = VectorSpecies.of(short.class,
+			jdk.incubator.vector.VectorShape.forBitSize(INTS.vectorBitSize() / 2));
 	/**
 	 * Whether the scan takes a subject position's hits a vector at a time (needs 8 int lanes with a gather, as
-	 * {@code SemiGappedLanes}). The lanes then read the int entries: the copy does not read the narrow ones.
+	 * {@code SemiGappedLanes}). The lanes read the narrow entries themselves where the table has them, so the copy
+	 * does not transform its loads.
 	 */
 	public static final boolean SEED_LANES = LANES >= 8 && !NATIVE_IMAGE
 			&& Boolean.parseBoolean(System.getProperty("blastp4j.seedLanes", "true"));
@@ -271,6 +276,7 @@ public final class BatchWordFinder implements BatchScan {
 	 */
 	private void findLanes(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
 		final int[] cellStart = table.start(), entry = table.entry(), query = table.query(), base = table.base();
+		final char[] narrow = table.narrow();
 		final int[] d = diags, ld = laneDiag, ls = laneState;
 		final int diagMask = this.diagMask & (d.length - 1);
 		final int offset = diagOffset, windowL = window, lastL = window - LookupTable.WORD_SIZE - 1;
@@ -284,7 +290,11 @@ public final class BatchWordFinder implements BatchScan {
 				final int end = cellStart[word + 1];
 				for (int k = cellStart[word]; k < end; k += LANES) {
 					final VectorMask<Integer> valid = iota.compare(VectorOperators.LT, end - k);
-					final IntVector diag = IntVector.fromArray(INTS, entry, k).sub(s).and(diagMask);
+					final IntVector entries = narrow != null
+							? (IntVector) ShortVector.fromCharArray(CHARS, narrow, k)
+									.convertShape(VectorOperators.ZERO_EXTEND_S2I, INTS, 0)
+							: IntVector.fromArray(INTS, entry, k);
+					final IntVector diag = entries.sub(s).and(diagMask);
 					diag.intoArray(ld, 0);
 					final IntVector state = IntVector.fromArray(INTS, d, 0, ld, 0);
 					// As in find: x in [0, last] and not extended is a hit to extend; the others are usual hits.
