@@ -6,8 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Random;
 
 import org.junit.jupiter.api.Test;
@@ -43,7 +41,7 @@ class BatchWordFinderTest {
 			byte[] q = queries[random.nextInt(queries.length)];
 			byte[] subject = new byte[q.length + 2];
 			System.arraycopy(q, 0, subject, 1, q.length);
-			List<UngappedHsp>[] a = lists(queries.length), b = lists(queries.length);
+			SeedList[] a = lists(queries.length), b = lists(queries.length);
 			copy.find(subject, 1, q.length, a);
 			plain.find(subject, 1, q.length, b);
 			differ = !java.util.Arrays.equals(a, b);
@@ -81,7 +79,7 @@ class BatchWordFinderTest {
 				subject[i + 1] = from + i < q.length && random.nextInt(4) > 0 ? q[from + i]
 						: (byte) (1 + random.nextInt(20));
 			}
-			List<UngappedHsp>[] a = lists(queries.length), b = lists(queries.length);
+			SeedList[] a = lists(queries.length), b = lists(queries.length);
 			copy.find(subject, 1, length, a);
 			plain.find(subject, 1, length, b);
 			for (int i = 0; i < queries.length; i++) {
@@ -125,10 +123,10 @@ class BatchWordFinderTest {
 	}
 
 	@SuppressWarnings("unchecked")
-	private static List<UngappedHsp>[] lists(int n) {
-		List<UngappedHsp>[] lists = new List[n];
+	private static SeedList[] lists(int n) {
+		SeedList[] lists = new SeedList[n];
 		for (int i = 0; i < n; i++) {
-			lists[i] = new ArrayList<>();
+			lists[i] = new SeedList();
 		}
 		return lists;
 	}

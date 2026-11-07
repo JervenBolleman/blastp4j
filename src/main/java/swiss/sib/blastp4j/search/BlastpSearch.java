@@ -25,6 +25,7 @@ import swiss.sib.blastp4j.seed.BatchWordFinder;
 import swiss.sib.blastp4j.seed.CompressedTable;
 import swiss.sib.blastp4j.seed.FastBatchWordFinder;
 import swiss.sib.blastp4j.seed.LookupTable;
+import swiss.sib.blastp4j.seed.SeedList;
 import swiss.sib.blastp4j.seed.SeedParameters;
 import swiss.sib.blastp4j.seed.UngappedHsp;
 import swiss.sib.blastp4j.seed.WordFinder;
@@ -506,7 +507,7 @@ public final class BlastpSearch {
 	List<Hit> prelim(byte[] query, WordScan finder, int cutoff, AtomicInteger next) {
 		final GappedAligner aligner = new GappedAligner(gapOpen, gapExtend);
 		final List<Hit> found = new ArrayList<>();
-		final List<UngappedHsp> seeds = new ArrayList<>();
+		final SeedList seeds = new SeedList();
 		final LaneStage lanes = SemiGappedLanes.AVAILABLE ? new LaneStage(aligner, query.length, List.of(found)) : null;
 		byte[] subject = null;
 		for (int chunk; (chunk = next.getAndIncrement()) * CHUNK < db.size();) {
@@ -547,11 +548,11 @@ public final class BlastpSearch {
 		final GappedAligner aligner = new GappedAligner(gapOpen, gapExtend);
 		final int n = queries.length;
 		final List<List<Hit>> found = new ArrayList<>();
-		final List<UngappedHsp>[] seeds = new List[n];
+		final SeedList[] seeds = new SeedList[n];
 		int longest = 0;
 		for (int q = 0; q < n; q++) {
 			found.add(new ArrayList<>());
-			seeds[q] = new ArrayList<>();
+			seeds[q] = new SeedList();
 			longest = Math.max(longest, queries[q].length);
 		}
 		final LaneStage lanes = SemiGappedLanes.AVAILABLE ? new LaneStage(aligner, longest, found) : null;

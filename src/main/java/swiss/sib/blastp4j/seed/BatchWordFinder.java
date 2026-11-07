@@ -16,7 +16,6 @@ import java.lang.constant.MethodTypeDesc;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
-import java.util.List;
 import java.util.Map;
 
 import swiss.sib.blastp4j.util.HiddenCopies;
@@ -224,7 +223,7 @@ public final class BatchWordFinder implements BatchScan {
 	 * those of query {@code i} to {@code out[i]}, as {@link WordFinder#find} does for one query.
 	 */
 	@Override
-	public void find(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
+	public void find(byte[] residues, int start, int length, SeedList[] out) {
 		final int[] cellStart = table.start(), entry = table.entry(), query = table.query(), base = table.base();
 		final int[] d = diags, later = rest;
 		final int diagMask = this.diagMask;
