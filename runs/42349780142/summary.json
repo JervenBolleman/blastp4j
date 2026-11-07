@@ -1,0 +1,75 @@
+{
+ "run_id": "42349780142",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/42349780142",
+ "date": "2026-11-07 07:28 UTC",
+ "event": "schedule",
+ "code": [
+  "`d45aeb3` (macOS workflow: the outputs kept, their differences summarized; the report job fixed)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 28.63,
+   "jvm_wall": 30.84,
+   "ref_wall": null,
+   "wall": 1.0771917568983584,
+   "cycles": 1.0400451212633954,
+   "instructions": 1.194559704933149,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html",
+   "jvm_commit": "d45aeb3",
+   "ref_commit": "",
+   "rounds": {
+    "blast": [
+     28.63,
+     28.0,
+     28.69
+    ],
+    "jvm": [
+     30.78,
+     30.9,
+     30.84
+    ],
+    "almost": [
+     31.4,
+     31.76,
+     29.93
+    ]
+   }
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 7763 64-Core Processor",
+   "cpus": "4",
+   "blast_wall": 51.36,
+   "jvm_wall": 43.3,
+   "ref_wall": null,
+   "wall": 0.8430685358255451,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html",
+   "jvm_commit": "d45aeb3",
+   "ref_commit": "",
+   "rounds": {
+    "blast": [
+     51.36,
+     51.61,
+     50.89
+    ],
+    "jvm": [
+     43.35,
+     43.3,
+     43.23
+    ],
+    "almost": [
+     41.43,
+     42.08,
+     41.74
+    ]
+   }
+  }
+ ]
+}
