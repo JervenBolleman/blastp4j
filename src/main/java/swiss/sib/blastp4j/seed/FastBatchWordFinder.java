@@ -15,12 +15,18 @@ public final class FastBatchWordFinder implements BatchScan {
 	private static final int WORD = CompressedTable.WORD;
 	/** The weight of a word's newest letter: 15^4. */
 	private static final int NEWEST = 50625;
+	/** How many positions with hits ahead the scan touches the cells of. */
+	private static final int AHEAD = 8;
 
 	private final CompressedTable table;
 	private final FastWordFinder[] finders;
 	private final int[] diags;
 	private final int window, diagMask;
 	private int diagOffset;
+	/** The positions with hits of the subject being scanned, and their words. */
+	private int[] words = new int[0], at = new int[0];
+	/** The sum of the cells touched ahead, kept so that the loads stay. */
+	private int sink;
 
 	public FastBatchWordFinder(byte[][] queries, SeedParameters[] parameters, CompressedTable table) {
 		this.table = table;
@@ -46,6 +52,14 @@ public final class FastBatchWordFinder implements BatchScan {
 		final int offset = diagOffset, windowL = window, lastL = window - WORD - 1;
 		final byte[] compress = CompressedAlphabet.COMPRESS;
 		final FastWordFinder[] f = finders;
+		// First the positions whose cell has hits, with their words; then their hits, each position touching the cells
+		// of the one AHEAD further on, so that the misses on cells (6 MB) overlap rather than wait one after the other.
+		if (words.length < length) {
+			words = new int[length];
+			at = new int[length];
+		}
+		final int[] w = words, pos = at;
+		int n = 0;
 		// The word ending at each position, its oldest letter lowest; good counts the letters since one outside the
 		// alphabet.
 		int word = 0, good = 0;
@@ -61,12 +75,20 @@ public final class FastBatchWordFinder implements BatchScan {
 				continue;
 			}
 			if ((present[word >>> 6] >>> word & 1) == 0) {
-				continue; // no hits: cells, 6 MB, not read
+				continue; // no hits: cells not read
 			}
-			final int s = p - (WORD - 1);
+			w[n] = word;
+			pos[n++] = p - (WORD - 1);
+		}
+		int touched = 0;
+		for (int j = 0; j < n; j++) {
+			if (j + AHEAD < n) {
+				touched += cells[2 * w[j + AHEAD]];
+			}
+			final int cell = 2 * w[j], s = pos[j];
 			// The cell's first entry from its own line of cells, the others from entry.
-			int k = cells[2 * word], e = cells[2 * word + 1];
-			for (final int end = cells[2 * word + 2];; e = entry[k]) {
+			int k = cells[cell], e = cells[cell + 1];
+			for (final int end = cells[cell + 2];; e = entry[k]) {
 				// As BatchWordFinder.find.
 				final int diag = (e - s) & diagMask;
 				final int state = d[diag];
@@ -83,6 +105,7 @@ public final class FastBatchWordFinder implements BatchScan {
 				}
 			}
 		}
+		sink += touched;
 		for (FastWordFinder finder : f) {
 			finder.endSubject(length);
 		}
