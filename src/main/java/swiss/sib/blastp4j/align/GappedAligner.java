@@ -640,7 +640,7 @@ public final class GappedAligner {
 		 * Rows with traceback after the best cell's row, before the rows that follow are computed without it, score only
 		 * (see {@link #rows}).
 		 */
-		static final int AHEAD = 8;
+		static final int AHEAD = 2;
 
 		/**
 		 * Rows {@code from} onwards as {@link #rows} computes them, with the band {@code [first, bSize)} of the row before,
