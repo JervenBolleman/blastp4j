@@ -12,18 +12,20 @@ import java.util.Arrays;
  * words that score at least the threshold against it ({@link CompressedAlphabet#SCORES}, scaled by 100, as is the
  * threshold), and to its own compressed word if that scores less.
  * <p>
- * The hits of cell {@code w} are entries {@code [start[w], start[w + 1])}, in the order BLAST's scan reads them: a cell
+ * The hits of cell {@code w} are entries {@code [cells[2 w], cells[2 w + 2])}, in the order BLAST's scan reads them: a cell
  * keeps its first 5 offsets in the backbone and the rest in cells of 4, the newest first, so after the first 3 come
  * the others in chunks of 4, the last chunk first ({@code s_CompressedLookupAddWordHit},
  * {@code s_BlastCompressedAaScanSubject}). That order is the order of a subject position's hits, which decides ties
  * later. An entry is the offset in the concatenation, {@code base[i]} plus the query offset; {@code query[k]} is the
- * query of entry {@code k}. {@code size} is the length of the diagonal array.
+ * query of entry {@code k}. {@code cells[2 w + 1]} is the cell's first entry again (0 where it has none): next to
+ * its start, so that a position whose cell has one hit (most have one or two) reads one cache line of the table, not
+ * two, as BLAST's backbone cell holds its first hits. {@code size} is the length of the diagonal array.
  * <p>
  * {@code present} has a bit per cell, set where the cell has hits ({@code present[w >>> 6] >>> w & 1}), so that the
- * scan reads 95 KB for a position without hits rather than the 3 MB of {@code start}, as BLAST's scan tests its
+ * scan reads 95 KB for a position without hits rather than the 6 MB of {@code cells}, as BLAST's scan tests its
  * {@code pv} array: half the cells are empty, and two thirds of the positions (bean queries) fall on one.
  */
-public record CompressedTable(int[] start, int[] entry, int[] query, int[] base, int size, long[] present) {
+public record CompressedTable(int[] cells, int[] entry, int[] query, int[] base, int size, long[] present) {
 	/** Word length. */
 	public static final int WORD = 5;
 	/** Cells: 15^5. */
@@ -79,7 +81,13 @@ public record CompressedTable(int[] start, int[] entry, int[] query, int[] base,
 				reorder(entry, query, from, count, e, qy);
 			}
 		}
-		return new CompressedTable(start, entry, query, base, WordFinder.diagonals((int) length, window), present);
+		final int[] cells = new int[2 * CELLS + 2];
+		for (int c = 0; c < CELLS; c++) {
+			cells[2 * c] = start[c];
+			cells[2 * c + 1] = start[c + 1] > start[c] ? entry[start[c]] : 0;
+		}
+		cells[2 * CELLS] = start[CELLS];
+		return new CompressedTable(cells, entry, query, base, WordFinder.diagonals((int) length, window), present);
 	}
 
 	/** A cell's entries after the first 3, in chunks of 4 in insertion order: the chunks reversed. */

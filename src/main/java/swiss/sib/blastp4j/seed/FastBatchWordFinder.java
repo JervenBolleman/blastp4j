@@ -39,7 +39,7 @@ public final class FastBatchWordFinder implements BatchScan {
 
 	@Override
 	public void find(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
-		final int[] cellStart = table.start(), entry = table.entry(), query = table.query(), base = table.base();
+		final int[] cells = table.cells(), entry = table.entry(), query = table.query(), base = table.base();
 		final long[] present = table.present();
 		final int[] d = diags;
 		final int diagMask = this.diagMask & (d.length - 1);
@@ -61,12 +61,13 @@ public final class FastBatchWordFinder implements BatchScan {
 				continue;
 			}
 			if ((present[word >>> 6] >>> word & 1) == 0) {
-				continue; // no hits: start, 3 MB, not read
+				continue; // no hits: cells, 6 MB, not read
 			}
 			final int s = p - (WORD - 1);
-			for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
+			// The cell's first entry from its own line of cells, the others from entry.
+			int k = cells[2 * word], e = cells[2 * word + 1];
+			for (final int end = cells[2 * word + 2];; e = entry[k]) {
 				// As BatchWordFinder.find.
-				final int e = entry[k];
 				final int diag = (e - s) & diagMask;
 				final int state = d[diag];
 				final int diff = s - (state - offset), x = diff - WORD;
@@ -76,6 +77,9 @@ public final class FastBatchWordFinder implements BatchScan {
 				} else {
 					final int i = query[k];
 					f[i].hit(residues, start, length, e - base[i], s, out[i]);
+				}
+				if (++k >= end) {
+					break;
 				}
 			}
 		}
