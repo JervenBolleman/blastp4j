@@ -165,10 +165,9 @@ analysis should bound the combined difference of all FAST changes, from the floa
   On the bean queries blastp-fast takes 4.4 times fewer cycles than blastp but misses 30% of its query-subject pairs
   (7.2% of those with E < 1e-10); see [docs/blast-determinism.md](docs/blast-determinism.md) for the comparison with
   4-letter words. fastblastp's output is BLAST+'s: the bean queries (30,538 lines; 39,448 with `-comp_based_stats 0`),
-  the human queries against Swiss-Prot (8,706 lines), a single query, and the CLI sample (`FastBlastpTest`). Locally
-  (bean, 4 threads, three interleaved rounds) it took 13.0 s against BLAST+'s 11.9 s, 1.37 times its cycles. The
-  architecture comparison workflows time both in the full search (their `fastblastp` input, default true) and compare
-  their outputs with each other.
+  the human queries against Swiss-Prot (8,706 lines), 2,500 bean queries, a single query, and the CLI sample
+  (`FastBlastpTest`). The architecture comparison workflows time both in the full search (their `fastblastp` input,
+  default true) and compare their outputs with each other; see [fastblastp's speed](#fastblastps-speed).
 * The word finder uses the Vector API, still the incubator module `jdk.incubator.vector`: `bin/jvm.options` adds it,
   and the JVM then prints a warning about incubator modules on stderr. Other ways of running blastp4j need
   `--add-modules jdk.incubator.vector` too.
@@ -235,6 +234,44 @@ blastp4j to 1.32 times BLAST+'s cycles (main at 97df58a, three interleaved round
 against 402.5 to 411.7 G) and 1.22 times its instructions (625.2 to 637.1 G). Wall time was 23.0 and 23.3 s against
 19.0 and 20.1 s in the rounds without throttling. Where the first batch is short, as with the 500 bean queries of the
 architecture comparison workflow, the warm-up costs 1.5 to 2.5% of cycles instead.
+
+### fastblastp's speed
+
+A blastp-fast search is about 4 times shorter than a blastp one, so on the 500 bean queries the JIT dominated it:
+locally (i7-6700HQ, 4 threads, `-XX:+CITime`) C1 and C2 compiled for 15.9 s of the 59.5 s of user time (27%), and
+the runners showed fastblastp at 1.2 to 1.8 times BLAST+'s wall time. With 2,500 queries compilation is 10% (20.3 s of
+211.3 s), and fastblastp took 59.0 s against BLAST+'s 55.2 s (1.07 times), with the same user time (211.3 s against
+212.6 s). So the workflows give blastp-fast its own queries, the first `fast_queries` (default 2,500) bean proteins,
+and run the reference commit's fastblastp in the same job (`fastref`), as they do for blastp4j (0aecb1f). In that
+run the two identical builds differed by about 1% (AArch64 44.72 s and 45.17 s, x86-64 58.40 s and 58.42 s).
+
+A profile after the warm-up (async-profiler attached from second 25 to 50 of the 2,500-query search): the
+composition-based stage 58% (the traceback lanes 27%, the target-frequency optimizer 25%), the compressed scan 18%,
+the preliminary lanes 14%, building the compressed tables 2.3%, compilation 2%. Per thread, in wall time, the main
+thread waited for the workers 82.7% of its time, and spent the rest building the compressed tables (7.5%), computing
+the queries' ungapped Karlin-Altschul parameters (about 5%) and writing the output (1.7%). Meanwhile the workers
+waited: BLAST+ kept 3.8 of 4 cores busy, fastblastp 3.25 (Neoverse-N2) to 3.35 (Xeon 8370C). Hence these experiments,
+each measured on the runners against its parent (`fastref`), output identical to BLAST+ in every round:
+
+| Commit | Change | AArch64 (Neoverse-N2) | x86-64 | |
+|---|---|---:|---:|---|
+| f8ba9e9 | a presence bit per cell of the compressed table (95 KB), tested before its 3 MB start array, as BLAST tests its pv array | | | kept; -0.6% cycles locally (measured on the runners before `fastref`) |
+| 748e7d2 | blastp's 3-letter lookup tables built only for the composition stage's warm-up, not for every batch | -4.6% | -4.5% (EPYC 7763) | kept, every round |
+| b4a6547 | the scan as a hidden copy with its window and mask as constants, as `BatchWordFinder`'s | +0.7%, rounds mixed | +1.8% (EPYC 9V45), rounds mixed | reverted (37521f5) |
+| 2939f0c | the queries' Karlin-Altschul parameters computed once (the CLIs computed them for the skip check and `prelim` again), and the ideal lambda a constant | -2.2% | -2.4% (EPYC 7763) | kept, every round |
+| abdf0b4 | the next query batch prepared (skip checks, cutoffs, lookup tables) on a thread of its own while this one is searched | -4.7% | -3.9% | kept; blastp4j -2.9% on AArch64 |
+
+Changes are in median wall time. The look-ahead costs 3% more cycles on a 4-core laptop, where its thread competes
+with the four workers; it pays in wall time. Since then (run 42421494383, main at 37521f5, median of three rounds):
+
+| | AArch64 (Neoverse-N2) | x86-64 (EPYC 9V45) |
+|---|---:|---:|
+| fastblastp against BLAST+ blastp-fast (2,500 queries) | 39.12 s against 32.33 s (1.21) | 27.73 s against 38.64 s (0.72) |
+| blastp4j against BLAST+ (500 queries) | 29.43 s against 28.66 s (1.03) | 26.06 s against 35.31 s (0.74) |
+
+Before the experiments (0aecb1f) fastblastp was at 1.35 on the N2 and 0.96 on a Xeon 8370C. The x86-64 ratio depends
+on the runner's CPU: 0.85 on an EPYC 7763 in 748e7d2's run. Not tried yet for the fast scan: blastp's AArch64
+deferral of the finder calls (see [Seeding](#seeding)), and chars for the compressed table's entries.
 
 ### Daemon
 
@@ -518,6 +555,24 @@ fell by 20% but cycles by only 0.8%.
 *Tried, no gain:* the hits for the finder put in a buffer and handled after each position's entries (7a12106,
 reverted), so that the entry loop has no call. C2 still kept the loop's values in stack slots: 2.8% more instructions,
 cycles unchanged.
+
+*AArch64:* C2 has no callee-saved registers there, so the values a loop keeps across a call live in stack slots, and
+the batch scan reloaded them after every call to the finder; GCC keeps BLAST+'s in x19 to x28. On the Neoverse-N2
+runner 14.3% of the samples were on stack loads in `find`. Experiments, 500 bean queries, output identical:
+
+| Commit | Change | AArch64 (Neoverse-N2) | x86-64 | |
+|---|---|---:|---:|---|
+| 600a57a, e66bdfe | 7a12106's deferral again: a position's rare hits buffered and handed to the finder after its loop | -3.7% wall, stack-load samples 12.0% | +2.8% (Xeon 6973P-C) | kept on AArch64 only (`BatchWordFinder.DEFER`) |
+| c2ee363 | `WordFinder.hit` inlined into the scan (`jvm.options`, AArch64) | +0.3% wall, +3.5% cycles | | reverted (ac8b292) |
+| c28fe14 | `seed.SeedList`: the alignments in an array grown by 64, so that saving one is no call | +0.2% wall, +1.0% cycles | -0.2% (EPYC 9V74) | reverted (f4f6445) |
+| cfdae36 | 654b5e5 again: the ungapped extensions' best score without a branch | -1.2% wall, -5.7% cycles, -8.5% branch misses | (+1.8% in 654b5e5) | kept on AArch64 only (`WordFinder.BRANCH_FREE_MAX`) |
+| 7c4ce9c | a position loop with no call at all (`scan`), returning to `find` for the hits | +0.1% wall, +2.0% cycles | | reverted (0d692cf) |
+
+Without the inline and the array (their reverts together) the N2 took 4.4% less wall time, every round. The call-free
+scan did remove the reloads (0.2% of the samples on stack loads), but stored a value per position and made `find`
+6,280 instructions: as a8ca80b found, the samples on the reloads were mostly the latency of the table and diagonal
+loads before them. Both constants are `os.arch` tests, folded by C2; `seed.FastWordFinder` has the branch-free
+maximum too.
 
 *Kept:* the vector scan of a single query (`WordFinder.findBlocks`) at most 256 bits wide (1aff999). With AVX-512 it
 took 16 positions per vector: on a Xeon 8573C a search of CDK1 took 10% longer with them than with 8
