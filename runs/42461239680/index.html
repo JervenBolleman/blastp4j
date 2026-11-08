@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>blastp4j vs BLAST+, 2026-11-08 08:19 UTC</title>
+<style>
+:root { --bg: #fdfdfc; --fg: #1d1d1b; --muted: #66645e; --line: #dddad3; --head: #f1efe9; --accent: #2f5d8a; --bad: #b3261e;
+  --arm: #2a78d6; --x86: #eb6834; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #17181a; --fg: #e6e4df; --muted: #a09d96; --line: #34363a; --head: #222428; --accent: #8db7e0; --bad: #f2867d;
+    --arm: #3987e5; --x86: #d95926; }
+}
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 1100px; padding: 24px 16px 64px; }
+h1 { font-size: 1.6rem; margin: 0 0 4px; }
+h2 { font-size: 1.3rem; margin-top: 2.5rem; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+h3, h4 { font-size: 1.05rem; margin-top: 1.6rem; }
+a { color: var(--accent); }
+.muted { color: var(--muted); }
+.bad { color: var(--bad); }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; font-size: 13px; margin: 8px 0; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--head); }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+pre { background: var(--head); border: 1px solid var(--line); padding: 8px 10px; overflow-x: auto; font-size: 12px; }
+code { font-size: 0.9em; }
+dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px 16px; font-size: 13px; }
+dl.facts dt { color: var(--muted); }
+dl.facts dd { margin: 0; overflow-wrap: anywhere; }
+details.commit { border: 1px solid var(--line); border-radius: 4px; margin: 8px 0; padding: 0 12px; }
+details.commit > summary { cursor: pointer; padding: 8px 0; }
+details.commit[open] > summary { border-bottom: 1px solid var(--line); }
+.plots { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 8px; }
+.plot { min-height: 360px; min-width: 0; overflow: hidden; }
+</style>
+</head>
+<body>
+<p class="muted"><a href="../../">All runs</a></p>
+<h1>blastp4j against BLAST+</h1>
+<p class="muted">2026-11-08 08:19 UTC · code <a href="https://github.com/JervenBolleman/blastp4j/commit/ba7cb89"><code>ba7cb89</code></a> (README: fastblastp&#x27;s speed, and the AArch64 word-finder experiments) · <a href="https://github.com/JervenBolleman/blastp4j/actions/runs/42461239680">workflow run</a>.
+Hosted runners are virtual machines and differ from run to run: compare the ratios within one row, not times across runs.</p>
+<div class="scroll"><table>
+<thead><tr><th>architecture</th><th>CPU model</th><th class=num>CPUs</th><th class=num>BLAST+ wall s</th>
+<th class=num>blastp4j wall s</th><th class=num>wall</th><th class=num>cycles</th><th class=num>instructions</th>
+<th>output</th><th></th></tr></thead>
+<tbody><tr><td>aarch64</td><td>Neoverse-N2</td><td class=num>4</td><td class=num>–</td><td class=num>–</td><td class=num><b>–</b></td><td class=num>–</td><td class=num>–</td><td><b class=bad>different</b></td><td></td></tr><tr><td>x86_64</td><td>Intel(R) Xeon(R) 6973P-C</td><td class=num>4</td><td class=num>–</td><td class=num>–</td><td class=num><b>–</b></td><td class=num>–</td><td class=num>–</td><td><b class=bad>different</b></td><td></td></tr></tbody>
+</table></div>
+<p class="muted">Wall times are medians of the full-search rounds; the ratios are blastp4j over BLAST+, and fastblastp
+over BLAST+ with <code>-task blastp-fast</code>. Each output is compared with BLAST+'s for its task.</p>
+<section><h2 id="aarch64">aarch64: Neoverse-N2</h2><dl class="facts"><dt>Architecture</dt><dd>aarch64</dd><dt>CPU model</dt><dd>Neoverse-N2</dd><dt>Vendor</dt><dd>ARM</dd><dt>CPUs</dt><dd>4</dd><dt>Memory</dt><dd>15 GB</dd><dt>Kernel</dt><dd>7.0.0-1017-azure</dd><dt>Runner</dt><dd>ubuntu-24.04-arm, image ubuntu24-arm64 20261101.172.1</dd><dt>JDK</dt><dd>OpenJDK Runtime Environment Temurin-27.0.1.0.2+1 (build 27.0.1.0.2+1)</dd><dt>JVM vectors</dt><dd>MaxVectorSize=16 UseSVE=2</dd><dt>BLAST+</dt><dd>2.17.0</dd><dt>Code</dt><dd><code>ba7cb89</code> (README: fastblastp&#x27;s speed, and the AArch64 word-finder experiments)</dd><dt>Reference</dt><dd><code>37521f5</code></dd><dt>Queries</dt><dd>500 (blastp-fast: 2500); rounds: 3</dd></dl><p>Search outputs: identical. Stack accesses in the X-drop alignment function (aarch64):</p>
+<div class="scroll"><table><thead><tr><th>code</th><th class=num>instructions</th><th class=num>stack loads / stores</th><th class=num>in loops: instructions</th><th class=num>stack loads / stores</th><th class=num>samples</th><th class=num>on stack loads</th><th class=num>on stack stores</th></tr></thead><tbody><tr><td>BLAST+ Blast_SemiGappedAlign (GCC: (GNU) 11.5.0)</td><td class=num>319</td><td class=num>38 / 27</td><td class=num>204</td><td class=num>18 / 5</td><td class=num>86924</td><td class=num>1.5%</td><td class=num>0.1%</td></tr><tr><td>blastp4j semiGapped (C2, 27.0.1.0.2)</td><td class=num>990</td><td class=num>46 / 81</td><td class=num>680</td><td class=num>39 / 48</td><td class=num>756</td><td class=num>0.7%</td><td class=num>0.1%</td></tr></tbody></table></div></section><section><h2 id="x86_64">x86_64: Intel(R) Xeon(R) 6973P-C</h2><dl class="facts"><dt>Architecture</dt><dd>x86_64</dd><dt>CPU model</dt><dd>Intel(R) Xeon(R) 6973P-C</dd><dt>Vendor</dt><dd>GenuineIntel</dd><dt>CPUs</dt><dd>4</dd><dt>Memory</dt><dd>15 GB</dd><dt>Kernel</dt><dd>7.0.0-1017-azure</dd><dt>Runner</dt><dd>ubuntu-24.04, image ubuntu24 20261101.360.1</dd><dt>JDK</dt><dd>OpenJDK Runtime Environment Temurin-27.0.1.0.2+1 (build 27.0.1.0.2+1)</dd><dt>JVM vectors</dt><dd>MaxVectorSize=64 UseAVX=3</dd><dt>BLAST+</dt><dd>2.17.0</dd><dt>Code</dt><dd><code>ba7cb89</code> (README: fastblastp&#x27;s speed, and the AArch64 word-finder experiments)</dd><dt>Reference</dt><dd><code>37521f5</code></dd><dt>Queries</dt><dd>500 (blastp-fast: 2500); rounds: 3</dd></dl></section>
+</body>
+</html>

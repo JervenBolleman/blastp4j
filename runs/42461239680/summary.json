@@ -1,0 +1,49 @@
+{
+ "run_id": "42461239680",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/42461239680",
+ "date": "2026-11-08 08:19 UTC",
+ "event": "push",
+ "code": [
+  "`ba7cb89` (README: fastblastp's speed, and the AArch64 word-finder experiments)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": null,
+   "jvm_wall": null,
+   "ref_wall": null,
+   "blastfast_wall": null,
+   "fast_wall": null,
+   "fast": null,
+   "wall": null,
+   "cycles": null,
+   "instructions": null,
+   "identical": false,
+   "profile": "",
+   "jvm_commit": "ba7cb89",
+   "ref_commit": "",
+   "rounds": {}
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "Intel(R) Xeon(R) 6973P-C",
+   "cpus": "4",
+   "blast_wall": null,
+   "jvm_wall": null,
+   "ref_wall": null,
+   "blastfast_wall": null,
+   "fast_wall": null,
+   "fast": null,
+   "wall": null,
+   "cycles": null,
+   "instructions": null,
+   "identical": false,
+   "profile": "",
+   "jvm_commit": "ba7cb89",
+   "ref_commit": "",
+   "rounds": {}
+  }
+ ]
+}
