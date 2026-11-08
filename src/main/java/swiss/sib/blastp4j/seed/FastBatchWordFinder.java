@@ -45,13 +45,9 @@ public final class FastBatchWordFinder implements BatchScan {
 
 	@Override
 	public void find(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
-		final int[] cells = table.cells(), entry = table.entry(), query = table.query(), base = table.base();
+		final int[] cells = table.cells();
 		final long[] present = table.present();
-		final int[] d = diags;
-		final int diagMask = this.diagMask & (d.length - 1);
-		final int offset = diagOffset, windowL = window, lastL = window - WORD - 1;
 		final byte[] compress = CompressedAlphabet.COMPRESS;
-		final FastWordFinder[] f = finders;
 		// First the positions whose cell has hits, with their words; then their hits, each position touching the cells
 		// of the one AHEAD further on, so that the misses on cells (6 MB) overlap rather than wait one after the other.
 		if (words.length < length) {
@@ -80,6 +76,24 @@ public final class FastBatchWordFinder implements BatchScan {
 			w[n] = word;
 			pos[n++] = p - (WORD - 1);
 		}
+		sink += table.narrow() != null ? hits(table.narrow(), residues, start, length, out, n)
+				: hits(table.entry(), residues, start, length, out, n);
+		for (FastWordFinder finder : finders) {
+			finder.endSubject(length);
+		}
+		diagOffset = diagOffset >= Integer.MAX_VALUE / 4 ? window : diagOffset + length + window;
+	}
+
+	/**
+	 * The hits of the first {@code n} positions of {@link #at}, with the table's entries as chars: as
+	 * {@link #hits(int[], byte[], int, int, List[], int)}, line for line. Returns the sum of the cells touched ahead.
+	 */
+	private int hits(char[] entry, byte[] residues, int start, int length, List<UngappedHsp>[] out, int n) {
+		final int[] cells = table.cells(), query = table.query(), base = table.base(), w = words, pos = at;
+		final int[] d = diags;
+		final int diagMask = this.diagMask & (d.length - 1);
+		final int offset = diagOffset, windowL = window, lastL = window - WORD - 1;
+		final FastWordFinder[] f = finders;
 		int touched = 0;
 		for (int j = 0; j < n; j++) {
 			if (j + AHEAD < n) {
@@ -105,10 +119,39 @@ public final class FastBatchWordFinder implements BatchScan {
 				}
 			}
 		}
-		sink += touched;
-		for (FastWordFinder finder : f) {
-			finder.endSubject(length);
+		return touched;
+	}
+
+	/** The hits of the first {@code n} positions of {@link #at}, for a table without narrow entries. */
+	private int hits(int[] entry, byte[] residues, int start, int length, List<UngappedHsp>[] out, int n) {
+		final int[] cells = table.cells(), query = table.query(), base = table.base(), w = words, pos = at;
+		final int[] d = diags;
+		final int diagMask = this.diagMask & (d.length - 1);
+		final int offset = diagOffset, windowL = window, lastL = window - WORD - 1;
+		final FastWordFinder[] f = finders;
+		int touched = 0;
+		for (int j = 0; j < n; j++) {
+			if (j + AHEAD < n) {
+				touched += cells[2 * w[j + AHEAD]];
+			}
+			final int cell = 2 * w[j], s = pos[j];
+			int k = cells[cell], e = cells[cell + 1];
+			for (final int end = cells[cell + 2];; e = entry[k]) {
+				final int diag = (e - s) & diagMask;
+				final int state = d[diag];
+				final int diff = s - (state - offset), x = diff - WORD;
+				if ((~(x | (lastL - x)) | state << 1) >= 0) {
+					final int older = (diff - windowL) >> 31;
+					d[diag] = (state & older) | ((s + offset) & ~older);
+				} else {
+					final int i = query[k];
+					f[i].hit(residues, start, length, e - base[i], s, out[i]);
+				}
+				if (++k >= end) {
+					break;
+				}
+			}
 		}
-		diagOffset = diagOffset >= Integer.MAX_VALUE / 4 ? window : diagOffset + length + window;
+		return touched;
 	}
 }
