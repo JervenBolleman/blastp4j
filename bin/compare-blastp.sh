@@ -10,8 +10,9 @@
 # 1. ROUNDS timing rounds (default 5), the chosen systems interleaved in each round (/usr/bin/time: wall, user, sys).
 # 2. One perf stat run per system (instructions, cycles, branches, branch misses), after all timing rounds; skipped
 #    where perf has no hardware counters.
-# 3. For the JVM, one run with async-profiler (CPU samples, flame graph in jvm-profile.html), and one that prints the
-#    machine code of the seed and align packages with the samples of each instruction (machcode.txt).
+# 3. For each of jvm, almost and fast chosen, one run with async-profiler (CPU samples, flame graph in
+#    <system>-profile.html), and one that prints the machine code of the seed, align and compo packages with the
+#    samples of each instruction (<system>-machcode.txt).
 # Every output is compared with the first one written of its task (BLAST+'s when blast, or blastfast, is chosen):
 # blastfast, fast and fastref with each other, the others with each other.
 #
@@ -113,40 +114,47 @@ else
 	echo "skipped: no hardware counters (perf stat -e cycles:u)"
 fi
 
-if [[ " ${SYSTEMS[*]} " == *" jvm "* ]]; then
-	echo "== async-profiler (JVM)"
+# The JVM programs of this jar (blastp4j, almostblastp, fastblastp) chosen, each profiled the same way.
+PROFILED=()
+for s in "${SYSTEMS[@]}"; do
+	case $s in jvm | almost | fast) PROFILED+=("$s") ;; esac
+done
+for s in "${PROFILED[@]}"; do
+	echo "== async-profiler ($s)"
 	if [ -f "$ASYNC_PROFILER" ]; then
-		JVM_EXTRA="-agentpath:$ASYNC_PROFILER=start,event=cpu,file=$OUT/jvm-profile.jfr" search jvm "profile-jvm"
+		JVM_EXTRA="-agentpath:$ASYNC_PROFILER=start,event=cpu,file=$OUT/$s-profile.jfr" search "$s" "profile-$s"
 		# jfrconv is in the bin directory next to the library's lib directory.
 		JFRCONV="$(dirname "$ASYNC_PROFILER")/../bin/jfrconv"
-		"$JFRCONV" --norm -o html "$OUT/jvm-profile.jfr" "$OUT/jvm-profile.html" >/dev/null
-		echo "flame graph: $OUT/jvm-profile.html ($SAME)"
+		"$JFRCONV" --norm -o html "$OUT/$s-profile.jfr" "$OUT/$s-profile.html" >/dev/null
+		echo "flame graph: $OUT/$s-profile.html ($SAME)"
 		# The methods with the most samples of their own (the top frame), hidden-class copies merged by --norm.
-		"$JFRCONV" --norm --simple -o collapsed "$OUT/jvm-profile.jfr" "$OUT/jvm-profile.collapsed" >/dev/null
+		"$JFRCONV" --norm --simple -o collapsed "$OUT/$s-profile.jfr" "$OUT/$s-profile.collapsed" >/dev/null
 		echo "self time, top 15 methods:"
 		awk '{ n = $NF; sub(/ [0-9]+$/, ""); k = split($0, f, ";"); self[f[k]] += n; total += n }
-			END { for (m in self) printf "%6.2f%%  %s\n", 100 * self[m] / total, m }' "$OUT/jvm-profile.collapsed" |
+			END { for (m in self) printf "%6.2f%%  %s\n", 100 * self[m] / total, m }' "$OUT/$s-profile.collapsed" |
 			sort -rn | head -15
 	else
 		echo "skipped: set ASYNC_PROFILER to libasyncProfiler.so"
 	fi
 
-	echo "== machine code (JVM)"
-	# The compiled code of the seeding and alignment packages, with the samples of the same run per instruction
-	# (bin/machcode.py): cycles where perf has hardware counters, a software clock otherwise. With hsdis the JVM prints
-	# the disassembly, without it the bytes, which objdump disassembles.
+	echo "== machine code ($s)"
+	# The compiled code of the seeding, alignment and composition packages, with the samples of the same run per
+	# instruction (bin/machcode.py): cycles where perf has hardware counters, a software clock otherwise. With hsdis
+	# the JVM prints the disassembly, without it the bytes, which objdump disassembles.
 	if command -v perf >/dev/null && command -v objdump >/dev/null; then
 		EVENT=cpu-clock:u
 		grep -q '^[0-9]' "$OUT/perf-check.txt" 2>/dev/null && EVENT=cycles:u
 		PRINT="-XX:+UnlockDiagnosticVMOptions -XX:CompileCommand=quiet"
-		PRINT+=" -XX:CompileCommand=print,swiss.sib.blastp4j.seed.*::* -XX:CompileCommand=print,swiss.sib.blastp4j.align.*::*"
+		for p in seed align compo; do
+			PRINT+=" -XX:CompileCommand=print,swiss.sib.blastp4j.$p.*::*"
+		done
 		[ "$(uname -m)" = x86_64 ] && PRINT+=" -XX:PrintAssemblyOptions=intel"
-		JVM_EXTRA="$PRINT" search jvm "machcode-jvm" perf record -q -e "$EVENT" -F 4999 -o "$OUT/machcode.perf" --
-		perf script -F ip -i "$OUT/machcode.perf" >"$OUT/machcode.ips" 2>/dev/null
-		python3 "$HERE/bin/machcode.py" "$OUT/machcode-jvm.log" "$OUT/machcode.ips" >"$OUT/machcode.txt"
-		echo "$EVENT samples ($SAME); the full listing per method in machcode.txt:"
-		sed -n '/^==/q;p' "$OUT/machcode.txt"
+		JVM_EXTRA="$PRINT" search "$s" "machcode-$s" perf record -q -e "$EVENT" -F 4999 -o "$OUT/$s-machcode.perf" --
+		perf script -F ip -i "$OUT/$s-machcode.perf" >"$OUT/$s-machcode.ips" 2>/dev/null
+		python3 "$HERE/bin/machcode.py" "$OUT/machcode-$s.log" "$OUT/$s-machcode.ips" >"$OUT/$s-machcode.txt"
+		echo "$EVENT samples ($SAME); the full listing per method in $s-machcode.txt:"
+		sed -n '/^==/q;p' "$OUT/$s-machcode.txt"
 	else
 		echo "skipped: needs perf and objdump"
 	fi
-fi
+done

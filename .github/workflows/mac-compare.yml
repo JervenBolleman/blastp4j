@@ -277,7 +277,7 @@ jobs:
             } | tee "$REPORT/full-search.txt"
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY" "$REPORT/report.md"
-          cp target/compare/jvm-profile.html "$REPORT/" 2>/dev/null || true
+          cp target/compare/*-profile.html "$REPORT/" 2>/dev/null || true
 
       # Where blastp4j's output is not BLAST+'s: the lines of each system's first round that are not in BLAST+'s, and
       # the columns where the paired lines differ (outfmt 6 std btop: qseqid sseqid pident length mismatch gapopen
@@ -317,7 +317,7 @@ jobs:
             blastp4j/target/compare/*.log
             blastp4j/target/compare/*.txt
             blastp4j/target/compare/time-*-1.tsv
-            blastp4j/target/compare/jvm-profile.html
+            blastp4j/target/compare/*-profile.html
       - uses: actions/upload-artifact@v7
         if: always()
         with:

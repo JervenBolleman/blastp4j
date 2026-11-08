@@ -8,10 +8,10 @@ Usage: report.py run OUT_DIR JOB_DIR...
   machine.txt      key: value lines (architecture, CPU model, cores, memory, runner image, JDK, BLAST+, commits)
   report.md        the job's Markdown sections, as written to the step summary
   full-search.txt  the output of bin/compare-blastp.sh
-  jvm-profile.html the async-profiler flame graph (optional)
+  <system>-profile.html the async-profiler flame graphs of jvm, almost and fast (optional)
 It writes OUT_DIR/index.html, with a summary table of the full searches on top, OUT_DIR/summary.json with that table's
 numbers (plus, per job, the measured commits and the wall time of each round per system), and each flame graph as
-OUT_DIR/<architecture>/jvm-profile.html. The Markdown is the small subset the workflow writes (headings, paragraphs, fenced code, pipe tables, inline code), so no Markdown library is needed.
+OUT_DIR/<architecture>/<system>-profile.html. The Markdown is the small subset the workflow writes (headings, paragraphs, fenced code, pipe tables, inline code), so no Markdown library is needed.
 
 "index" writes SITE_DIR/index.html: every run in SITE_DIR/runs/*/summary.json, newest first, and above them violin
 plots of the full search's rounds per measured commit (drawn in the browser with Plotly.js; only the newest commit is
@@ -222,11 +222,13 @@ def run(out, jobs):
         blast, jvm = counters.get("blast", {}), counters.get("jvm", {})
         rounds, tested = search_rounds(search)
         commits.add(m.get("Code", ""))
-        profile = ""
-        if os.path.exists(os.path.join(job, "jvm-profile.html")):
-            os.makedirs(os.path.join(out, arch), exist_ok=True)
-            shutil.copy(os.path.join(job, "jvm-profile.html"), os.path.join(out, arch, "jvm-profile.html"))
-            profile = f"{arch}/jvm-profile.html"
+        profiles = {}
+        for system in ("jvm", "almost", "fast"):
+            name = f"{system}-profile.html"
+            if os.path.exists(os.path.join(job, name)):
+                os.makedirs(os.path.join(out, arch), exist_ok=True)
+                shutil.copy(os.path.join(job, name), os.path.join(out, arch, name))
+                profiles[system] = f"{arch}/{name}"
         row = {
             "architecture": arch, "cpu": m.get("CPU model", "?"), "cpus": m.get("CPUs", "?"),
             "blast_wall": wall.get("blast"), "jvm_wall": wall.get("jvm"), "ref_wall": wall.get("ref"),
@@ -235,12 +237,12 @@ def run(out, jobs):
             "wall": ratio(wall.get("jvm"), wall.get("blast")),
             "cycles": ratio(jvm.get("cycles"), blast.get("cycles")),
             "instructions": ratio(jvm.get("instructions"), blast.get("instructions")),
-            "identical": identical, "profile": profile,
+            "identical": identical, "profile": profiles.get("jvm", ""),
             "jvm_commit": tested.get("jvm") or code_hash(m.get("Code", "")), "ref_commit": tested.get("ref", ""),
             "rounds": rounds,
         }
         rows.append(row)
-        link = f'<a href="{html.escape(profile)}">flame graph</a>' if profile else ""
+        link = " ".join(f'<a href="{html.escape(p)}">{"flame graph" if s == "jvm" else s}</a>' for s, p in profiles.items())
         summary.append(
             "<tr>"
             f"<td>{html.escape(arch)}</td><td>{html.escape(row['cpu'])}</td>"
