@@ -9,35 +9,24 @@ import java.util.Random;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@link TracebackLanes} and {@link TracebackPairs} give what {@link GappedAligner#alignEx} gives, extension by
- * extension: score, end point and operations, with BLOSUM62 and with a matrix of its own per extension (as the
- * composition-based stage's).
+ * {@link TracebackLanes} gives what {@link GappedAligner#alignEx} gives, extension by extension: score, end point and
+ * operations, with BLOSUM62 and with a matrix of its own per extension (as the composition-based stage's).
  */
 class TracebackLanesTest {
 	@Test
 	void theLanesAlignAsAlignEx() {
-		extend(256, false, false);
+		extend(256, false);
 	}
 
 	@Test
 	void theLanesAlignAsAlignExWithAMatrixEach() {
-		extend(256, true, false);
+		extend(256, true);
 	}
 
 	/** With a DP row and a letter ring of 8 slots to start with, so that they move and grow often. */
 	@Test
 	void theLanesAlignAsAlignExWhileTheirBuffersMoveAndGrow() {
-		extend(8, true, false);
-	}
-
-	@Test
-	void thePairsAlignAsAlignEx() {
-		extend(256, false, true);
-	}
-
-	@Test
-	void thePairsAlignAsAlignExWithAMatrixEach() {
-		extend(256, true, true);
+		extend(8, true);
 	}
 
 	/** BLOSUM62 scaled by {@code scale}, each score moved by up to {@code noise} either way. */
@@ -52,7 +41,7 @@ class TracebackLanesTest {
 		return m;
 	}
 
-	private static void extend(int slots, boolean matrices, boolean pairs) {
+	private static void extend(int slots, boolean matrices) {
 		Random random = new Random(1);
 		for (int[] costs : new int[][] { { 11, 1 }, { 10, 1 }, { 9, 2 }, { 13, 3 }, { 11 * 32, 32 } }) {
 			final int scale = costs[1] == 32 ? 32 : 1;
@@ -60,8 +49,7 @@ class TracebackLanesTest {
 				continue;
 			}
 			GappedAligner aligner = new GappedAligner(costs[0], costs[1]);
-			TracebackKernel lanes = pairs ? new TracebackPairs(costs[0], costs[1], 400)
-					: new TracebackLanes(costs[0], costs[1], 400, slots);
+			TracebackLanes lanes = new TracebackLanes(costs[0], costs[1], 400, slots);
 			// Related pairs (a mutated copy, with insertions and deletions, so that bands drift apart, some with a long
 			// insertion, so that a band drifts far from the others) and unrelated ones, extended both ways from random
 			// points, more of them than there are lanes.
@@ -111,7 +99,7 @@ class TracebackLanesTest {
 				EditScript ops = new EditScript();
 				int score = aligner.alignEx(q, aBase, m, s, bBase, n, reverse, xDrop, ops);
 				expected.add(new Object[] { c, score, aligner.aOffset, aligner.bOffset, ops.toString() });
-				lanes.submit(q, aBase, m, s, bBase, n, reverse, xDrop, c, m32, c + 1);
+				lanes.submit(q, aBase, m, s, bBase, n, reverse, xDrop, c, m32);
 				if (random.nextInt(3) == 0) {
 					lanes.step(done);
 				}

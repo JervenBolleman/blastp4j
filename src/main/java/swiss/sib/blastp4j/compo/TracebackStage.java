@@ -4,13 +4,10 @@ import swiss.sib.blastp4j.align.EditScript;
 import swiss.sib.blastp4j.align.GappedAligner;
 import swiss.sib.blastp4j.align.Hsp;
 import swiss.sib.blastp4j.align.SemiGappedLanes;
-import swiss.sib.blastp4j.align.TracebackKernel;
 import swiss.sib.blastp4j.align.TracebackLanes;
-import swiss.sib.blastp4j.align.TracebackPairs;
 
 /**
- * The composition-based stage of one task with its tracebacks as lanes ({@link TracebackLanes}), or where those do
- * not pay, two at a time ({@link TracebackPairs}): up to
+ * The composition-based stage of one task with its tracebacks as lanes ({@link TracebackLanes}): up to
  * {@link #IN_FLIGHT} subjects at a time, each run in {@link CompoRedo.Subject}'s steps; the two sides of each
  * traceback (alignEx from the start point to the left and to the right) go to the lanes, and their results are joined
  * as {@link GappedAligner#extendWithTraceback} joins them. Each subject's result is {@link CompoRedo#redo}'s. A
@@ -18,22 +15,18 @@ import swiss.sib.blastp4j.align.TracebackPairs;
  * scalar (and its result is marked stale, for the caller to redo in order).
  */
 public final class TracebackStage {
-	/**
-	 * The tracebacks two at a time ({@link TracebackPairs}) instead of in lanes: where the lanes do not pay (the
-	 * vectors have fewer than 8 ints, as AArch64's), or with {@code -Dblastp4j.tracebackPairs=true}.
-	 */
-	static final boolean PAIRS = !SemiGappedLanes.AVAILABLE || Boolean.getBoolean("blastp4j.tracebackPairs");
-	/** Whether the stage runs: unless {@code -Dblastp4j.tracebackLanes=false} (then the scalar redo runs). */
-	public static final boolean AVAILABLE = Boolean.parseBoolean(System.getProperty("blastp4j.tracebackLanes", "true"));
-	/** Subjects in flight: two sides each, so that the kernel's queue stays fuller than its lanes. */
-	static final int IN_FLIGHT = 2 * (PAIRS ? 2 : TracebackLanes.L);
+	/** Where the lanes pay: as {@link SemiGappedLanes#AVAILABLE}, unless {@code -Dblastp4j.tracebackLanes=false}. */
+	public static final boolean AVAILABLE = SemiGappedLanes.AVAILABLE
+			&& Boolean.parseBoolean(System.getProperty("blastp4j.tracebackLanes", "true"));
+	/** Subjects in flight: two sides each, so that the lanes' queue stays fuller than the lanes. */
+	static final int IN_FLIGHT = 2 * TracebackLanes.L;
 
 	/**
 	 * Each thread's lanes, kept from query to query: their buffers (the traceback ring above all) would otherwise be
 	 * garbage after every query, which made G1 grow the heap to twice its size. Lanes sized for a longer query do for
 	 * a shorter one.
 	 */
-	private static final ThreadLocal<TracebackKernel> LANES = new ThreadLocal<>();
+	private static final ThreadLocal<TracebackLanes> LANES = new ThreadLocal<>();
 
 	/** A subject to redo, and its index for the caller. */
 	public record Job(int index, CompoRedo.Subject subject) {
@@ -51,7 +44,7 @@ public final class TracebackStage {
 
 	private final CompoRedo redo;
 	private final GappedAligner aligner;
-	private final TracebackKernel lanes;
+	private final TracebackLanes lanes;
 	private final byte[] q;
 	private final int xDrop;
 	// Per slot: the job, the matrix it was last submitted with (as the lanes take it), and the two sides' results.
@@ -74,11 +67,9 @@ public final class TracebackStage {
 		aligner = redo.aligner();
 		q = redo.queryData();
 		xDrop = redo.xDrop();
-		TracebackKernel l = LANES.get();
+		TracebackLanes l = LANES.get();
 		if (l == null || !l.fits(aligner.gapOpen(), aligner.gapExtend(), q.length)) {
-			final int maxA = Math.max(q.length, l == null ? 0 : l.maxA());
-			l = PAIRS ? new TracebackPairs(aligner.gapOpen(), aligner.gapExtend(), maxA)
-					: new TracebackLanes(aligner.gapOpen(), aligner.gapExtend(), maxA);
+			l = new TracebackLanes(aligner.gapOpen(), aligner.gapExtend(), Math.max(q.length, l == null ? 0 : l.maxA()));
 			LANES.set(l);
 		}
 		lanes = l;
