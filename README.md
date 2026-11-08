@@ -270,8 +270,21 @@ with the four workers; it pays in wall time. Since then (run 42421494383, main a
 | blastp4j against BLAST+ (500 queries) | 29.43 s against 28.66 s (1.03) | 26.06 s against 35.31 s (0.74) |
 
 Before the experiments (0aecb1f) fastblastp was at 1.35 on the N2 and 0.96 on a Xeon 8370C. The x86-64 ratio depends
-on the runner's CPU: 0.85 on an EPYC 7763 in 748e7d2's run. Not tried yet for the fast scan: blastp's AArch64
-deferral of the finder calls (see [Seeding](#seeding)), and chars for the compressed table's entries.
+on the runner's CPU: 0.85 on an EPYC 7763 in 748e7d2's run.
+
+On the N2 the profile of fastblastp (run 42462383540) then had the scan at 23.6% of the samples, 15.0% of them on the
+two instructions after the loads of the cell's start and of its first entry: two dependent cache misses per looked-up
+position, the start array being 3 MB and the N2's L2 1 MB per core. Two more experiments, the second on its own:
+
+| Commit | Change | AArch64 (Neoverse-N2) | x86-64 | |
+|---|---|---:|---:|---|
+| 81dfb15 | blastp's AArch64 deferral of the finder calls (see [Seeding](#seeding)) in the fast scan | -0.1% | +0.2% (EPYC 7763, deferral off) | reverted (fd5ee9b) |
+| 11cd4d9 | each cell's first entry next to its start (`CompressedTable.cells`, 6 MB instead of 3), so that a cell with one hit is one line, as BLAST's backbone cell holds its first hits | -8% (fast 37.86 s against 43.89 s for `fastref`, whose 7d151d5 cost about 6%) | -1.9% (EPYC 9V45) | kept; scan 19.2% of the samples |
+
+Locally (i7-6700HQ, where 3 MB fit in L3) the inline entries were neutral in cycles, with 15% more LLC misses. After
+them (run 42473840187, median of three rounds) fastblastp took 37.86 s against BLAST+ blastp-fast's 34.09 s on the
+N2 (1.11), and 27.93 s against 37.54 s on an EPYC 9V45 (0.74); blastp4j 29.19 s against 26.28 s (1.11; that runner's
+BLAST+ was faster than run 42421494383's). Not tried yet: chars for the compressed table's entries.
 
 ### Daemon
 
@@ -678,6 +691,13 @@ traceback byte per cell and the subject's own adjusted matrix; 16 subjects per t
 runners (500 bean queries): x64 wall -10.2% on an EPYC 9V74 and -8.2% on an EPYC 7763, AArch64 unchanged (the lanes
 are off there; the scalar redo is main's own loop, as driving `Subject` there cost 7% more instructions). Locally 7.8%
 fewer cycles; memory up about 15% (the trace rings).
+
+*Tried, slower:* on AArch64, where the lanes are off, two scalar tracebacks interleaved cell by cell
+(`align.TracebackPairs`, 7d151d5, reverted in 66eeae5), so that the core has a second dependency chain: alignEx's
+cells are one serial chain, gap row to score to gap row. On the Neoverse-N2 (run 42469313465) blastp4j took 7% more
+wall time and fastblastp 6% more: the pair kernel had 139k samples where `ExRows` had 102k, its fused loop full of stack
+loads (two extensions' row state does not fit in AArch64's registers under C2), and it has none of `ExRows`'
+score-only rows after the best.
 
 *Measured, not built:* score-only extensions in 16 lanes of shorts instead of 8 ints, for twice the cells per vector
 (an idea for almostblastp after the G-BLASTN paper). There is no 16-bit gather, and the score matrix is read with a
