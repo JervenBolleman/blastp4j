@@ -47,6 +47,8 @@ public final class GappedAligner {
 
 	/** Results of the last extension: offsets of the best cell (in letters from the start point). */
 	int aOffset, bOffset;
+	/** Results of {@link ExRows}' last row: its first live cell, its gap in A at the end, and the best score so far. */
+	private int rowFirst, rowGapRow, rowBest;
 
 	/** Results of {@link #extendScoreOnly} and {@link #extendWithTraceback}. */
 	public int score, queryStart, queryStop, subjectStart, subjectStop;
@@ -722,6 +724,62 @@ public final class GappedAligner {
 		}
 
 		/**
+		 * The cells {@code [first, bSize)} of row {@code ai} of {@link #rows}, with their traceback bytes at
+		 * {@code tb[base + bi]}: its row's last live cell; the row's first live cell, its gap in A at the end and the best
+		 * score in {@code g.rowFirst}, {@code g.rowGapRow} and {@code g.rowBest}. A method of its own, not inlined
+		 * ({@code jvm.options}), so that the values {@link #rows} keeps across its rows are not live in the cell loop: on
+		 * AArch64 C2 kept the loop's arrays and bestScore in stack slots there, reloaded every cell.
+		 */
+		private int row(GappedAligner g, int[] best, int[] bestGap, int[] mat, int mask, byte[] bs, byte[] tb, int base,
+				int row, int ai, int first, int bSize, int bestScore, int xDrop) {
+			final int goe = this.goe, ext = this.ext;
+			int score = MININT, gapRow = MININT, last = first;
+			for (int bi = first; bi < bSize; bi++) {
+				int gapCol = bestGap[bi];
+				int next = best[bi] + mat[(row + bs[bi]) & mask];
+				// The best of the three moves, and which one (ties keep the earlier one), without branches on the scores.
+				int script = gapCol > score ? EditScript.INS : EditScript.SUB;
+				final int afterCol = Math.max(score, gapCol);
+				script = gapRow > afterCol ? EditScript.DEL : script;
+				score = Math.max(afterCol, gapRow);
+				if (bestScore - score > xDrop) {
+					if (first == bi) {
+						first++;
+					} else {
+						best[bi] = MININT;
+					}
+				} else {
+					last = bi;
+					if (score > bestScore) {
+						bestScore = score;
+						g.aOffset = ai;
+						g.bOffset = bi;
+					}
+					gapRow -= ext;
+					gapCol -= ext;
+					if (gapCol < score - goe) {
+						bestGap[bi] = score - goe;
+					} else {
+						bestGap[bi] = gapCol;
+						script += EXTEND_GAP_B;
+					}
+					if (gapRow < score - goe) {
+						gapRow = score - goe;
+					} else {
+						script += EXTEND_GAP_A;
+					}
+					best[bi] = score;
+				}
+				score = next;
+				tb[base + bi] = (byte) script;
+			}
+			g.rowFirst = first;
+			g.rowGapRow = gapRow;
+			g.rowBest = bestScore;
+			return last;
+		}
+
+		/**
 		 * The rows of A after the initial row, whose band ends at {@code bSize}, then the traceback from the best cell
 		 * to the start into {@code ops}; the best score.
 		 */
@@ -736,7 +794,6 @@ public final class GappedAligner {
 			final int numExtraCells = ext > 0 ? xDrop / ext + 3 : n + 3;
 			final int[] saved = g.savedBest, savedGap = g.savedGap;
 			byte[] tb = g.trace;
-			int score;
 			int used = bSize + 1;
 			int bestScore = 0, first = 0;
 			// Rows computed again with traceback, through this one, where the score-only rows found a better cell.
@@ -749,48 +806,11 @@ public final class GappedAligner {
 				rowStart[ai] = base;
 				final int origFirst = first;
 				final int row = letterA(a, aBase, m, ai, reverse) << 5;
-				score = MININT;
-				int gapRow = MININT, last = first;
-				int bi;
-				for (bi = first; bi < bSize; bi++) {
-					int gapCol = bestGap[bi];
-					int next = best[bi] + mat[(row + bs[bi]) & mask];
-					// The best of the three moves, and which one (ties keep the earlier one), without branches on the scores.
-					int script = gapCol > score ? EditScript.INS : EditScript.SUB;
-					final int afterCol = Math.max(score, gapCol);
-					script = gapRow > afterCol ? EditScript.DEL : script;
-					score = Math.max(afterCol, gapRow);
-					if (bestScore - score > xDrop) {
-						if (first == bi) {
-							first++;
-						} else {
-							best[bi] = MININT;
-						}
-					} else {
-						last = bi;
-						if (score > bestScore) {
-							bestScore = score;
-							g.aOffset = ai;
-							g.bOffset = bi;
-						}
-						gapRow -= ext;
-						gapCol -= ext;
-						if (gapCol < score - goe) {
-							bestGap[bi] = score - goe;
-						} else {
-							bestGap[bi] = gapCol;
-							script += EXTEND_GAP_B;
-						}
-						if (gapRow < score - goe) {
-							gapRow = score - goe;
-						} else {
-							script += EXTEND_GAP_A;
-						}
-						best[bi] = score;
-					}
-					score = next;
-					tb[base + bi] = (byte) script;
-				}
+				final int last = row(g, best, bestGap, mat, mask, bs, tb, base, row, ai, first, bSize, bestScore, xDrop);
+				first = g.rowFirst;
+				bestScore = g.rowBest;
+				int gapRow = g.rowGapRow;
+				final int bi = Math.max(origFirst, bSize);
 				if (first == bSize) {
 					break;
 				}
