@@ -283,14 +283,17 @@ position, the start array being 3 MB and the N2's L2 1 MB per core. Two more exp
 | ad222c6 | the scan in two passes: first the positions whose cell has hits, then their hits, each touching `cells` of the position 8 hits ahead, a software prefetch (Ainsworth and Jones, CGO 2017) | -1.1%, one round of three lost; scan 13.3% of the samples | -0.8% (EPYC 7763) | kept |
 | 1d211d2 | 16 hits ahead | 0%; scan 12.0% | -0.6% (Xeon 8573C) | kept |
 | baf7301 | 4 hits ahead | -1.7%, round 3 lost; scan 16.8% | +3.3% (EPYC 9V45), rounds mixed | reverted |
+| 683d08a | the compressed table's entries as chars when the query has fewer than 65,536 positions (half the bytes) | +1.9%, rerun -1.0%, rounds mixed | +0.7%, rerun 0% (EPYC 9V45) | reverted (9af8a64) |
 
 Locally (i7-6700HQ, where 3 MB fit in L3) the inline entries were neutral in cycles, with 15% more LLC misses. After
 them (run 42473840187, median of three rounds) fastblastp took 37.86 s against BLAST+ blastp-fast's 34.09 s on the
 N2 (1.11), and 27.93 s against 37.54 s on an EPYC 9V45 (0.74); blastp4j 29.19 s against 26.28 s (1.11; that runner's
 BLAST+ was faster than run 42421494383's). The prefetch took the scan from 19.2% to 12.0% of the samples on the N2 but
 the wall time only about 1%: the out-of-order core already overlapped part of the misses, as Ainsworth and Jones
-found for out-of-order cores (1.1 times, against 2 to 3 on in-order ones). Not tried yet: chars for the compressed
-table's entries.
+found for out-of-order cores (1.1 times, against 2 to 3 on in-order ones). Chars for the entries did not gain either.
+The first run's ARM machine-code listing showed the hit loop at 0% and a tenth of the samples outside the printed
+methods: with PrintAssembly its compiles were late and it ran in the interpreter. The rerun's listing was normal;
+`bin/machcode.py` now prints the share of the samples that its listing covers.
 
 ### Daemon
 
@@ -722,6 +725,12 @@ per cell): the best score, its X-drop floor and column in locals (`exp/exrows-re
 (`exp/exrows-rowscores`, 8e5f20b). Against b6e51a2 on the ARM runner: 6, 5 and 5 reloads per cell; instructions
 -1.3%, -2.5% and +3.9%; cycles +0.5%, 0.0% and +2.8%; wall within noise on both runners. Fewer reloads save
 instructions but not cycles: the reloads are not what limits this loop.
+*Kept:* the cell loop in a method of its own (`ExRows.row`, dfb86fb), kept out of `rows` with a `CompileCommand
+dontinline`, so that C2 allocates its registers for the loop alone. The hottest reload went from 4.3% to 1.9% of the
+fastblastp samples on the N2, and `ExRows` from 18.3% to 17.0%. Wall time (2,500 queries, median of three rounds),
+run 42510201537 and its rerun 42513867132: on the N2, blastp4j +0.2% and -0.7%, fastblastp -3.2% (noisy reference)
+and -0.5%; on x86-64, blastp4j -0.9% (EPYC 9V74) and +0.4% (EPYC 9V45), fastblastp +0.2% and +0.5%. Locally
+(i7-6700HQ, scalar path) instructions +1.6%, cycles neutral.
 
 ## Composition-based statistics
 
