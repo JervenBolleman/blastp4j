@@ -280,11 +280,17 @@ position, the start array being 3 MB and the N2's L2 1 MB per core. Two more exp
 |---|---|---:|---:|---|
 | 81dfb15 | blastp's AArch64 deferral of the finder calls (see [Seeding](#seeding)) in the fast scan | -0.1% | +0.2% (EPYC 7763, deferral off) | reverted (fd5ee9b) |
 | 11cd4d9 | each cell's first entry next to its start (`CompressedTable.cells`, 6 MB instead of 3), so that a cell with one hit is one line, as BLAST's backbone cell holds its first hits | -8% (fast 37.86 s against 43.89 s for `fastref`, whose 7d151d5 cost about 6%) | -1.9% (EPYC 9V45) | kept; scan 19.2% of the samples |
+| ad222c6 | the scan in two passes: first the positions whose cell has hits, then their hits, each touching `cells` of the position 8 hits ahead, a software prefetch (Ainsworth and Jones, CGO 2017) | -1.1%, one round of three lost; scan 13.3% of the samples | -0.8% (EPYC 7763) | kept |
+| 1d211d2 | 16 hits ahead | 0%; scan 12.0% | -0.6% (Xeon 8573C) | kept |
+| baf7301 | 4 hits ahead | -1.7%, round 3 lost; scan 16.8% | +3.3% (EPYC 9V45), rounds mixed | reverted |
 
 Locally (i7-6700HQ, where 3 MB fit in L3) the inline entries were neutral in cycles, with 15% more LLC misses. After
 them (run 42473840187, median of three rounds) fastblastp took 37.86 s against BLAST+ blastp-fast's 34.09 s on the
 N2 (1.11), and 27.93 s against 37.54 s on an EPYC 9V45 (0.74); blastp4j 29.19 s against 26.28 s (1.11; that runner's
-BLAST+ was faster than run 42421494383's). Not tried yet: chars for the compressed table's entries.
+BLAST+ was faster than run 42421494383's). The prefetch took the scan from 19.2% to 12.0% of the samples on the N2 but
+the wall time only about 1%: the out-of-order core already overlapped part of the misses, as Ainsworth and Jones
+found for out-of-order cores (1.1 times, against 2 to 3 on in-order ones). Not tried yet: chars for the compressed
+table's entries.
 
 ### Daemon
 
