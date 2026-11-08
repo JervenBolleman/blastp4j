@@ -16,7 +16,7 @@ public final class FastBatchWordFinder implements BatchScan {
 	/** The weight of a word's newest letter: 15^4. */
 	private static final int NEWEST = 50625;
 	/** How many positions with hits ahead the scan touches the cells of. */
-	private static final int AHEAD = 4;
+	private static final int AHEAD = 16;
 
 	private final CompressedTable table;
 	private final FastWordFinder[] finders;
