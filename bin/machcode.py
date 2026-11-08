@@ -124,7 +124,10 @@ def main(log, ips, top=40):
         for a, text in lines:
             if samples[a]:
                 hot.append((samples[a], a, m["name"], text))
-    print(f"{total} samples; the 15 printed compiled methods with the most:")
+    attributed = sum(inside for inside, _, _ in listings)
+    print(f"{total} samples, {100 * attributed / total:.2f}% in printed compiled methods "
+          f"({100 * (total - attributed) / total:.2f}% elsewhere: interpreter, stubs, native, unprinted code)")
+    print("the 15 printed compiled methods with the most:")
     for inside, m, _ in sorted(listings, key=lambda x: -x[0])[:15]:
         print(f"  {100 * inside / total:6.2f}%  {m['compiler']} {m['name']}")
     print(f"\nthe {top} instructions with the most samples:")
