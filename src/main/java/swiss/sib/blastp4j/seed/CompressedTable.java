@@ -21,16 +21,11 @@ import java.util.Arrays;
  * its start, so that a position whose cell has one hit (most have one or two) reads one cache line of the table, not
  * two, as BLAST's backbone cell holds its first hits. {@code size} is the length of the diagonal array.
  * <p>
- * {@code narrow} holds the same entries as chars, half the memory, when the concatenation is shorter than 65,536
- * letters (BLAST's batches are about 10,000), and is null otherwise; the scan then reads it, as
- * {@link BatchWordFinder.Table#narrow} for blastp.
- * <p>
  * {@code present} has a bit per cell, set where the cell has hits ({@code present[w >>> 6] >>> w & 1}), so that the
  * scan reads 95 KB for a position without hits rather than the 6 MB of {@code cells}, as BLAST's scan tests its
  * {@code pv} array: half the cells are empty, and two thirds of the positions (bean queries) fall on one.
  */
-public record CompressedTable(int[] cells, int[] entry, char[] narrow, int[] query, int[] base, int size,
-		long[] present) {
+public record CompressedTable(int[] cells, int[] entry, int[] query, int[] base, int size, long[] present) {
 	/** Word length. */
 	public static final int WORD = 5;
 	/** Cells: 15^5. */
@@ -92,15 +87,7 @@ public record CompressedTable(int[] cells, int[] entry, char[] narrow, int[] que
 			cells[2 * c + 1] = start[c + 1] > start[c] ? entry[start[c]] : 0;
 		}
 		cells[2 * CELLS] = start[CELLS];
-		char[] narrow = null;
-		if (length <= Character.MAX_VALUE) {
-			narrow = new char[entry.length];
-			for (int j = 0; j < entry.length; j++) {
-				narrow[j] = (char) entry[j];
-			}
-		}
-		return new CompressedTable(cells, entry, narrow, query, base, WordFinder.diagonals((int) length, window),
-				present);
+		return new CompressedTable(cells, entry, query, base, WordFinder.diagonals((int) length, window), present);
 	}
 
 	/** A cell's entries after the first 3, in chunks of 4 in insertion order: the chunks reversed. */
