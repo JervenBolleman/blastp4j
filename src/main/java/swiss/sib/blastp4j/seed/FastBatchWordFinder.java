@@ -21,8 +21,6 @@ public final class FastBatchWordFinder implements BatchScan {
 	private final int[] diags;
 	private final int window, diagMask;
 	private int diagOffset;
-	/** As {@link BatchWordFinder}'s: the entries whose hits go to a finder, handled after the position's others. */
-	private final int[] rest;
 
 	public FastBatchWordFinder(byte[][] queries, SeedParameters[] parameters, CompressedTable table) {
 		this.table = table;
@@ -37,20 +35,13 @@ public final class FastBatchWordFinder implements BatchScan {
 			finders[i] = new FastWordFinder(queries[i], parameters[i], diags, table.base()[i]);
 		}
 		diagOffset = window;
-		int longest = 0;
-		if (BatchWordFinder.DEFER) {
-			for (int w = 0; w < CompressedTable.CELLS; w++) {
-				longest = Math.max(longest, table.start()[w + 1] - table.start()[w]);
-			}
-		}
-		rest = new int[longest];
 	}
 
 	@Override
 	public void find(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
 		final int[] cellStart = table.start(), entry = table.entry(), query = table.query(), base = table.base();
 		final long[] present = table.present();
-		final int[] d = diags, later = rest;
+		final int[] d = diags;
 		final int diagMask = this.diagMask & (d.length - 1);
 		final int offset = diagOffset, windowL = window, lastL = window - WORD - 1;
 		final byte[] compress = CompressedAlphabet.COMPRESS;
@@ -73,7 +64,6 @@ public final class FastBatchWordFinder implements BatchScan {
 				continue; // no hits: start, 3 MB, not read
 			}
 			final int s = p - (WORD - 1);
-			int r = 0;
 			for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
 				// As BatchWordFinder.find.
 				final int e = entry[k];
@@ -83,17 +73,9 @@ public final class FastBatchWordFinder implements BatchScan {
 				if ((~(x | (lastL - x)) | state << 1) >= 0) {
 					final int older = (diff - windowL) >> 31;
 					d[diag] = (state & older) | ((s + offset) & ~older);
-				} else if (BatchWordFinder.DEFER) {
-					later[r++] = k;
 				} else {
 					final int i = query[k];
 					f[i].hit(residues, start, length, e - base[i], s, out[i]);
-				}
-			}
-			if (BatchWordFinder.DEFER) {
-				for (int j = 0; j < r; j++) {
-					final int k = later[j], i = query[k];
-					f[i].hit(residues, start, length, entry[k] - base[i], s, out[i]);
 				}
 			}
 		}
