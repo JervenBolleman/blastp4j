@@ -18,7 +18,7 @@ import jdk.incubator.vector.VectorSpecies;
  * {@code maxA} steps, so with more steps than that in the ring, a step's bytes are kept until every extension that
  * has a row in it has ended. Not thread safe: use one per thread.
  */
-public final class TracebackLanes {
+public final class TracebackLanes implements TracebackKernel {
 	/**
 	 * Receives the result of an extension: alignEx's score, its {@code aOffset} and {@code bOffset}, and its
 	 * operations, from the best cell back to the start (valid during the call only).
