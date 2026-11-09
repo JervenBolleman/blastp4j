@@ -648,8 +648,10 @@ public final class GappedAligner {
 		 * Changes {@code best} and {@code bestGap} (the caller keeps a copy), nothing else.
 		 */
 		private int scoreRows(GappedAligner g, byte[] a, int aBase, int m, byte[] bs, int n, boolean reverse, int xDrop,
-				int from, int first, int bSize, int bestScore, int[] mat, int mask) {
+				int from, int first, int bSize, int bestScore, int[] mat) {
 			final int goe = this.goe, ext = this.ext;
+			// From mat itself, as in row: C2 then drops the bounds check of the masked index.
+			final int mask = mat.length - 1;
 			final int[] best = g.best, bestGap = g.bestGap;
 			final int floor = bestScore - xDrop;
 			for (int ai = from; ai <= m; ai++) {
@@ -730,9 +732,11 @@ public final class GappedAligner {
 		 * ({@code jvm.options}), so that the values {@link #rows} keeps across its rows are not live in the cell loop: on
 		 * AArch64 C2 kept the loop's arrays and bestScore in stack slots there, reloaded every cell.
 		 */
-		private int row(GappedAligner g, int[] best, int[] bestGap, int[] mat, int mask, byte[] bs, byte[] tb, int base,
-				int row, int ai, int first, int bSize, int bestScore, int xDrop) {
+		private int row(GappedAligner g, int[] best, int[] bestGap, int[] mat, byte[] bs, byte[] tb, int base, int row,
+				int ai, int first, int bSize, int bestScore, int xDrop) {
 			final int goe = this.goe, ext = this.ext;
+			// From mat itself, not a parameter: so C2 knows the masked index is in bounds and drops the check.
+			final int mask = mat.length - 1;
 			int score = MININT, gapRow = MININT, last = first;
 			for (int bi = first; bi < bSize; bi++) {
 				int gapCol = bestGap[bi];
@@ -788,9 +792,8 @@ public final class GappedAligner {
 				int bSize, EditScript ops) {
 			final int goe = this.goe, ext = this.ext;
 			final int[] best = g.best, bestGap = g.bestGap, rowStart = g.rowStart;
-			// The 32-wide matrix: with its index masked with mat.length - 1 (1024 entries), C2 drops the bounds check.
+			// The 32-wide matrix (1024 entries): row and scoreRows mask their index with mat.length - 1.
 			final int[] mat = g.matrix.wide;
-			final int mask = mat.length - 1;
 			final int numExtraCells = ext > 0 ? xDrop / ext + 3 : n + 3;
 			final int[] saved = g.savedBest, savedGap = g.savedGap;
 			byte[] tb = g.trace;
@@ -806,7 +809,7 @@ public final class GappedAligner {
 				rowStart[ai] = base;
 				final int origFirst = first;
 				final int row = letterA(a, aBase, m, ai, reverse) << 5;
-				final int last = row(g, best, bestGap, mat, mask, bs, tb, base, row, ai, first, bSize, bestScore, xDrop);
+				final int last = row(g, best, bestGap, mat, bs, tb, base, row, ai, first, bSize, bestScore, xDrop);
 				first = g.rowFirst;
 				bestScore = g.rowBest;
 				int gapRow = g.rowGapRow;
@@ -843,7 +846,7 @@ public final class GappedAligner {
 					System.arraycopy(best, first, saved, first, bSize - first);
 					System.arraycopy(bestGap, first, savedGap, first, bSize - first);
 					final int better = scoreRows(g, a, aBase, m, bs, n, reverse, xDrop, ai + 1, first, bSize, bestScore,
-							mat, mask);
+							mat);
 					if (better < 0) {
 						break;
 					}
