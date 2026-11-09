@@ -422,9 +422,7 @@ public final class WordFinder implements WordScan {
 		for (int i = n; i >= 0; i--) {
 			score += PADDED[(rowOfQuery[qBase + i] + residues[sBase + i]) & 1023];
 			if (BRANCH_FREE_MAX) {
-				// With masks, not score > maxScore ? i : best, which C2 compiles to a branch again (rarely taken).
-				final int gt = (maxScore - score) >> 31;
-				best = (i & gt) | (best & ~gt);
+				best = score > maxScore ? i : best;
 				maxScore = Math.max(maxScore, score);
 				floor = maxScore - xDrop;
 			} else if (score > maxScore) {
@@ -448,8 +446,7 @@ public final class WordFinder implements WordScan {
 		for (i = 0; i < n; i++) {
 			score += PADDED[(rowOfQuery[qOff + i] + residues[start + sOff + i]) & 1023];
 			if (BRANCH_FREE_MAX) {
-				final int gt = (maxScore - score) >> 31; // as in extendLeft
-				best = (i & gt) | (best & ~gt);
+				best = score > maxScore ? i : best;
 				maxScore = Math.max(maxScore, score);
 				floor = Math.max(0, maxScore - xDrop);
 			} else if (score > maxScore) {
