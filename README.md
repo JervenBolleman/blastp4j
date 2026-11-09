@@ -322,6 +322,18 @@ The same for blastp's scan (680447a, after ec95f95 had made its loop uncounted) 
 On x86-64 the hottest instruction of the gapped lanes is the score matrix's gather (`vpgatherdd`, about 5% of
 blastp4j's samples on an EPYC); a permutation cannot replace it, as each lane has its own query letter and matrix.
 
+On Intel cores the comparison now probes the nearest events (32da4e8): no uop delivered, no uop executed (any
+cause, and with a load outstanding), L1D lines replaced, L2 and last-level misses. With more events than counters
+perf multiplexes them, so `events.py` scales each event's count per cycle to the perf stat run; code ranges the JVM
+reused for another method are merged into one row. On the i7-6700HQ (8 threads, uniprot_human against sprot), at
+the same clock blastp4j takes the time of BLAST+ (18.89-19.28 s against 18.89-19.14 s) with 6% more cycles; the
+laptop throttles at 95 C between 3.0 and 1.56 GHz, so only its cycle counts compare. `WordFinder.hit` has 25.5% of
+the cycles and 51% of the branch misses (the ungapped X-drop loops, tried without the branch and unrolled before),
+`BatchWordFinder.find` 31%, with 72% of its L1D refills also L2 misses; its most stalled load is the diagonal's
+(7% of all L2 misses), whose size the batch fixes. *Reverted:* the scan's usual hits in a loop of their own without
+the finder's call (42e0ab3), so that C2 would spill only around the call: +2.1% cycles locally, as deferring the
+calls was on x86-64.
+
 ### Daemon
 
 `blastp4j daemon` is a search server: it opens its databases once, takes jobs over HTTP (the JDK's
