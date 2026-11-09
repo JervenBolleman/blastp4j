@@ -117,12 +117,6 @@ public final class BatchWordFinder implements BatchScan {
 	 * matter, except among those that go to the finders, which keep theirs.
 	 */
 	private final int[] rest;
-	/** How many positions with hits ahead the scan touches the first entry of (see {@link #find}). */
-	private static final int AHEAD = 16;
-	/** The positions with hits of the subject being scanned, and their words. */
-	private int[] words = new int[0], at = new int[0];
-	/** The sum of the entries touched ahead, kept so that the loads stay. */
-	private int sink;
 	/**
 	 * Whether the finder calls wait until after a position's hits: on AArch64 only. On the Neoverse-N2 runner that took
 	 * 3.7% less wall time (run 42374103357), as the loop then reloads fewer values from the stack; on x86-64 2.8% more
@@ -238,33 +232,11 @@ public final class BatchWordFinder implements BatchScan {
 		final WordFinder[] f = finders;
 		final int mask = LookupTable.WORDS - 1;
 		if (length >= LookupTable.WORD_SIZE) {
-			// First the positions whose word has hits, with their words; then their hits, each position touching the
-			// first entry of the one AHEAD further on, so that the misses on entry overlap rather than wait one after
-			// the other (as FastBatchWordFinder). The hits keep their order.
-			if (words.length < length) {
-				words = new int[length];
-				at = new int[length];
-			}
-			final int[] w = words, pos = at;
-			int n = 0;
 			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
-			for (int p = 0; p <= length - LookupTable.WORD_SIZE; p++) {
-				word = ((word << LookupTable.CHAR_BITS) | residues[start + p + 2]) & mask;
-				if (cellStart[word] != cellStart[word + 1]) {
-					w[n] = word;
-					pos[n++] = p;
-				}
-			}
-			int touched = 0;
-			for (int j = 0; j < n; j++) {
-				if (j + AHEAD < n) {
-					// As entry[k], so that the copy for narrow entries reads it as a char.
-					final int ahead = cellStart[w[j + AHEAD]];
-					touched += entry[ahead];
-				}
-				final int s = pos[j], cell = w[j];
+			for (int s = 0; s <= length - LookupTable.WORD_SIZE; s++) {
+				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
 				int r = 0;
-				for (int k = cellStart[cell], end = cellStart[cell + 1]; k < end; k++) {
+				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
 					// The usual hits, decided from the entry: the diagonal's last hit is a window or more back, so
 					// this one replaces it, or it overlaps this one, which is then ignored. Only hits to extend and
 					// hits on an extended diagonal go to the query's finder.
@@ -287,13 +259,12 @@ public final class BatchWordFinder implements BatchScan {
 					}
 				}
 				if (DEFER) {
-					for (int q = 0; q < r; q++) {
-						final int k = later[q], i = query[k];
+					for (int j = 0; j < r; j++) {
+						final int k = later[j], i = query[k];
 						f[i].hit(residues, start, length, entry[k] - base[i], s, out[i]);
 					}
 				}
 			}
-			sink += touched;
 		}
 		for (WordFinder finder : f) {
 			finder.endSubject(length);
