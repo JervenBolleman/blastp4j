@@ -120,9 +120,8 @@ public final class GappedAligner {
 	 * {@code b[bBase + n - 1 .. bBase - 1]} backwards (the last of each is a sentinel), cut at the ends of {@code b}.
 	 */
 	private byte[] bLetters(byte[] b, int bBase, int n, boolean reverse) {
-		// One more byte than the letters: row and scoreRows read bs[bi + 1] at bi = n, for a score they do not use.
-		if (bLetters.length < n + 2) {
-			bLetters = new byte[Math.max(n + 2, bLetters.length * 2)];
+		if (bLetters.length < n + 1) {
+			bLetters = new byte[Math.max(n + 1, bLetters.length * 2)];
 		}
 		final byte[] letters = bLetters;
 		if (!reverse) {
@@ -658,12 +657,9 @@ public final class GappedAligner {
 			for (int ai = from; ai <= m; ai++) {
 				final int row = letterA(a, aBase, m, ai, reverse) << 5;
 				int score = MININT, gapRow = MININT, last = first;
-				// The matrix score of the next cell, loaded a cell ahead (bs has a byte beyond the band's end).
-				int sub = mat[(row + bs[first]) & mask];
 				for (int bi = first; bi < bSize; bi++) {
 					int gapCol = bestGap[bi];
-					final int next = best[bi] + sub;
-					sub = mat[(row + bs[bi + 1]) & mask];
+					final int next = best[bi] + mat[(row + bs[bi]) & mask];
 					score = Math.max(Math.max(score, gapCol), gapRow);
 					if (score < floor) {
 						if (first == bi) {
@@ -745,12 +741,9 @@ public final class GappedAligner {
 			// The column of the row's new best cell, if any: g.aOffset and g.bOffset are set after the loop, so that g
 			// and ai are not live in it.
 			int bestBi = -1;
-			// The matrix score of the next cell, loaded a cell ahead (bs has a byte beyond the band's end).
-			int sub = mat[(row + bs[first]) & mask];
 			for (int bi = first; bi < bSize; bi++) {
 				int gapCol = bestGap[bi];
-				int next = best[bi] + sub;
-				sub = mat[(row + bs[bi + 1]) & mask];
+				int next = best[bi] + mat[(row + bs[bi]) & mask];
 				// The best of the three moves, and which one (ties keep the earlier one), without branches on the scores.
 				int script = gapCol > score ? EditScript.INS : EditScript.SUB;
 				final int afterCol = Math.max(score, gapCol);
