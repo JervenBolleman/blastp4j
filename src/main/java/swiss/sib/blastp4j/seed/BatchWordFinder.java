@@ -45,8 +45,12 @@ public final class BatchWordFinder implements BatchScan {
 	 * {@code narrow} holds the same entries as chars, half the memory the scan reads, when the concatenation is
 	 * shorter than 65,536 letters (BLAST's batches are about 10,000), and is null otherwise: the scan's copy for such a
 	 * table reads it ({@link BatchWordFinder#of}).
+	 * <p>
+	 * {@code cells} is what the scan reads first: {@code cells[2 * w]} is {@code start[w]} and {@code cells[2 * w + 1]}
+	 * the word's first entry (0 for a word without hits), so that the start and the first entry are one cache line
+	 * rather than two, as BLAST's backbone cells hold their first hits (as {@link CompressedTable#cells}). 256 KB.
 	 */
-	public record Table(int[] start, int[] entry, char[] narrow, int[] query, int[] base, int size) {
+	public record Table(int[] start, int[] entry, char[] narrow, int[] query, int[] base, int size, int[] cells) {
 		public static Table of(byte[][] queries, LookupTable[] tables, int window) {
 			final int n = queries.length;
 			// BLAST's context offsets (s_QueryInfo_SetContext): one separator after each query that is not empty.
@@ -86,7 +90,13 @@ public final class BatchWordFinder implements BatchScan {
 					narrow[j] = (char) entry[j];
 				}
 			}
-			return new Table(start, entry, narrow, query, base, WordFinder.diagonals((int) length, window));
+			final int[] cells = new int[2 * LookupTable.WORDS + 1];
+			for (int w = 0; w < LookupTable.WORDS; w++) {
+				cells[2 * w] = start[w];
+				cells[2 * w + 1] = start[w] < start[w + 1] ? entry[start[w]] : 0;
+			}
+			cells[2 * LookupTable.WORDS] = start[LookupTable.WORDS];
+			return new Table(start, entry, narrow, query, base, WordFinder.diagonals((int) length, window), cells);
 		}
 	}
 
@@ -225,7 +235,7 @@ public final class BatchWordFinder implements BatchScan {
 	 */
 	@Override
 	public void find(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
-		final int[] cellStart = table.start(), entry = table.entry(), query = table.query(), base = table.base();
+		final int[] cells = table.cells(), entry = table.entry(), query = table.query(), base = table.base();
 		final int[] d = diags, later = rest;
 		final int diagMask = this.diagMask;
 		final int offset = diagOffset, windowL = window, lastL = window - LookupTable.WORD_SIZE - 1;
@@ -236,11 +246,14 @@ public final class BatchWordFinder implements BatchScan {
 			for (int s = 0; s <= length - LookupTable.WORD_SIZE; s++) {
 				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
 				int r = 0;
-				for (int k = cellStart[word], end = cellStart[word + 1]; k < end; k++) {
+				// The word's first entry from its own line of cells, the others from entry.
+				final int cell = 2 * word, end = cells[cell + 2];
+				int k = cells[cell];
+				// As entry[k], not entry[++k], so that the copy for narrow entries reads it as a char.
+				for (int e = cells[cell + 1]; k < end; e = entry[k]) {
 					// The usual hits, decided from the entry: the diagonal's last hit is a window or more back, so
 					// this one replaces it, or it overlaps this one, which is then ignored. Only hits to extend and
 					// hits on an extended diagonal go to the query's finder.
-					final int e = entry[k];
 					// Also masked with the array's length (a power of two), so that C2 knows the index is in bounds.
 					final int diag = (e - s) & diagMask & (d.length - 1);
 					final int state = d[diag];
@@ -257,11 +270,14 @@ public final class BatchWordFinder implements BatchScan {
 						final int i = query[k];
 						f[i].hit(residues, start, length, e - base[i], s, out[i]);
 					}
+					if (++k >= end) {
+						break;
+					}
 				}
 				if (DEFER) {
 					for (int j = 0; j < r; j++) {
-						final int k = later[j], i = query[k];
-						f[i].hit(residues, start, length, entry[k] - base[i], s, out[i]);
+						final int h = later[j], i = query[h];
+						f[i].hit(residues, start, length, entry[h] - base[i], s, out[i]);
 					}
 				}
 			}

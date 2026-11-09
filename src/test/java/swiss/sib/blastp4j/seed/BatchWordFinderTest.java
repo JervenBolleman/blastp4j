@@ -33,7 +33,7 @@ class BatchWordFinderTest {
 		byte[][] queries = queries(random, 24, 300);
 		BatchWordFinder.Table t = table(queries);
 		BatchWordFinder.Table wrong = new BatchWordFinder.Table(t.start(), t.entry(), new char[t.narrow().length],
-				t.query(), t.base(), t.size());
+				t.query(), t.base(), t.size(), t.cells());
 		LookupTable[] tables = tables(queries);
 		SeedParameters[] parameters = parameters(queries.length);
 		BatchScan copy = BatchWordFinder.of(queries, tables, parameters, wrong);
