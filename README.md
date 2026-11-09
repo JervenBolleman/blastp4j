@@ -306,7 +306,10 @@ backend stalls and 50% of its L1D refills, after the loads of the start array (1
 then the diagonal (64 KB, the N2's whole L1D). *Kept:* the first entry next to the start (`Table.cells`, ec95f95):
 -2.5% cycles locally, but on the N2 -0.3% (EPYC 7763 -0.5%) and as many L1D refills: a word of a batch has many
 entries, and the miss moved to its second one. *Reverted:* `Rows.rows`' X-drop test without its branch (c885233,
-1ff2deb; about 8% of the branch misses): +29% instructions, +15% cycles locally.
+1ff2deb; about 8% of the branch misses): +29% instructions, +15% cycles locally. *Reverted:* the scan touching the next position's cell
+and second entry (e31e371), close enough that the lines stay in the L1D: N2 -0.9%, rerun +1.1%; x86-64 +1.8% and
++3.1%; the scan's L1D refills did not drop. The perf stat counts of one run vary by about 5% for the same code (the
+JIT): compare them only across reruns.
 
 ### Daemon
 
