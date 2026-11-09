@@ -10,7 +10,8 @@
 #    (the ALMOSTBLASTP input, default true), and BLAST+ blastp -task blastp-fast and fastblastp when the code has it
 #    (the FASTBLASTP input, default true), with an async-profiler flame graph and
 #    the machine code with the samples of each instruction (<system>-machcode.txt, printed with hsdis) of each JVM
-#    program (jvm, almost, fast).
+#    program (jvm, almost, fast), and where perf has the core's events (the ARM runner), those by method
+#    (<system>-events.txt, bin/events.py).
 # The code measured is the CODE input (a branch, tag or commit; default the ref the workflow runs from). With a
 # REFERENCE (for a push to main, main before the push), that blastp4j is built too and run in the same rounds of 2
 # and 3, each with its own bin/jvm.options plus the same variant options: runners differ
@@ -334,7 +335,7 @@ jobs:
             } | tee "$REPORT/full-search.txt"
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY" "$REPORT/report.md"
-          cp target/compare/*-profile.html target/compare/*-machcode.txt "$REPORT/" 2>/dev/null || true
+          cp target/compare/*-profile.html target/compare/*-machcode.txt target/compare/*-events.txt "$REPORT/" 2>/dev/null || true
 
       - uses: actions/upload-artifact@v7
         if: always()

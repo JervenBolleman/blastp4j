@@ -8,8 +8,9 @@
 # is so much faster that it needs more queries for a search long enough to leave the JIT's warm-up behind.
 #
 # 1. ROUNDS timing rounds (default 5), the chosen systems interleaved in each round (/usr/bin/time: wall, user, sys).
-# 2. One perf stat run per system (instructions, cycles, branches, branch misses), after all timing rounds; skipped
-#    where perf has no hardware counters.
+# 2. One perf stat run per system (instructions, cycles, branches, branch misses, and the stall and cache-refill
+#    events this machine's perf knows, as on the Neoverse-N2), after all timing rounds; skipped where perf has no
+#    hardware counters.
 # 3. For each of jvm, almost and fast chosen, one run with async-profiler (CPU samples, flame graph in
 #    <system>-profile.html), and one that prints the machine code of the seed, align and compo packages with the
 #    samples of each instruction (<system>-machcode.txt).
@@ -105,9 +106,19 @@ done
 
 echo "== perf stat"
 # Virtual machines often have no hardware counters; perf then reports them as not supported.
+# The core's own events (from perf's tables for it, such as the Neoverse-N2's), each kept only where perf counts it.
+EXTRA=()
 if perf stat -x, -e cycles:u -o "$OUT/perf-check.txt" -- true 2>/dev/null && grep -q '^[0-9]' "$OUT/perf-check.txt"; then
+	for e in stall_frontend stall_backend stall_backend_mem l1d_cache_refill l2d_cache_refill ll_cache_miss_rd; do
+		if perf stat -x, -e "$e:u" -o "$OUT/perf-check-$e.txt" -- true 2>/dev/null &&
+			grep -q '^[0-9]' "$OUT/perf-check-$e.txt"; then
+			EXTRA+=("$e:u")
+		fi
+	done
+	echo "events of this core: ${EXTRA[*]:-none}"
+	EVENTS=$(IFS=,; echo "instructions:u,cycles:u,branches:u,branch-misses:u${EXTRA[*]:+,${EXTRA[*]}}")
 	for s in "${SYSTEMS[@]}"; do
-		search "$s" "perf-$s" perf stat -x, -e instructions:u,cycles:u,branches:u,branch-misses:u -o "$OUT/perf-$s.txt" --
+		search "$s" "perf-$s" perf stat -x, -e "$EVENTS" -o "$OUT/perf-$s.txt" --
 		echo "$s: $(awk -F, 'NR>1 && $1 ~ /^[0-9]/{printf "%s=%.1fG ", $3, $1/1e9}' "$OUT/perf-$s.txt")($SAME)"
 	done
 else
@@ -140,20 +151,32 @@ for s in "${PROFILED[@]}"; do
 	echo "== machine code ($s)"
 	# The compiled code of the seeding, alignment and composition packages, with the samples of the same run per
 	# instruction (bin/machcode.py): cycles where perf has hardware counters, a software clock otherwise. With hsdis
-	# the JVM prints the disassembly, without it the bytes, which objdump disassembles.
+	# the JVM prints the disassembly, without it the bytes, which objdump disassembles. Where there are hardware
+	# counters, the branch misses and the core's events of the perf stat above are sampled in the same run, and
+	# bin/events.py splits them by method.
 	if command -v perf >/dev/null && command -v objdump >/dev/null; then
 		EVENT=cpu-clock:u
 		grep -q '^[0-9]' "$OUT/perf-check.txt" 2>/dev/null && EVENT=cycles:u
+		SAMPLED=$EVENT
+		if [ "$EVENT" = cycles:u ]; then
+			SAMPLED=$(IFS=,; echo "cycles:u,branch-misses:u${EXTRA[*]:+,${EXTRA[*]}}")
+		fi
 		PRINT="-XX:+UnlockDiagnosticVMOptions -XX:CompileCommand=quiet"
 		for p in seed align compo; do
 			PRINT+=" -XX:CompileCommand=print,swiss.sib.blastp4j.$p.*::*"
 		done
 		[ "$(uname -m)" = x86_64 ] && PRINT+=" -XX:PrintAssemblyOptions=intel"
-		JVM_EXTRA="$PRINT" search "$s" "machcode-$s" perf record -q -e "$EVENT" -F 4999 -o "$OUT/$s-machcode.perf" --
-		perf script -F ip -i "$OUT/$s-machcode.perf" >"$OUT/$s-machcode.ips" 2>/dev/null
+		JVM_EXTRA="$PRINT" search "$s" "machcode-$s" perf record -q -e "$SAMPLED" -F 4999 -o "$OUT/$s-machcode.perf" --
+		perf script -F event,period,ip -i "$OUT/$s-machcode.perf" >"$OUT/$s-machcode.samples" 2>/dev/null
+		awk -v e="$EVENT:" '$2 == e { print $NF }' "$OUT/$s-machcode.samples" >"$OUT/$s-machcode.ips"
 		python3 "$HERE/bin/machcode.py" "$OUT/machcode-$s.log" "$OUT/$s-machcode.ips" >"$OUT/$s-machcode.txt"
 		echo "$EVENT samples ($SAME); the full listing per method in $s-machcode.txt:"
 		sed -n '/^==/q;p' "$OUT/$s-machcode.txt"
+		if [ "$SAMPLED" != "$EVENT" ]; then
+			python3 "$HERE/bin/events.py" "$OUT/machcode-$s.log" "$OUT/$s-machcode.samples" >"$OUT/$s-events.txt"
+			echo "hardware events by method ($s-events.txt):"
+			sed -n '/^$/q;p' "$OUT/$s-events.txt"
+		fi
 	else
 		echo "skipped: needs perf and objdump"
 	fi
