@@ -87,7 +87,9 @@ public record CompressedTable(int[] cells, int[] entry, int[] query, int[] base,
 			cells[2 * c + 1] = start[c + 1] > start[c] ? entry[start[c]] : 0;
 		}
 		cells[2 * CELLS] = start[CELLS];
-		return new CompressedTable(cells, entry, query, base, WordFinder.diagonals((int) length, window), present);
+		// One entry more, unused: the scan reads the entry after each one (FastBatchWordFinder.find).
+		return new CompressedTable(cells, Arrays.copyOf(entry, entry.length + 1), query, base,
+				WordFinder.diagonals((int) length, window), present);
 	}
 
 	/** A cell's entries after the first 3, in chunks of 4 in insertion order: the chunks reversed. */

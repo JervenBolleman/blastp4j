@@ -86,9 +86,10 @@ public final class FastBatchWordFinder implements BatchScan {
 				touched += cells[2 * w[j + AHEAD]];
 			}
 			final int cell = 2 * w[j], s = pos[j];
-			// The cell's first entry from its own line of cells, the others from entry.
-			int k = cells[cell], e = cells[cell + 1];
-			for (final int end = cells[cell + 2];; e = entry[k]) {
+			// The cell's first entry from its own line of cells, the others from entry. A counted loop, which C2
+			// keeps without a safepoint poll per hit: each hit loads the next one's entry (entry has one more).
+			int e = cells[cell + 1];
+			for (int k = cells[cell], end = cells[cell + 2]; k < end; k++) {
 				// As BatchWordFinder.find.
 				final int diag = (e - s) & diagMask;
 				final int state = d[diag];
@@ -100,9 +101,7 @@ public final class FastBatchWordFinder implements BatchScan {
 					final int i = query[k];
 					f[i].hit(residues, start, length, e - base[i], s, out[i]);
 				}
-				if (++k >= end) {
-					break;
-				}
+				e = entry[k + 1];
 			}
 		}
 		sink += touched;
