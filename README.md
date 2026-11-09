@@ -731,6 +731,11 @@ fastblastp samples on the N2, and `ExRows` from 18.3% to 17.0%. Wall time (2,500
 run 42510201537 and its rerun 42513867132: on the N2, blastp4j +0.2% and -0.7%, fastblastp -3.2% (noisy reference)
 and -0.5%; on x86-64, blastp4j -0.9% (EPYC 9V74) and +0.4% (EPYC 9V45), fastblastp +0.2% and +0.5%. Locally
 (i7-6700HQ, scalar path) instructions +1.6%, cycles neutral.
+After it, `ExRows.AHEAD` (rows with traceback after the best cell's before the score-only rows) again: 8 rows
+instead of 4 (a9c6886) is kept, fastblastp -2.1% and -2.4% on the N2 (all six rounds faster), blastp4j +0.6% and
+-0.4%, x86-64 within 0.4% (runs 42518240547, 42521981040). 2 rows (cac2447) is reverted (8290c0b): on the N2
+fastblastp +3.9% and +1.5%, blastp4j 0% and +1.2%; x86-64's blastp4j -5.1% in the first run was not there in the
+rerun (-0.3%).
 
 ## Composition-based statistics
 
