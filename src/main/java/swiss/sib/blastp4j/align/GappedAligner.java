@@ -738,6 +738,9 @@ public final class GappedAligner {
 			// From mat itself, not a parameter: so C2 knows the masked index is in bounds and drops the check.
 			final int mask = mat.length - 1;
 			int score = MININT, gapRow = MININT, last = first;
+			// The column of the row's new best cell, if any: g.aOffset and g.bOffset are set after the loop, so that g
+			// and ai are not live in it.
+			int bestBi = -1;
 			for (int bi = first; bi < bSize; bi++) {
 				int gapCol = bestGap[bi];
 				int next = best[bi] + mat[(row + bs[bi]) & mask];
@@ -756,8 +759,7 @@ public final class GappedAligner {
 					last = bi;
 					if (score > bestScore) {
 						bestScore = score;
-						g.aOffset = ai;
-						g.bOffset = bi;
+						bestBi = bi;
 					}
 					gapRow -= ext;
 					gapCol -= ext;
@@ -776,6 +778,10 @@ public final class GappedAligner {
 				}
 				score = next;
 				tb[base + bi] = (byte) script;
+			}
+			if (bestBi >= 0) {
+				g.aOffset = ai;
+				g.bOffset = bestBi;
 			}
 			g.rowFirst = first;
 			g.rowGapRow = gapRow;
