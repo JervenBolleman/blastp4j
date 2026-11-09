@@ -741,6 +741,9 @@ public final class GappedAligner {
 			// The column of the row's new best cell, if any: g.aOffset and g.bOffset are set after the loop, so that g
 			// and ai are not live in it.
 			int bestBi = -1;
+			// The X-drop test as score < floor, floor recomputed only with a new best cell: no subtraction per cell, and
+			// xDrop not used in the loop's common path.
+			int floor = bestScore - xDrop;
 			for (int bi = first; bi < bSize; bi++) {
 				int gapCol = bestGap[bi];
 				int next = best[bi] + mat[(row + bs[bi]) & mask];
@@ -749,7 +752,7 @@ public final class GappedAligner {
 				final int afterCol = Math.max(score, gapCol);
 				script = gapRow > afterCol ? EditScript.DEL : script;
 				score = Math.max(afterCol, gapRow);
-				if (bestScore - score > xDrop) {
+				if (score < floor) {
 					if (first == bi) {
 						first++;
 					} else {
@@ -759,6 +762,7 @@ public final class GappedAligner {
 					last = bi;
 					if (score > bestScore) {
 						bestScore = score;
+						floor = score - xDrop;
 						bestBi = bi;
 					}
 					gapRow -= ext;
