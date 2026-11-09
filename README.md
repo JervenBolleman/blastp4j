@@ -293,7 +293,10 @@ the wall time only about 1%: the out-of-order core already overlapped part of th
 found for out-of-order cores (1.1 times, against 2 to 3 on in-order ones). Chars for the entries did not gain either.
 The first run's ARM machine-code listing showed the hit loop at 0% and a tenth of the samples outside the printed
 methods: with PrintAssembly its compiles were late and it ran in the interpreter. The rerun's listing was normal;
-`bin/machcode.py` now prints the share of the samples that its listing covers.
+`bin/machcode.py` now prints the share of the samples that its listing covers. blastp4j's own scan (`BatchWordFinder`) in two passes
+with the same touch, of the first entry 16 positions ahead (a6d880f), did not gain: N2 -1.5% (one slow reference
+round) and +0.4% on the rerun, x86-64 +1.3% and +2.0%; reverted. Its start array is 128 KB, and the scan's share of
+the N2 samples did not move (22.4%, then 22.5% and 23.6%).
 
 ### Daemon
 
@@ -744,6 +747,8 @@ stored and reloaded every cell: N2 -1.1%/+1.2%, rerun -2.7%/-1.2% (all rounds fa
 *Reverted:* the X-drop test as `score < floor` (10ee89f, 6d8455d), which took the xDrop reload out of the loop:
 within 0.5% everywhere, and the reload's 6% of the samples moved to the compare after the matrix load. That share is
 the matrix load's latency; the reloads left in the loop do not cost time.
+*Reverted:* the next cell's matrix score loaded a cell earlier still (d6845e0, 912a8ff): N2 +1.5%/-1.5%, rerun
+0%/-0.1%. The core already overlaps that load.
 
 ## Composition-based statistics
 
