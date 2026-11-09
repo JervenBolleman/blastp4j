@@ -979,27 +979,30 @@ public final class GappedAligner {
 				score = MININT;
 				int gapRow = MININT, last = first;
 				for (int bi = first; bi < bSize; bi++) {
-					final int gapCol = dp[2 * bi + 1], diag = dp[2 * bi];
+					int gapCol = dp[2 * bi + 1];
 					final int b = bs[bi] & 31;
-					int next = diag + (fixed != null ? fixed[row | b] : rowScores[b]);
+					int next = dp[2 * bi] + (fixed != null ? fixed[row | b] : rowScores[b]);
 					score = Math.max(score, Math.max(gapCol, gapRow));
-					// The X-drop test without a branch, which the cells near the band's ends mispredict: drop is -1 for
-					// a cell below the floor, 0 otherwise (no overflow: the scores are above MININT = -2^30). A dropped
-					// cell is the band's new first one if it was the first (atFirst -1), else its score becomes MININT;
-					// its gap and gapRow stay. Only a new best cell, which is never dropped, still branches.
-					final int drop = (score - floor) >> 31, atFirst = ((bi ^ first) - 1) >> 31;
-					if (score > bestScore) {
-						bestScore = score;
-						floor = score - xDrop;
-						g.aOffset = ai;
-						g.bOffset = bi;
+					if (score < floor) {
+						if (bi == first) {
+							first++;
+						} else {
+							dp[2 * bi] = MININT;
+						}
+					} else {
+						last = bi;
+						if (score > bestScore) {
+							bestScore = score;
+							floor = score - xDrop;
+							g.aOffset = ai;
+							g.bOffset = bi;
+						}
+						gapRow -= ext;
+						gapCol -= ext;
+						dp[2 * bi + 1] = Math.max(score - goe, gapCol);
+						gapRow = Math.max(score - goe, gapRow);
+						dp[2 * bi] = score;
 					}
-					final int open = score - goe;
-					first -= drop & atFirst;
-					last = (bi & ~drop) | (last & drop);
-					gapRow = (Math.max(open, gapRow - ext) & ~drop) | (gapRow & drop);
-					dp[2 * bi + 1] = (Math.max(open, gapCol - ext) & ~drop) | (gapCol & drop);
-					dp[2 * bi] = (score & ~drop) | (((diag & atFirst) | (MININT & ~atFirst)) & drop);
 					score = next;
 				}
 				if (first == bSize) {
