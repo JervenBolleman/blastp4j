@@ -311,6 +311,17 @@ and second entry (e31e371), close enough that the lines stay in the L1D: N2 -0.9
 +3.1%; the scan's L1D refills did not drop. The perf stat counts of one run vary by about 5% for the same code (the
 JIT): compare them only across reruns.
 
+*Kept:* fastblastp's hit loop as a counted loop (38bef61). Since 11cd4d9 it was `for (;; e = entry[k])` with a
+break, which C2 does not compile as counted: a safepoint poll per hit, whose load had 2.7% of fastblastp's samples on
+the N2 (1.05% on x86-64). Now `for (k = start; k < end; k++)`, each hit loading the next entry (the table's entry has
+one more): N2 -2.1% and -3.6% on the rerun (4 of 6 rounds faster), EPYC 7763 -1.4% and +1.6%; the poll's load 0.11%.
+The same for blastp's scan (680447a, after ec95f95 had made its loop uncounted) did not gain (N2 +0.2%, x86-64
++0.5%; reverted). *Reverted:* the ungapped extension's best position with masks on AArch64 (1d43aa5), as C2 compiles
+`score > maxScore ? i : best` to a branch again: blastp4j's branch misses -9% (`hit`'s 9.8 per 1,000 cycles against
+15.5), but `hit`'s backend stalls rose from 235 to 326 per 1,000 cycles and the wall time did not move (N2 0%).
+On x86-64 the hottest instruction of the gapped lanes is the score matrix's gather (`vpgatherdd`, about 5% of
+blastp4j's samples on an EPYC); a permutation cannot replace it, as each lane has its own query letter and matrix.
+
 ### Daemon
 
 `blastp4j daemon` is a search server: it opens its databases once, takes jobs over HTTP (the JDK's
