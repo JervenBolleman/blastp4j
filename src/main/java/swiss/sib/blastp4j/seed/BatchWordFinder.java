@@ -248,33 +248,23 @@ public final class BatchWordFinder implements BatchScan {
 				int r = 0;
 				// The word's first entry from its own line of cells, the others from entry.
 				final int cell = 2 * word, end = cells[cell + 2];
-				int k = cells[cell], e = cells[cell + 1];
-				hits: while (k < end) {
+				int k = cells[cell];
+				// As entry[k], not entry[++k], so that the copy for narrow entries reads it as a char.
+				for (int e = cells[cell + 1]; k < end; e = entry[k]) {
 					// The usual hits, decided from the entry: the diagonal's last hit is a window or more back, so
 					// this one replaces it, or it overlaps this one, which is then ignored. Only hits to extend and
-					// hits on an extended diagonal go to the query's finder. A loop of their own, without the
-					// finder's call, so that C2 can keep its values in registers and spill only around the call.
-					for (;;) {
-						// Also masked with the array's length (a power of two), so that C2 knows the index is in
-						// bounds.
-						final int diag = (e - s) & diagMask & (d.length - 1);
-						final int state = d[diag];
-						// Without branches but one: x = diff - WORD_SIZE is in [0, last] (a hit to extend) when
-						// neither x nor last - x is negative, and the extended flag (bit 30; bit 31 is never set)
-						// goes to the sign bit.
-						final int diff = s - (state - offset), x = diff - LookupTable.WORD_SIZE;
-						if ((~(x | (lastL - x)) | state << 1) < 0) {
-							break;
-						}
+					// hits on an extended diagonal go to the query's finder.
+					// Also masked with the array's length (a power of two), so that C2 knows the index is in bounds.
+					final int diag = (e - s) & diagMask & (d.length - 1);
+					final int state = d[diag];
+					// Without branches but one: x = diff - WORD_SIZE is in [0, last] (a hit to extend) when neither
+					// x nor last - x is negative, and the extended flag (bit 30; bit 31 is never set) goes to the
+					// sign bit.
+					final int diff = s - (state - offset), x = diff - LookupTable.WORD_SIZE;
+					if ((~(x | (lastL - x)) | state << 1) >= 0) {
 						final int older = (diff - windowL) >> 31; // -1 if the hit overlaps the last one: keep that
 						d[diag] = (state & older) | ((s + offset) & ~older);
-						if (++k >= end) {
-							break hits;
-						}
-						// As entry[k], not entry[++k], so that the copy for narrow entries reads it as a char.
-						e = entry[k];
-					}
-					if (DEFER) {
+					} else if (DEFER) {
 						later[r++] = k;
 					} else {
 						final int i = query[k];
@@ -283,7 +273,6 @@ public final class BatchWordFinder implements BatchScan {
 					if (++k >= end) {
 						break;
 					}
-					e = entry[k];
 				}
 				if (DEFER) {
 					for (int j = 0; j < r; j++) {
