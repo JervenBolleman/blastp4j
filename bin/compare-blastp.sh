@@ -106,12 +106,13 @@ done
 
 echo "== perf stat"
 # Virtual machines often have no hardware counters; perf then reports them as not supported.
-# The core's own events (from perf's tables for it, such as the Neoverse-N2's), each kept only where perf counts it.
+# The core's own events (from perf's tables for it, such as the Neoverse-N2's), each kept only where perf counts it:
+# not 0 over a loop of a million steps (the ARM runner's VM gives 0 for the events it does not pass on).
 EXTRA=()
 if perf stat -x, -e cycles:u -o "$OUT/perf-check.txt" -- true 2>/dev/null && grep -q '^[0-9]' "$OUT/perf-check.txt"; then
 	for e in stall_frontend stall_backend stall_backend_mem l1d_cache_refill l2d_cache_refill ll_cache_miss_rd; do
-		if perf stat -x, -e "$e:u" -o "$OUT/perf-check-$e.txt" -- true 2>/dev/null &&
-			grep -q '^[0-9]' "$OUT/perf-check-$e.txt"; then
+		if perf stat -x, -e "$e:u" -o "$OUT/perf-check-$e.txt" -- awk 'BEGIN { for (i = 0; i < 1e6; i++) a[i % 4096] += i }' \
+			2>/dev/null && grep -q '^[1-9]' "$OUT/perf-check-$e.txt"; then
 			EXTRA+=("$e:u")
 		fi
 	done
