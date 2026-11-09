@@ -736,6 +736,14 @@ instead of 4 (a9c6886) is kept, fastblastp -2.1% and -2.4% on the N2 (all six ro
 -0.4%, x86-64 within 0.4% (runs 42518240547, 42521981040). 2 rows (cac2447) is reverted (8290c0b): on the N2
 fastblastp +3.9% and +1.5%, blastp4j 0% and +1.2%; x86-64's blastp4j -5.1% in the first run was not there in the
 rerun (-0.3%).
+Then the cell loops' stack reloads on the N2 again. *Kept:* row and scoreRows mask the matrix index with
+`mat.length - 1` themselves (74913e7): with the mask a parameter, C2 had put a bounds check back in both cell loops;
+-6.3% instructions locally, on the runners N2 +0.3%/+0.5% (blastp4j/fastblastp), EPYC 7763 -1.4%/-0.6%. *Kept:* the
+row's new best column in a local, `g.aOffset` and `g.bOffset` set after the loop (1fc6ac2), so that `g` is no longer
+stored and reloaded every cell: N2 -1.1%/+1.2%, rerun -2.7%/-1.2% (all rounds faster), EPYC 9V74 -1.4%/-0.8%.
+*Reverted:* the X-drop test as `score < floor` (10ee89f, 6d8455d), which took the xDrop reload out of the loop:
+within 0.5% everywhere, and the reload's 6% of the samples moved to the compare after the matrix load. That share is
+the matrix load's latency; the reloads left in the loop do not cost time.
 
 ## Composition-based statistics
 
