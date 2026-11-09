@@ -70,7 +70,8 @@ public final class BatchWordFinder implements BatchScan {
 			for (LookupTable t : tables) {
 				total += t.offsets().length;
 			}
-			final int[] start = new int[LookupTable.WORDS + 1], entry = new int[total], query = new int[total];
+			// entry has one more, unused: the scan reads the entry after each one (see find).
+			final int[] start = new int[LookupTable.WORDS + 1], entry = new int[total + 1], query = new int[total];
 			int k = 0;
 			for (int w = 0; w < LookupTable.WORDS; w++) {
 				start[w] = k;
@@ -85,7 +86,7 @@ public final class BatchWordFinder implements BatchScan {
 			start[LookupTable.WORDS] = k;
 			char[] narrow = null;
 			if (length <= Character.MAX_VALUE) {
-				narrow = new char[total];
+				narrow = new char[total + 1];
 				for (int j = 0; j < total; j++) {
 					narrow[j] = (char) entry[j];
 				}
@@ -248,9 +249,10 @@ public final class BatchWordFinder implements BatchScan {
 				int r = 0;
 				// The word's first entry from its own line of cells, the others from entry.
 				final int cell = 2 * word, end = cells[cell + 2];
-				int k = cells[cell];
-				// As entry[k], not entry[++k], so that the copy for narrow entries reads it as a char.
-				for (int e = cells[cell + 1]; k < end; e = entry[k]) {
+				// A counted loop, which C2 keeps without a safepoint poll or a bounds check per hit: each hit loads the
+				// next one's entry (entry has one more for the last).
+				int e = cells[cell + 1];
+				for (int k = cells[cell]; k < end; k++) {
 					// The usual hits, decided from the entry: the diagonal's last hit is a window or more back, so
 					// this one replaces it, or it overlaps this one, which is then ignored. Only hits to extend and
 					// hits on an extended diagonal go to the query's finder.
@@ -270,9 +272,9 @@ public final class BatchWordFinder implements BatchScan {
 						final int i = query[k];
 						f[i].hit(residues, start, length, e - base[i], s, out[i]);
 					}
-					if (++k >= end) {
-						break;
-					}
+					// As entry[next], not entry[k + 1], so that the copy for narrow entries reads it as a char.
+					final int next = k + 1;
+					e = entry[next];
 				}
 				if (DEFER) {
 					for (int j = 0; j < r; j++) {
