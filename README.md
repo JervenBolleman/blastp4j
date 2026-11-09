@@ -298,6 +298,16 @@ with the same touch, of the first entry 16 positions ahead (a6d880f), did not ga
 round) and +0.4% on the rerun, x86-64 +1.3% and +2.0%; reverted. Its start array is 128 KB, and the scan's share of
 the N2 samples did not move (22.4%, then 22.5% and 23.6%).
 
+Since a02df08 the ARM runner's report has the core's events (stall_frontend, stall_backend, l1d_cache_refill), in
+perf stat and by method (`<system>-events.txt`, bin/events.py). On the N2 (run 42582050990), blastp4j against BLAST+:
+346 G cycles against 338 G, 4.3 G branch misses against 7.5 G, 25 G frontend stall cycles against 44 G, but 73 G
+backend stall cycles against 48 G. The scan (`BatchWordFinder.find`) has 24% of blastp4j's cycles, 41% of its
+backend stalls and 50% of its L1D refills, after the loads of the start array (128 KB), then the word's first entry,
+then the diagonal (64 KB, the N2's whole L1D). *Kept:* the first entry next to the start (`Table.cells`, ec95f95):
+-2.5% cycles locally, but on the N2 -0.3% (EPYC 7763 -0.5%) and as many L1D refills: a word of a batch has many
+entries, and the miss moved to its second one. *Reverted:* `Rows.rows`' X-drop test without its branch (c885233,
+1ff2deb; about 8% of the branch misses): +29% instructions, +15% cycles locally.
+
 ### Daemon
 
 `blastp4j daemon` is a search server: it opens its databases once, takes jobs over HTTP (the JDK's
