@@ -9,8 +9,8 @@
 #
 # 1. ROUNDS timing rounds (default 5), the chosen systems interleaved in each round (/usr/bin/time: wall, user, sys).
 # 2. One perf stat run per system (instructions, cycles, branches, branch misses, and the stall and cache-refill
-#    events this machine's perf knows, as on the Neoverse-N2), after all timing rounds; skipped where perf has no
-#    hardware counters.
+#    events this machine's perf knows, as on the Neoverse-N2 or Intel cores), after all timing rounds; skipped where
+#    perf has no hardware counters.
 # 3. For each of jvm, almost and fast chosen, one run with async-profiler (CPU samples, flame graph in
 #    <system>-profile.html), and one that prints the machine code of the seed, align and compo packages with the
 #    samples of each instruction (<system>-machcode.txt).
@@ -106,11 +106,15 @@ done
 
 echo "== perf stat"
 # Virtual machines often have no hardware counters; perf then reports them as not supported.
-# The core's own events (from perf's tables for it, such as the Neoverse-N2's), each kept only where perf counts it:
-# not 0 over a loop of a million steps (the ARM runner's VM gives 0 for the events it does not pass on).
+# The core's own events (from perf's tables for it), each kept only where perf counts it: not 0 over a loop of a
+# million steps (the ARM runner's VM gives 0 for the events it does not pass on). The Neoverse-N2's names first, then
+# the nearest ones of Intel's cores (Skylake and later): no uop delivered, no uop executed (any cause, and while a
+# load is outstanding), L1D lines replaced, L2 misses, last-level misses.
 EXTRA=()
 if perf stat -x, -e cycles:u -o "$OUT/perf-check.txt" -- true 2>/dev/null && grep -q '^[0-9]' "$OUT/perf-check.txt"; then
-	for e in stall_frontend stall_backend stall_backend_mem l1d_cache_refill l2d_cache_refill ll_cache_miss_rd; do
+	for e in stall_frontend stall_backend stall_backend_mem l1d_cache_refill l2d_cache_refill ll_cache_miss_rd \
+		idq_uops_not_delivered.cycles_0_uops_deliv.core cycle_activity.stalls_total cycle_activity.stalls_mem_any \
+		l1d.replacement l2_rqsts.miss longest_lat_cache.miss; do
 		if perf stat -x, -e "$e:u" -o "$OUT/perf-check-$e.txt" -- awk 'BEGIN { for (i = 0; i < 1e6; i++) a[i % 4096] += i }' \
 			2>/dev/null && grep -q '^[1-9]' "$OUT/perf-check-$e.txt"; then
 			EXTRA+=("$e:u")
@@ -174,7 +178,7 @@ for s in "${PROFILED[@]}"; do
 		echo "$EVENT samples ($SAME); the full listing per method in $s-machcode.txt:"
 		sed -n '/^==/q;p' "$OUT/$s-machcode.txt"
 		if [ "$SAMPLED" != "$EVENT" ]; then
-			python3 "$HERE/bin/events.py" "$OUT/machcode-$s.log" "$OUT/$s-machcode.samples" >"$OUT/$s-events.txt"
+			python3 "$HERE/bin/events.py" "$OUT/machcode-$s.log" "$OUT/$s-machcode.samples" "$OUT/perf-$s.txt" >"$OUT/$s-events.txt"
 			echo "hardware events by method ($s-events.txt):"
 			sed -n '/^$/q;p' "$OUT/$s-events.txt"
 		fi
