@@ -128,6 +128,13 @@ public final class BatchWordFinder implements BatchScan {
 	 */
 	private final int[] rest;
 	/**
+	 * How many positions ahead the scan touches the cell and the second entry of: few, as a position has many hits
+	 * (about 60), each on its own line of the diagonals, and lines touched further ahead leave the 64 KB L1D first.
+	 */
+	private static final int AHEAD = 1;
+	/** The sum of the cells and entries touched ahead, kept so that the loads stay. */
+	private int sink;
+	/**
 	 * Whether the finder calls wait until after a position's hits: on AArch64 only. On the Neoverse-N2 runner that took
 	 * 3.7% less wall time (run 42374103357), as the loop then reloads fewer values from the stack; on x86-64 2.8% more
 	 * (a Xeon 6973P-C, same run) and 1.5% more cycles locally (i7-6700HQ).
@@ -241,10 +248,20 @@ public final class BatchWordFinder implements BatchScan {
 		final int offset = diagOffset, windowL = window, lastL = window - LookupTable.WORD_SIZE - 1;
 		final WordFinder[] f = finders;
 		final int mask = LookupTable.WORDS - 1;
+		final int lastEntry = entry.length - 1;
+		int touched = 0;
 		if (length >= LookupTable.WORD_SIZE) {
 			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
 			for (int s = 0; s <= length - LookupTable.WORD_SIZE; s++) {
 				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
+				if (s + AHEAD <= length - LookupTable.WORD_SIZE) {
+					// The cell and the second entry (the first is in the cell) of the word AHEAD positions on.
+					final int p = start + s + AHEAD;
+					final int ahead = ((residues[p] << 2 * LookupTable.CHAR_BITS)
+							| (residues[p + 1] << LookupTable.CHAR_BITS) | residues[p + 2]) & mask;
+					final int second = Math.min(cells[2 * ahead] + 1, lastEntry);
+					touched += entry[second];
+				}
 				int r = 0;
 				// The word's first entry from its own line of cells, the others from entry.
 				final int cell = 2 * word, end = cells[cell + 2];
@@ -282,6 +299,7 @@ public final class BatchWordFinder implements BatchScan {
 				}
 			}
 		}
+		sink += touched;
 		for (WordFinder finder : f) {
 			finder.endSubject(length);
 		}
