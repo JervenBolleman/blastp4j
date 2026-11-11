@@ -61,6 +61,39 @@ class BatchWordFinderTest {
 		compare(random, queries, table);
 	}
 
+	@Test
+	void theIntDiagonalsOfALongSubjectFindWhatThe16BitOnesFind() {
+		Random random = new Random(6);
+		byte[][] queries = queries(random, 24, 300);
+		BatchWordFinder.Table table = table(queries);
+		LookupTable[] tables = tables(queries);
+		SeedParameters[] parameters = parameters(queries.length);
+		BatchWordFinder narrow = new BatchWordFinder(queries, tables, parameters, table);
+		BatchWordFinder wide = new BatchWordFinder(queries, tables, parameters, table);
+		int found = 0;
+		// Enough subjects for the 16-bit offset to start again several times; the last one too long for 16 bits.
+		for (int round = 0; round <= 300; round++) {
+			int length = round < 300 ? 50 + random.nextInt(400) : 40_000;
+			byte[] subject = new byte[length + 2];
+			for (int at = 0; at < length;) {
+				byte[] q = queries[random.nextInt(queries.length)];
+				int from = random.nextInt(q.length), n = Math.min(length - at, 1 + random.nextInt(q.length - from));
+				for (int i = 0; i < n; i++) {
+					subject[1 + at + i] = random.nextInt(4) > 0 ? q[from + i] : (byte) (1 + random.nextInt(20));
+				}
+				at += n;
+			}
+			List<UngappedHsp>[] a = lists(queries.length), b = lists(queries.length);
+			narrow.find(subject, 1, length, a);
+			wide.findLong(subject, 1, length, b);
+			for (int i = 0; i < queries.length; i++) {
+				assertEquals(b[i], a[i], "round " + round + ", query " + i);
+				found += a[i].size();
+			}
+		}
+		assertTrue(found > 100, "alignments found: " + found);
+	}
+
 	/** The copy is a hidden class, and its alignments, query by query and in order, are those of the int scan. */
 	private static void compare(Random random, byte[][] queries, BatchWordFinder.Table table) {
 		LookupTable[] tables = tables(queries);

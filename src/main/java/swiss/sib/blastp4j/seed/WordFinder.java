@@ -68,8 +68,6 @@ public final class WordFinder implements WordScan {
 	 * right. One array, so that a hit reads and writes a single element.
 	 */
 	private final int[] diagState;
-	/** The offset of this query in the diagonals of {@link #diagState}: 0, or in a batch its offset in the concatenation. */
-	private final int diagBase;
 	/** Set in a diagonal's state while hits on it are ignored, as they lie within the extension. */
 	static final int EXTENDED = 1 << 30;
 	/**
@@ -126,28 +124,22 @@ public final class WordFinder implements WordScan {
 	/** Whether {@link #findBlocks} is for this query: its table has a coverage below {@link #VECTOR_MAX_COVERAGE}. */
 	private final boolean vectorScan;
 
-	public WordFinder(byte[] query, LookupTable table, SeedParameters p) {
-		this(query, table, p, null, 0);
-	}
-
 	/**
-	 * A word finder whose diagonals are those of the queries concatenated in {@code diags}, this one at offset
-	 * {@code base} (for {@link BatchWordFinder}), or an array of its own when {@code diags} is null. Only {@link #hit}
-	 * and {@link #endSubject} use the shared array: such a finder does not scan.
+	 * A word finder with diagonals of its own. {@link BatchWordFinder} keeps the diagonals of its queries itself and
+	 * only calls {@link #next}.
 	 */
-	WordFinder(byte[] query, LookupTable table, SeedParameters p, int[] diags, int base) {
+	public WordFinder(byte[] query, LookupTable table, SeedParameters p) {
 		this.query = query;
 		this.table = table;
 		this.window = p.window();
 		this.xDrop = p.xDrop();
 		this.cutoff = p.cutoff();
-		final int length = diags != null ? diags.length : diagonals(query.length, window);
+		final int length = diagonals(query.length, window);
 		rowOfQuery = new int[query.length];
 		for (int q = 0; q < query.length; q++) {
 			rowOfQuery[q] = query[q] << 5;
 		}
-		diagState = diags != null ? diags : new int[length];
-		diagBase = base;
+		diagState = new int[length];
 		diagMask = length - 1;
 		diagOffset = window;
 		vectorScan = table.coverage() < VECTOR_MAX_COVERAGE;
@@ -326,55 +318,40 @@ public final class WordFinder implements WordScan {
 		}
 	}
 
-	/** The end of a subject of {@code length} letters scanned elsewhere, as at the end of {@link #find}. */
-	void endSubject(int length) {
-		// The next subject's positions start beyond everything stored so far.
-		if (diagOffset >= Integer.MAX_VALUE / 4) {
-			diagOffset = window;
-			java.util.Arrays.fill(diagState, 0);
-		} else {
-			diagOffset += length + window;
-		}
+	/** A word hit: query offset {@code q} at subject position {@code s}. */
+	void hit(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
+		final int diag = (q - s) & diagMask;
+		diagState[diag] = next(residues, start, length, q, s, out, diagState[diag], diagOffset);
 	}
 
 	/**
-	 * A word hit: query offset {@code q} at subject position {@code s}. Also called by {@link BatchWordFinder} for a
-	 * hit that is not just stored.
+	 * The state of a diagonal after a word hit on it (query offset {@code q}, subject position {@code s}), from its
+	 * {@code state} before: a subject position plus {@code offset}, with {@link #EXTENDED} when the diagonal was
+	 * extended to the right. Also called by {@link BatchWordFinder} for a hit that is not just stored.
 	 */
-	void hit(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
-		final int diag = (diagBase + q - s) & diagMask;
-		final int state = diagState[diag];
+	int next(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out, int state, int offset) {
 		if ((state & EXTENDED) != 0) {
 			// Already extended past this hit: skip it; otherwise it starts a new pair.
-			if (s + diagOffset >= (state & ~EXTENDED)) {
-				diagState[diag] = s + diagOffset;
-			}
-			return;
+			return s + offset >= (state & ~EXTENDED) ? s + offset : state;
 		}
-		final int last = state - diagOffset;
+		final int last = state - offset;
 		final int diff = s - last;
 		if (diff >= window) {
-			diagState[diag] = s + diagOffset;
-			return;
+			return s + offset;
 		}
 		if (diff < LookupTable.WORD_SIZE) {
-			return; // overlaps the previous hit
+			return state; // overlaps the previous hit
 		}
 		if (q < diff) {
 			// In a batch, the last hit on the diagonal was in a query before this one in the concatenation: as BLAST
 			// (the check after BSearchContextInfo), this one starts a new pair. Never so for a query alone.
-			diagState[diag] = s + diagOffset;
-			return;
+			return s + offset;
 		}
 		int score = extendTwoHit(residues, start, length, last + LookupTable.WORD_SIZE, s, q);
 		if (score >= cutoff) {
 			out.add(new UngappedHsp(hspQuery, hspSubject, hspLength, score, q, s));
 		}
-		if (rightExtended) {
-			diagState[diag] = (lastSubjectOffset - (LookupTable.WORD_SIZE - 1) + diagOffset) | EXTENDED;
-		} else {
-			diagState[diag] = s + diagOffset;
-		}
+		return rightExtended ? (lastSubjectOffset - (LookupTable.WORD_SIZE - 1) + offset) | EXTENDED : s + offset;
 	}
 
 	/**

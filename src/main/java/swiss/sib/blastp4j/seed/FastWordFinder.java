@@ -41,7 +41,7 @@ final class FastWordFinder {
 		diagOffset = window;
 	}
 
-	/** As {@link WordFinder#endSubject}. */
+	/** The end of a subject of {@code length} letters: the next one's positions start beyond everything stored so far. */
 	void endSubject(int length) {
 		if (diagOffset >= Integer.MAX_VALUE / 4) {
 			diagOffset = window;

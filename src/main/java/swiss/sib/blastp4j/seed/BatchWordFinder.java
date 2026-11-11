@@ -115,10 +115,18 @@ public final class BatchWordFinder implements BatchScan {
 
 	private final Table table;
 	private final WordFinder[] finders;
-	/** The diagonals of the concatenated queries. */
-	private final int[] diags;
+	/**
+	 * The diagonals of the concatenated queries, each state in 16 bits: a subject position plus {@link #diagOffset}
+	 * below {@link #LIMIT}, with {@link #EXTENDED} for {@link WordFinder#EXTENDED}. Half the size of ints (32 KB for
+	 * a batch of 10,000 residues, an L1 data cache), and nearly every hit loads and stores one state. When the offset
+	 * reaches the limit the array is cleared and the offset starts again.
+	 */
+	private final char[] diags;
+	/** The diagonals as ints, for a subject too long for 16 bits. */
+	private int[] wide;
+	private static final int LIMIT = 1 << 15, EXTENDED = 1 << 15;
 	private final int window, diagMask;
-	/** As each finder's {@code diagOffset}, which all move together. */
+	/** Added to the positions stored in {@link #diags}, so that those of earlier subjects are far back. */
 	private int diagOffset;
 	/**
 	 * The entries of the current subject position whose hits go to a query's finder, handled after the position's
@@ -138,14 +146,14 @@ public final class BatchWordFinder implements BatchScan {
 	public BatchWordFinder(byte[][] queries, LookupTable[] tables, SeedParameters[] parameters, Table table) {
 		this.table = table;
 		window = parameters[0].window();
-		diags = new int[table.size()];
+		diags = new char[table.size()];
 		diagMask = table.size() - 1;
 		finders = new WordFinder[queries.length];
 		for (int i = 0; i < queries.length; i++) {
 			if (parameters[i].window() != window) {
 				throw new IllegalArgumentException("the queries of a batch have different windows");
 			}
-			finders[i] = new WordFinder(queries[i], tables[i], parameters[i], diags, table.base()[i]);
+			finders[i] = new WordFinder(queries[i], tables[i], parameters[i]);
 		}
 		diagOffset = window;
 		int longest = 0;
@@ -235,8 +243,17 @@ public final class BatchWordFinder implements BatchScan {
 	 */
 	@Override
 	public void find(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
+		if (length + window >= LIMIT) {
+			findLong(residues, start, length, out);
+			return;
+		}
+		if (diagOffset + length >= LIMIT) {
+			java.util.Arrays.fill(diags, (char) 0);
+			diagOffset = window;
+		}
 		final int[] cells = table.cells(), entry = table.entry(), query = table.query(), base = table.base();
-		final int[] d = diags, later = rest;
+		final char[] d = diags;
+		final int[] later = rest;
 		final int diagMask = this.diagMask;
 		final int offset = diagOffset, windowL = window, lastL = window - LookupTable.WORD_SIZE - 1;
 		final WordFinder[] f = finders;
@@ -258,17 +275,18 @@ public final class BatchWordFinder implements BatchScan {
 					final int diag = (e - s) & diagMask & (d.length - 1);
 					final int state = d[diag];
 					// Without branches but one: x = diff - WORD_SIZE is in [0, last] (a hit to extend) when neither
-					// x nor last - x is negative, and the extended flag (bit 30; bit 31 is never set) goes to the
-					// sign bit.
+					// x nor last - x is negative, and the extended flag (bit 15) goes to the sign bit.
 					final int diff = s - (state - offset), x = diff - LookupTable.WORD_SIZE;
-					if ((~(x | (lastL - x)) | state << 1) >= 0) {
+					if ((~(x | (lastL - x)) | state << 16) >= 0) {
 						final int older = (diff - windowL) >> 31; // -1 if the hit overlaps the last one: keep that
-						d[diag] = (state & older) | ((s + offset) & ~older);
+						d[diag] = (char) ((state & older) | ((s + offset) & ~older));
 					} else if (DEFER) {
 						later[r++] = k;
 					} else {
 						final int i = query[k];
-						f[i].hit(residues, start, length, e - base[i], s, out[i]);
+						final int next = f[i].next(residues, start, length, e - base[i], s, out[i], wide(state), offset);
+						// The diagonal again from the entry, so that it need not be kept across the call.
+						d[(entry[k] - s) & diagMask & (d.length - 1)] = narrow(next);
 					}
 					if (++k >= end) {
 						break;
@@ -276,15 +294,45 @@ public final class BatchWordFinder implements BatchScan {
 				}
 				if (DEFER) {
 					for (int j = 0; j < r; j++) {
-						final int h = later[j], i = query[h];
-						f[i].hit(residues, start, length, entry[h] - base[i], s, out[i]);
+						final int h = later[j], i = query[h], e = entry[h];
+						final int diag = (e - s) & diagMask & (d.length - 1);
+						d[diag] = narrow(f[i].next(residues, start, length, e - base[i], s, out[i], wide(d[diag]), offset));
 					}
 				}
 			}
 		}
-		for (WordFinder finder : f) {
-			finder.endSubject(length);
+		diagOffset += length + window;
+	}
+
+	/** A 16-bit state as {@link WordFinder#next}'s. */
+	private static int wide(int state) {
+		return (state & (EXTENDED - 1)) | (state & EXTENDED) << 15;
+	}
+
+	/** {@link WordFinder#next}'s state in 16 bits: the position plus offset is below {@link #LIMIT}. */
+	private static char narrow(int state) {
+		return (char) (state | state >>> 15);
+	}
+
+	/**
+	 * {@link #find} for a subject whose positions do not fit 16 bits, with diagonals of ints, cleared for it. The 16-bit
+	 * states and their offset stay as they are: the subject after it finds them far back as before.
+	 */
+	void findLong(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
+		final int[] start0 = table.start(), entry = table.entry(), query = table.query(), base = table.base();
+		if (wide == null) {
+			wide = new int[diags.length];
+		} else {
+			java.util.Arrays.fill(wide, 0);
 		}
-		diagOffset = diagOffset >= Integer.MAX_VALUE / 4 ? window : diagOffset + length + window;
+		final int[] d = wide;
+		final int offset = window;
+		for (int s = 0; s <= length - LookupTable.WORD_SIZE; s++) {
+			final int word = LookupTable.word(residues, start + s);
+			for (int k = start0[word], end = start0[word + 1]; k < end; k++) {
+				final int i = query[k], e = entry[k], diag = (e - s) & (d.length - 1);
+				d[diag] = finders[i].next(residues, start, length, e - base[i], s, out[i], d[diag], offset);
+			}
+		}
 	}
 }
