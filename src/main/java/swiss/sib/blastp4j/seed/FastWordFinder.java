@@ -19,11 +19,14 @@ final class FastWordFinder {
 	private final byte[] query;
 	private final int[] rowOfQuery;
 	private final int window, xDrop, cutoff;
+	private final int[] diagState;
+	private final int diagBase, diagMask;
+	private int diagOffset;
 	private int hspQuery, hspSubject, hspLength, lastSubjectOffset, extensionLength;
 	private boolean rightExtended;
 
-	/** The finder of a query of a batch, which keeps the diagonals. */
-	FastWordFinder(byte[] query, SeedParameters p) {
+	/** The finder of a query at offset {@code base} of a batch whose diagonals are {@code diags}. */
+	FastWordFinder(byte[] query, SeedParameters p, int[] diags, int base) {
 		this.query = query;
 		this.window = p.window();
 		this.xDrop = p.xDrop();
@@ -32,29 +35,54 @@ final class FastWordFinder {
 		for (int q = 0; q < query.length; q++) {
 			rowOfQuery[q] = query[q] << 5;
 		}
+		diagState = diags;
+		diagBase = base;
+		diagMask = diags.length - 1;
+		diagOffset = window;
 	}
 
-	/** As {@link WordFinder#next}. */
-	int next(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out, int state, int offset) {
-		if ((state & EXTENDED) != 0) {
-			return s + offset >= (state & ~EXTENDED) ? s + offset : state;
+	/** The end of a subject of {@code length} letters: the next one's positions start beyond everything stored so far. */
+	void endSubject(int length) {
+		if (diagOffset >= Integer.MAX_VALUE / 4) {
+			diagOffset = window;
+			java.util.Arrays.fill(diagState, 0);
+		} else {
+			diagOffset += length + window;
 		}
-		final int last = state - offset;
+	}
+
+	/** As {@link WordFinder#hit}. */
+	void hit(byte[] residues, int start, int length, int q, int s, List<UngappedHsp> out) {
+		final int diag = (diagBase + q - s) & diagMask;
+		final int state = diagState[diag];
+		if ((state & EXTENDED) != 0) {
+			if (s + diagOffset >= (state & ~EXTENDED)) {
+				diagState[diag] = s + diagOffset;
+			}
+			return;
+		}
+		final int last = state - diagOffset;
 		final int diff = s - last;
 		if (diff >= window) {
-			return s + offset;
+			diagState[diag] = s + diagOffset;
+			return;
 		}
 		if (diff < WORD) {
-			return state;
+			return;
 		}
 		if (q < diff) {
-			return s + offset;
+			diagState[diag] = s + diagOffset;
+			return;
 		}
 		int score = extendTwoHit(residues, start, length, last + WORD, s, q);
 		if (score >= cutoff) {
 			out.add(new UngappedHsp(hspQuery, hspSubject, hspLength, score, q, s));
 		}
-		return rightExtended ? (lastSubjectOffset - (WORD - 1) + offset) | EXTENDED : s + offset;
+		if (rightExtended) {
+			diagState[diag] = (lastSubjectOffset - (WORD - 1) + diagOffset) | EXTENDED;
+		} else {
+			diagState[diag] = s + diagOffset;
+		}
 	}
 
 	/** As {@code WordFinder.extendTwoHit}. */
