@@ -1,0 +1,101 @@
+{
+ "run_id": "44932795591",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/44932795591",
+ "date": "2026-11-21 18:26 UTC",
+ "event": "schedule",
+ "code": [
+  "`7a203fd` (Revert \"fastblastp: the batch scan's diagonal states in 16 bits (experiment)\" [skip ci])"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": 26.26,
+   "jvm_wall": 28.25,
+   "ref_wall": null,
+   "blastfast_wall": 34.44,
+   "fast_wall": 35.89,
+   "fast": 1.0421022067363532,
+   "wall": 1.0757806549885758,
+   "cycles": 1.0272269902337972,
+   "instructions": 1.184885290148448,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html",
+   "jvm_commit": "7a203fd",
+   "ref_commit": "",
+   "rounds": {
+    "blast": [
+     26.26,
+     26.38,
+     26.1
+    ],
+    "jvm": [
+     28.1,
+     28.42,
+     28.25
+    ],
+    "almost": [
+     26.87,
+     27.2,
+     27.42
+    ],
+    "blastfast": [
+     34.91,
+     34.44,
+     33.69
+    ],
+    "fast": [
+     37.26,
+     35.89,
+     35.56
+    ]
+   }
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "Intel(R) Xeon(R) 6975P-C",
+   "cpus": "4",
+   "blast_wall": 39.17,
+   "jvm_wall": 28.06,
+   "ref_wall": null,
+   "blastfast_wall": 49.09,
+   "fast_wall": 33.78,
+   "fast": 0.6881238541454471,
+   "wall": 0.7163645647178963,
+   "cycles": 0.6932153392330384,
+   "instructions": 0.7631241997439181,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html",
+   "jvm_commit": "7a203fd",
+   "ref_commit": "",
+   "rounds": {
+    "blast": [
+     39.17,
+     38.95,
+     39.2
+    ],
+    "jvm": [
+     28.06,
+     28.02,
+     28.07
+    ],
+    "almost": [
+     27.15,
+     26.86,
+     28.19
+    ],
+    "blastfast": [
+     48.73,
+     49.11,
+     49.09
+    ],
+    "fast": [
+     33.63,
+     33.78,
+     33.9
+    ]
+   }
+  }
+ ]
+}
