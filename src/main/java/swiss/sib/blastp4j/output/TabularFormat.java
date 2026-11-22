@@ -60,9 +60,9 @@ public final class TabularFormat {
 		return fixed(evalue, 0);
 	}
 
-	/** Bit score: one decimal up to 99.9, then the integer part, and exponent notation above 9999. */
+	/** Bit score: one decimal up to 99.9, then the integer part, and exponent notation above 99999. */
 	public static String bitScore(double bitScore) {
-		if (bitScore > 9999) {
+		if (bitScore > 99999) {
 			return exponent(bitScore, 3);
 		}
 		if (bitScore > 99.9) {
