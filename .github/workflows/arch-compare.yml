@@ -17,7 +17,11 @@
 # and 3, each with its own bin/jvm.options plus the same variant options: runners differ
 # from run to run (BLAST+ itself took 12% more cycles on one ARM runner than on another), so code is compared within
 # one job.
-# The database is the Phaseolus vulgaris reference proteome (UP000000226); the queries are its first QUERIES proteins.
+# The database is the human reference proteome (UP000005640); the queries are QUERIES of its proteins, evenly spaced
+# over the file, so that the sample's length distribution is the database's and the longest proteins are not all in it
+# or all out of it. Until 2026-11-22 it was the Phaseolus vulgaris proteome (UP000000226) and the queries were its
+# first 500 proteins, so times before and after that are not comparable: the human workload is about three times the
+# instructions (longer proteins, more paralogs), which leaves the JIT's fixed cost a smaller share of the run.
 #
 # The report: each job's sections and machine (CPU model included) go to its step summary and to report/ (the
 # report-<arch> artifact); the report job builds an HTML page from them (.github/scripts/report.py), adds it to the
@@ -42,8 +46,8 @@ on:
   workflow_dispatch:
     inputs:
       queries:
-        description: Number of proteome sequences used as queries in the full search
-        default: "500"
+        description: Number of proteome sequences, evenly spaced over the file, used as queries in the full search
+        default: "750"
       rounds:
         description: Timing rounds of the full search
         default: "3"
@@ -73,14 +77,14 @@ on:
         default: "true"
       fast_queries:
         description: "Number of proteome sequences used as queries by blastp-fast and fastblastp (more than for blastp, so that the JIT's warm-up does not dominate)"
-        default: "2500"
+        default: "1800"
 
 permissions:
   contents: read
 
 env:
   # The inputs, with their defaults for the scheduled runs, which have no inputs.
-  QUERIES: ${{ inputs.queries || '500' }}
+  QUERIES: ${{ inputs.queries || '750' }}
   ROUNDS: ${{ inputs.rounds || '3' }}
   VARIANTS: ${{ inputs.variants || 'launcher=;oops-on=-XX:+UseCompressedOops;oops-off=-XX:-UseCompressedOops' }}
   BENCH_ROUNDS: ${{ inputs.bench_rounds || '1' }}
@@ -88,13 +92,13 @@ env:
   BENCH_ARGS: ${{ inputs.bench_args }}
   ALMOSTBLASTP: ${{ inputs.almostblastp || 'true' }}
   FASTBLASTP: ${{ inputs.fastblastp || 'true' }}
-  FAST_QUERIES: ${{ inputs.fast_queries || '2500' }}
+  FAST_QUERIES: ${{ inputs.fast_queries || '1800' }}
   # The reference: the input, or for a push the commit main pointed to before it.
   REFERENCE: ${{ inputs.reference || (github.event_name == 'push' && github.event.before) || '' }}
   BLAST_VERSION: 2.17.0
   JAVA_VERSION: "27"
   ASYNC_PROFILER_VERSION: "4.5"
-  PROTEOME_URL: https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/Eukaryota/UP000000226/UP000000226_3885.fasta.gz
+  PROTEOME_URL: https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/Eukaryota/UP000005640/UP000005640_9606.fasta.gz
 
 jobs:
   compare:
@@ -163,7 +167,9 @@ jobs:
             echo "BLAST+: $BLAST_VERSION"
             echo "Code: \`$(git -C blastp4j rev-parse --short HEAD)\` ($(git -C blastp4j log -1 --format=%s | cut -c1-100))"
             if [ -d reference ]; then echo "Reference: \`$(git -C reference rev-parse --short HEAD)\`"; fi
-            echo "Queries: $QUERIES (blastp-fast: $FAST_QUERIES); rounds: $ROUNDS"
+            # Named, because the workload changed on 2026-11-22 and times across the change are not comparable.
+            echo "Proteome: $(basename "$PROTEOME_URL" .fasta.gz)"
+            echo "Queries: $QUERIES, evenly spaced (blastp-fast: $FAST_QUERIES); rounds: $ROUNDS"
           } >"$REPORT/machine.txt"
           {
             echo "## $(uname -m) on ${{ matrix.runner }}"
@@ -249,9 +255,17 @@ jobs:
           makeblastdb -in data/proteome.fasta -dbtype prot -parse_seqids -out data/blastdb/sprot >/dev/null
           ln -s proteome.fasta data/uniprot_sprot.fasta
           gzip -c data/proteome.fasta >data/uniprot_sprot.fasta.gz
-          awk -v n="$QUERIES" '/^>/ { if (++k > n) exit } { print }' data/proteome.fasta >data/queries.fasta
-          awk -v n="$FAST_QUERIES" '/^>/ { if (++k > n) exit } { print }' data/proteome.fasta >data/fast-queries.fasta
-          echo "database: $(grep -c '^>' data/proteome.fasta) sequences; queries: $(grep -c '^>' data/queries.fasta)"
+          # n of the proteome's t sequences, evenly spaced over the file: the sample's length distribution is the
+          # database's, where a prefix of the file need not be (the first proteins of a proteome are not a sample).
+          total=$(grep -c '^>' data/proteome.fasta)
+          sample() {
+            awk -v n="$1" -v t="$total" '/^>/ { k++; take = int((k - 1) * n / t) < int(k * n / t) } take' \
+              data/proteome.fasta
+          }
+          sample "$QUERIES" >data/queries.fasta
+          sample "$FAST_QUERIES" >data/fast-queries.fasta
+          echo "database: $total sequences; queries: $(grep -c '^>' data/queries.fasta)," \
+            "blastp-fast: $(grep -c '^>' data/fast-queries.fasta)"
 
       - name: Spills
         working-directory: blastp4j

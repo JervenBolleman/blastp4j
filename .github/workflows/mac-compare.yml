@@ -25,8 +25,8 @@ on:
         description: "macOS runner label (macos-15: M1, 3 CPUs; macos-15-xlarge needs a paid plan)"
         default: macos-15
       queries:
-        description: Number of proteome sequences used as queries in the full search
-        default: "500"
+        description: Number of proteome sequences, evenly spaced over the file, used as queries in the full search
+        default: "750"
       rounds:
         description: Timing rounds of the full search
         default: "3"
@@ -56,7 +56,7 @@ on:
         default: "true"
       fast_queries:
         description: "Number of proteome sequences used as queries by blastp-fast and fastblastp (more than for blastp, so that the JIT's warm-up does not dominate)"
-        default: "2500"
+        default: "1800"
 
 permissions:
   contents: read
@@ -75,7 +75,7 @@ env:
   BLAST_VERSION: 2.17.0
   JAVA_VERSION: "27"
   ASYNC_PROFILER_VERSION: "4.5"
-  PROTEOME_URL: https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/Eukaryota/UP000000226/UP000000226_3885.fasta.gz
+  PROTEOME_URL: https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/Eukaryota/UP000005640/UP000005640_9606.fasta.gz
 
 jobs:
   compare:
@@ -140,7 +140,9 @@ jobs:
             echo "BLAST+: $BLAST_VERSION"
             echo "Code: \`$(git -C blastp4j rev-parse --short HEAD)\` ($(git -C blastp4j log -1 --format=%s | cut -c1-100))"
             if [ -d reference ]; then echo "Reference: \`$(git -C reference rev-parse --short HEAD)\`"; fi
-            echo "Queries: $QUERIES (blastp-fast: $FAST_QUERIES); rounds: $ROUNDS"
+            # Named, because the workload changed on 2026-11-22 and times across the change are not comparable.
+            echo "Proteome: $(basename "$PROTEOME_URL" .fasta.gz)"
+            echo "Queries: $QUERIES, evenly spaced (blastp-fast: $FAST_QUERIES); rounds: $ROUNDS"
           } >"$REPORT/machine.txt"
           {
             echo "## arm64 on ${{ inputs.runner }} (macOS)"
@@ -199,9 +201,16 @@ jobs:
           makeblastdb -in data/proteome.fasta -dbtype prot -parse_seqids -out data/blastdb/sprot >/dev/null
           ln -s proteome.fasta data/uniprot_sprot.fasta
           gzip -c data/proteome.fasta >data/uniprot_sprot.fasta.gz
-          awk -v n="$QUERIES" '/^>/ { if (++k > n) exit } { print }' data/proteome.fasta >data/queries.fasta
-          awk -v n="$FAST_QUERIES" '/^>/ { if (++k > n) exit } { print }' data/proteome.fasta >data/fast-queries.fasta
-          echo "database: $(grep -c '^>' data/proteome.fasta) sequences; queries: $(grep -c '^>' data/queries.fasta)"
+          # n of the proteome's t sequences, evenly spaced over the file, as arch-compare.yml takes them.
+          total=$(grep -c '^>' data/proteome.fasta)
+          sample() {
+            awk -v n="$1" -v t="$total" '/^>/ { k++; take = int((k - 1) * n / t) < int(k * n / t) } take' \
+              data/proteome.fasta
+          }
+          sample "$QUERIES" >data/queries.fasta
+          sample "$FAST_QUERIES" >data/fast-queries.fasta
+          echo "database: $total sequences; queries: $(grep -c '^>' data/queries.fasta)," \
+            "blastp-fast: $(grep -c '^>' data/fast-queries.fasta)"
 
       - name: Benchmark
         if: env.BENCHMARK != ''

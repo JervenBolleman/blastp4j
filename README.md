@@ -232,8 +232,8 @@ the preliminary one (a316748; once per JVM since 2279159, since once per batch i
 500 bean queries, which form many batches) and the optimizer's helpers left out of line (a2a0da3, in `bin/jvm.options`) bring
 blastp4j to 1.32 times BLAST+'s cycles (main at 97df58a, three interleaved rounds, output identical: 525.8 to 538.1 G
 against 402.5 to 411.7 G) and 1.22 times its instructions (625.2 to 637.1 G). Wall time was 23.0 and 23.3 s against
-19.0 and 20.1 s in the rounds without throttling. Where the first batch is short, as with the 500 bean queries of the
-architecture comparison workflow, the warm-up costs 1.5 to 2.5% of cycles instead.
+19.0 and 20.1 s in the rounds without throttling. Where the first batch is short, as with the 500 bean queries the
+architecture comparison workflow used then, the warm-up costs 1.5 to 2.5% of cycles instead.
 
 ### fastblastp's speed
 
@@ -241,9 +241,10 @@ A blastp-fast search is about 4 times shorter than a blastp one, so on the 500 b
 locally (i7-6700HQ, 4 threads, `-XX:+CITime`) C1 and C2 compiled for 15.9 s of the 59.5 s of user time (27%), and
 the runners showed fastblastp at 1.2 to 1.8 times BLAST+'s wall time. With 2,500 queries compilation is 10% (20.3 s of
 211.3 s), and fastblastp took 59.0 s against BLAST+'s 55.2 s (1.07 times), with the same user time (211.3 s against
-212.6 s). So the workflows give blastp-fast its own queries, the first `fast_queries` (default 2,500) bean proteins,
-and run the reference commit's fastblastp in the same job (`fastref`), as they do for blastp4j (0aecb1f). In that
-run the two identical builds differed by about 1% (AArch64 44.72 s and 45.17 s, x86-64 58.40 s and 58.42 s).
+212.6 s). So the workflows give blastp-fast its own queries, `fast_queries` of the proteome's proteins (then the first
+2,500 bean ones, now 1,800 human ones, about the same number of residues), and run the reference commit's fastblastp
+in the same job (`fastref`), as they do for blastp4j (0aecb1f). In that run the two identical builds differed by about
+1% (AArch64 44.72 s and 45.17 s, x86-64 58.40 s and 58.42 s).
 
 A profile after the warm-up (async-profiler attached from second 25 to 50 of the 2,500-query search): the
 composition-based stage 58% (the traceback lanes 27%, the target-frequency optimizer 25%), the compressed scan 18%,
@@ -884,6 +885,17 @@ classes are compiled for Java 25, so that GraalVM 25's native-image can build th
 use JDK 27 (C2) as the reference, as does the architecture comparison workflow; numbers measured on Temurin 25 say so.
 That workflow (`.github/workflows/arch-compare.yml`) runs BLAST+ and blastp4j on x86-64 and AArch64 runners and
 publishes a report of each run, with each runner's CPU model, at <https://www.jerven.eu/blastp4j/>.
+
+Its workload is the human reference proteome (UP000005640, 20,652 proteins, 11.5 M residues) searched against itself,
+with 750 of its proteins as the blastp queries and 1,800 as the blastp-fast ones, in both cases evenly spaced over the
+file so that the sample's lengths are the database's. Until 2026-11-22 the workload was the *Phaseolus vulgaris*
+proteome (UP000000226) and the first 500 and 2,500 of its proteins, so times on either side of that date are not
+comparable. The two proteomes are within 1.6% of the same size, but for the same number of queries the human one takes
+2.24 times the instructions and finds about twice the alignments (132,069 against 68,562 on 500 queries), its proteins
+being longer and its paralogues more numerous; at 750 queries the search is about three times the old one, which
+brings a run's fixed cost (JIT compilation above all) from about 9% of its instructions to about 3%. The human
+proteome also puts titin (34,350 residues) in the database, so that the batch scan's long-subject path
+(`BatchWordFinder.findLong`) runs, which no *Phaseolus* subject is long enough to reach.
 
     mvn test
 
