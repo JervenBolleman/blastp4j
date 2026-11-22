@@ -1,0 +1,49 @@
+{
+ "run_id": "45065532200",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/45065532200",
+ "date": "2026-11-22 20:31 UTC",
+ "event": "push",
+ "code": [
+  "`b54456b` (Tabular output: the bit score takes exponent notation above 99999, not 9999)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "blast_wall": null,
+   "jvm_wall": null,
+   "ref_wall": null,
+   "blastfast_wall": null,
+   "fast_wall": null,
+   "fast": null,
+   "wall": null,
+   "cycles": null,
+   "instructions": null,
+   "identical": false,
+   "profile": "",
+   "jvm_commit": "b54456b",
+   "ref_commit": "",
+   "rounds": {}
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 9V74 80-Core Processor",
+   "cpus": "4",
+   "blast_wall": null,
+   "jvm_wall": null,
+   "ref_wall": null,
+   "blastfast_wall": null,
+   "fast_wall": null,
+   "fast": null,
+   "wall": null,
+   "cycles": null,
+   "instructions": null,
+   "identical": false,
+   "profile": "",
+   "jvm_commit": "b54456b",
+   "ref_commit": "",
+   "rounds": {}
+  }
+ ]
+}
