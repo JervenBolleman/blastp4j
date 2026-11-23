@@ -6,7 +6,7 @@ import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorSpecies;
 
 /**
- * Many independent {@link GappedAligner#semiGapped} extensions (BLOSUM62) at once, one per lane of a vector of ints.
+ * Many independent {@link GappedAligner#semiGapped} extensions (BLOSUM62) at once, one per lane of a vector of 8 ints.
  * Each lane computes exactly what semiGapped computes for its extension: the same cells, the same X-drop, the same
  * band, the same best score and end point. Extensions are {@linkplain #submit submitted} to a queue; {@link #step}
  * advances every lane by one row, and a lane whose extension ends reports it and takes the next one from the queue.
@@ -20,8 +20,8 @@ import jdk.incubator.vector.VectorSpecies;
  * which moves and grows with the bands, and the letter ring grows with their span, so that the buffers stay small:
  * arrays sized for the longest subject are humongous objects for G1, which then grows the heap several times over.
  * <p>
- * Pays where the machine has 4 int lanes or more with a gather instruction (x86 with AVX2, AArch64 with SVE):
- * {@link #AVAILABLE}. Not thread safe: use one per thread.
+ * Pays where the machine has 8 int lanes with a gather instruction (x86 with AVX2): {@link #AVAILABLE}. Not thread
+ * safe: use one per thread.
  */
 public final class SemiGappedLanes {
 	/** Receives the result of an extension: semiGapped's score and its {@code aOffset} and {@code bOffset}. */
@@ -34,12 +34,10 @@ public final class SemiGappedLanes {
 	/** Lanes. */
 	public static final int L = S.length();
 	/**
-	 * Whether to use the lanes: where the preferred vector has at least 4 ints, not in a native image (where Graal
-	 * compiles a gather to scalar loads), and unless {@code -Dblastp4j.gappedLanes=false}. The bound was 8, for AVX2's
-	 * gather; SVE gathers a 128-bit vector as well, and a Neoverse-N2 whose preferred vector is 4 ints ran the score
-	 * only extensions scalar, 32% of fastblastp's cycles there.
+	 * Whether to use the lanes: where the preferred vector has at least 8 ints (here a gather is an instruction), not
+	 * in a native image (where Graal compiles a gather to scalar loads), and unless {@code -Dblastp4j.gappedLanes=false}.
 	 */
-	public static final boolean AVAILABLE = IntVector.SPECIES_PREFERRED.length() >= 4
+	public static final boolean AVAILABLE = IntVector.SPECIES_PREFERRED.length() >= 8
 			&& System.getProperty("org.graalvm.nativeimage.imagecode") == null
 			&& Boolean.parseBoolean(System.getProperty("blastp4j.gappedLanes", "true"));
 	private static final int MININT = GappedAligner.MININT;

@@ -1,7 +1,5 @@
 package swiss.sib.blastp4j.compo;
 
-import jdk.incubator.vector.IntVector;
-
 import swiss.sib.blastp4j.align.EditScript;
 import swiss.sib.blastp4j.align.GappedAligner;
 import swiss.sib.blastp4j.align.Hsp;
@@ -17,13 +15,8 @@ import swiss.sib.blastp4j.align.TracebackLanes;
  * scalar (and its result is marked stale, for the caller to redo in order).
  */
 public final class TracebackStage {
-	/**
-	 * Where the lanes pay: as {@link SemiGappedLanes#AVAILABLE}, unless {@code -Dblastp4j.tracebackLanes=false}. Eight
-	 * int lanes as well, which SemiGappedLanes no longer asks for: {@link TracebackLanes} writes its script bytes with
-	 * an unmasked store of a byte vector of 8 x lanes bits, which is 64 bits at the least, so with fewer lanes the
-	 * store would reach into the next slot's bytes.
-	 */
-	public static final boolean AVAILABLE = SemiGappedLanes.AVAILABLE && IntVector.SPECIES_PREFERRED.length() >= 8
+	/** Where the lanes pay: as {@link SemiGappedLanes#AVAILABLE}, unless {@code -Dblastp4j.tracebackLanes=false}. */
+	public static final boolean AVAILABLE = SemiGappedLanes.AVAILABLE
 			&& Boolean.parseBoolean(System.getProperty("blastp4j.tracebackLanes", "true"));
 	/** Subjects in flight: two sides each, so that the lanes' queue stays fuller than the lanes. */
 	static final int IN_FLIGHT = 2 * TracebackLanes.L;
