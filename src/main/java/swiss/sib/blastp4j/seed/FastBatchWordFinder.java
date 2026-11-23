@@ -146,8 +146,26 @@ public final class FastBatchWordFinder implements BatchScan {
 	 * branching, {@link #LANES} at a time, and only the positions of the block's mask are written out.
 	 */
 	private int positionsWithHits(byte[] residues, int start, int length, int[] present) {
-		// The subject compressed once, so that a word is five loads and no table lookup. The letters past its end are
-		// outside the alphabet, which makes the words that would run past it outside the table.
+		final byte[] c = compressed(residues, start, length);
+		final int[] w = words, pos = at, bw = blockWords;
+		final int positions = length - WORD + 1;
+		int n = 0;
+		for (int block = 0; block < positions; block += BLOCK) {
+			long mask = blockMask(c, block, Math.min(BLOCK, positions - block), present, bw);
+			for (; mask != 0; mask &= mask - 1) {
+				final int b = Long.numberOfTrailingZeros(mask);
+				w[n] = bw[b];
+				pos[n++] = block + b;
+			}
+		}
+		return n;
+	}
+
+	/**
+	 * The subject compressed, so that a word is five loads and no table lookup. The letters past its end are outside
+	 * the alphabet, which makes the words that would run past it outside the table.
+	 */
+	private byte[] compressed(byte[] residues, int start, int length) {
 		if (letters.length < length + BLOCK) {
 			letters = new byte[length + BLOCK];
 		}
@@ -157,40 +175,37 @@ public final class FastBatchWordFinder implements BatchScan {
 		}
 		// Only the slack the last vector reads, not the whole buffer: it is as long as the longest subject so far.
 		Arrays.fill(c, length, length + BLOCK, (byte) OUTSIDE);
-		final int[] w = words, pos = at, bw = blockWords;
-		final int positions = length - WORD + 1;
-		int n = 0;
-		for (int block = 0; block < positions; block += BLOCK) {
-			final int end = Math.min(BLOCK, positions - block);
-			long mask = 0;
-			for (int j = 0; j < end; j += LANES) {
-				final int i = block + j;
-				final IntVector c0 = widen(c, i), c1 = widen(c, i + 1), c2 = widen(c, i + 2), c3 = widen(c, i + 3),
-						c4 = widen(c, i + 4);
-				// One and tells whether any of the five letters is outside the alphabet: only those have that bit.
-				final VectorMask<Integer> outside = c0.or(c1).or(c2).or(c3).or(c4).and(OUTSIDE)
-						.compare(VectorOperators.NE, 0);
-				// The cell of the word, its oldest letter lowest, as CompressedTable numbers them; 0 where a letter is
-				// outside, so that the presence lookup below stays within present.
-				final IntVector word = c0.add(c1.mul(15)).add(c2.mul(225)).add(c3.mul(3375)).add(c4.mul(50625))
-						.blend(0, outside);
-				word.intoArray(bw, j);
-				// The presence bits one lane at a time, but still without a branch on them: a gather of the indices
-				// costs more here than the loads it saves.
-				long bits = 0;
-				for (int k = 0; k < LANES; k++) {
-					final int x = bw[j + k];
-					bits |= (long) (present[x >>> 5] >>> x & 1) << k;
-				}
-				mask |= (bits & ~outside.toLong()) << j;
+		return c;
+	}
+
+	/**
+	 * A bit per position of the block {@code c[block .. block + end)} whose cell has hits, and the words of the block
+	 * in {@code bw}. {@link #LANES} positions at a time, without a branch on a presence bit.
+	 */
+	private static long blockMask(byte[] c, int block, int end, int[] present, int[] bw) {
+		long mask = 0;
+		for (int j = 0; j < end; j += LANES) {
+			final int i = block + j;
+			final IntVector c0 = widen(c, i), c1 = widen(c, i + 1), c2 = widen(c, i + 2), c3 = widen(c, i + 3),
+					c4 = widen(c, i + 4);
+			// One and tells whether any of the five letters is outside the alphabet: only those have that bit.
+			final VectorMask<Integer> outside = c0.or(c1).or(c2).or(c3).or(c4).and(OUTSIDE)
+					.compare(VectorOperators.NE, 0);
+			// The cell of the word, its oldest letter lowest, as CompressedTable numbers them; 0 where a letter is
+			// outside, so that the presence lookup below stays within present.
+			final IntVector word = c0.add(c1.mul(15)).add(c2.mul(225)).add(c3.mul(3375)).add(c4.mul(50625))
+					.blend(0, outside);
+			word.intoArray(bw, j);
+			// The presence bits one lane at a time, but still without a branch on them: a gather of the indices costs
+			// more here than the loads it saves.
+			long bits = 0;
+			for (int k = 0; k < LANES; k++) {
+				final int x = bw[j + k];
+				bits |= (long) (present[x >>> 5] >>> x & 1) << k;
 			}
-			for (; mask != 0; mask &= mask - 1) {
-				final int b = Long.numberOfTrailingZeros(mask);
-				w[n] = bw[b];
-				pos[n++] = block + b;
-			}
+			mask |= (bits & ~outside.toLong()) << j;
 		}
-		return n;
+		return mask;
 	}
 
 	/** {@link #LANES} compressed letters from {@code c[i]}, as ints. */
