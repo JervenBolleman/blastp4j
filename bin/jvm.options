@@ -18,6 +18,11 @@
 # ExRows' cell loop not inlined into its row loop, so that the values the row loop keeps are not live in it (on
 # AArch64 C2 kept the cell loop's arrays in stack slots otherwise). The pattern also matches the hidden-class copies.
 -XX:CompileCommand=dontinline,swiss.sib.blastp4j.align.GappedAligner$ExRows*::row
+# The compressed scan inlined into FastBatchWordFinder.find: at 432 bytecodes it is over FreqInlineSize (325), so C2
+# leaves it a call ("hot method too big") and the two loops do not see each other's values. Experiment: the method is
+# called once per subject, so the call itself costs nothing; what it may buy is words, at and the lengths held in
+# registers across both loops.
+-XX:CompileCommand=inline,swiss.sib.blastp4j.seed.FastBatchWordFinder::positionsWithHits
 # Vector width: the code uses the preferred vectors everywhere, so these choose it. 256 bits on x86-64, also where the
 # CPU has AVX-512 (Zen 4, Intel Xeons): there 512-bit vectors were slower (the word scan 10% on a Xeon 8573C), and
 # MaxVectorSize keeps AVX-512's instructions and registers at 256 bits, which UseAVX=2 would not. 512 bits on AMD Zen 5
