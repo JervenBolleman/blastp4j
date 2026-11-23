@@ -21,11 +21,12 @@ import java.util.Arrays;
  * its start, so that a position whose cell has one hit (most have one or two) reads one cache line of the table, not
  * two, as BLAST's backbone cell holds its first hits. {@code size} is the length of the diagonal array.
  * <p>
- * {@code present} has a bit per cell, set where the cell has hits ({@code present[w >>> 6] >>> w & 1}), so that the
+ * {@code present} has a bit per cell, set where the cell has hits ({@code present[w >>> 5] >>> w & 1}), so that the
  * scan reads 95 KB for a position without hits rather than the 6 MB of {@code cells}, as BLAST's scan tests its
- * {@code pv} array: half the cells are empty, and two thirds of the positions (bean queries) fall on one.
+ * {@code pv} array: half the cells are empty, and two thirds of the positions (bean queries) fall on one. Ints
+ * rather than longs, so that {@link FastBatchWordFinder} reads a vector of them with one gather.
  */
-public record CompressedTable(int[] cells, int[] entry, int[] query, int[] base, int size, long[] present) {
+public record CompressedTable(int[] cells, int[] entry, int[] query, int[] base, int size, int[] present) {
 	/** Word length. */
 	public static final int WORD = 5;
 	/** Cells: 15^5. */
@@ -71,11 +72,11 @@ public record CompressedTable(int[] cells, int[] entry, int[] query, int[] base,
 			query[k] = words.queryOf[h];
 		}
 		final int[] e = new int[CHUNK * 64], qy = new int[CHUNK * 64];
-		final long[] present = new long[(CELLS + 63) >>> 6];
+		final int[] present = new int[(CELLS + 31) >>> 5];
 		for (int c = 0; c < CELLS; c++) {
 			final int from = start[c], count = start[c + 1] - from;
 			if (count > 0) {
-				present[c >>> 6] |= 1L << c;
+				present[c >>> 5] |= 1 << c;
 			}
 			if (count > BACKBONE) {
 				reorder(entry, query, from, count, e, qy);

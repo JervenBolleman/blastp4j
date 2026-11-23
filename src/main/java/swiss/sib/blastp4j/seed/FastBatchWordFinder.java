@@ -1,6 +1,14 @@
 package swiss.sib.blastp4j.seed;
 
+import java.util.Arrays;
 import java.util.List;
+
+import jdk.incubator.vector.ByteVector;
+import jdk.incubator.vector.IntVector;
+import jdk.incubator.vector.VectorMask;
+import jdk.incubator.vector.VectorOperators;
+import jdk.incubator.vector.VectorShape;
+import jdk.incubator.vector.VectorSpecies;
 
 /**
  * The word finder of {@code blastp -task blastp-fast} for a batch of queries: {@link BatchWordFinder} with BLAST's
@@ -18,6 +26,41 @@ public final class FastBatchWordFinder implements BatchScan {
 	/** How many positions with hits ahead the scan touches the cells of. */
 	private static final int AHEAD = 16;
 
+	/** The machine's preferred vector of ints, one subject position per lane, as {@link WordFinder}'s. */
+	private static final VectorSpecies<Integer> INTS = IntVector.SPECIES_PREFERRED;
+	/** Positions per vector. */
+	private static final int LANES = INTS.length();
+	/** The letters of {@link #LANES} positions before they are widened: the smallest byte vector with that many. */
+	private static final VectorSpecies<Byte> BYTES = VectorSpecies.of(byte.class,
+			VectorShape.forBitSize(Math.max(64, LANES * Byte.SIZE)));
+	/**
+	 * Whether {@link #positionsWithHits} scans with vectors. Not in a GraalVM native image, where a Vector API gather
+	 * compiles to scalar loads (as in {@link WordFinder}).
+	 */
+	private static final boolean VECTOR = System.getProperty("org.graalvm.nativeimage.imagecode") == null;
+	/** Positions per block, one bit each in a long. A multiple of {@link #LANES}, so only the last block is partial. */
+	private static final int BLOCK = 64;
+	/**
+	 * The compressed letter of a code outside the alphabet: a bit that no compressed letter has, so that the five
+	 * letters of a word are tested together with one {@code and}, and larger than any of them, so that a word with one
+	 * of them is outside the table.
+	 */
+	private static final int OUTSIDE = 16;
+	/**
+	 * {@link CompressedAlphabet#COMPRESS} with {@link #OUTSIDE} for the codes without a compressed letter, padded to a
+	 * power of two so that C2 drops the bounds check of the lookup.
+	 */
+	private static final byte[] LETTERS = new byte[32];
+	static {
+		Arrays.fill(LETTERS, (byte) OUTSIDE);
+		for (int code = 0; code < CompressedAlphabet.COMPRESS.length; code++) {
+			final byte letter = CompressedAlphabet.COMPRESS[code];
+			if (letter < CompressedAlphabet.SIZE) {
+				LETTERS[code] = letter;
+			}
+		}
+	}
+
 	private final CompressedTable table;
 	private final FastWordFinder[] finders;
 	private final int[] diags;
@@ -25,6 +68,10 @@ public final class FastBatchWordFinder implements BatchScan {
 	private int diagOffset;
 	/** The positions with hits of the subject being scanned, and their words. */
 	private int[] words = new int[0], at = new int[0];
+	/** The subject's letters compressed, with room for the loads of the last vector past its end. */
+	private byte[] letters = new byte[0];
+	/** One block's words. */
+	private final int[] blockWords = new int[BLOCK + LANES];
 	/** The sum of the cells touched ahead, kept so that the loads stay. */
 	private int sink;
 
@@ -46,11 +93,10 @@ public final class FastBatchWordFinder implements BatchScan {
 	@Override
 	public void find(byte[] residues, int start, int length, List<UngappedHsp>[] out) {
 		final int[] cells = table.cells(), entry = table.entry(), query = table.query(), base = table.base();
-		final long[] present = table.present();
+		final int[] present = table.present();
 		final int[] d = diags;
 		final int diagMask = this.diagMask & (d.length - 1);
 		final int offset = diagOffset, windowL = window, lastL = window - WORD - 1;
-		final byte[] compress = CompressedAlphabet.COMPRESS;
 		final FastWordFinder[] f = finders;
 		// First the positions whose cell has hits, with their words; then their hits, each position touching the cells
 		// of the one AHEAD further on, so that the misses on cells (6 MB) overlap rather than wait one after the other.
@@ -59,27 +105,8 @@ public final class FastBatchWordFinder implements BatchScan {
 			at = new int[length];
 		}
 		final int[] w = words, pos = at;
-		int n = 0;
-		// The word ending at each position, its oldest letter lowest; good counts the letters since one outside the
-		// alphabet.
-		int word = 0, good = 0;
-		for (int p = 0; p < length; p++) {
-			final int c = compress[residues[start + p]];
-			if (c >= CompressedAlphabet.SIZE) {
-				good = 0;
-				word = 0;
-				continue;
-			}
-			word = word / CompressedAlphabet.SIZE + c * NEWEST;
-			if (++good < WORD) {
-				continue;
-			}
-			if ((present[word >>> 6] >>> word & 1) == 0) {
-				continue; // no hits: cells not read
-			}
-			w[n] = word;
-			pos[n++] = p - (WORD - 1);
-		}
+		final int n = VECTOR ? positionsWithHits(residues, start, length, present)
+				: scalarPositionsWithHits(residues, start, length, present);
 		int touched = 0;
 		for (int j = 0; j < n; j++) {
 			if (j + AHEAD < n) {
@@ -109,5 +136,93 @@ public final class FastBatchWordFinder implements BatchScan {
 			finder.endSubject(length);
 		}
 		diagOffset = diagOffset >= Integer.MAX_VALUE / 4 ? window : diagOffset + length + window;
+	}
+
+	/**
+	 * The starts of the words of {@code residues[start .. start + length)} whose cell has hits, in {@link #at}, and
+	 * their words in {@link #words}; how many there are. BLAST's scan ({@code s_BlastCompressedAaScanSubject}) rolls
+	 * the word one position at a time and branches on the presence bit, which is unpredictable: two thirds of the
+	 * positions have no hits, in no pattern. Here a block of 64 positions gives its words and presence bits without
+	 * branching, {@link #LANES} at a time, and only the positions of the block's mask are written out.
+	 */
+	private int positionsWithHits(byte[] residues, int start, int length, int[] present) {
+		// The subject compressed once, so that a word is five loads and no table lookup. The letters past its end are
+		// outside the alphabet, which makes the words that would run past it outside the table.
+		if (letters.length < length + BLOCK) {
+			letters = new byte[length + BLOCK];
+		}
+		final byte[] c = letters;
+		for (int p = 0; p < length; p++) {
+			c[p] = LETTERS[residues[start + p] & 31];
+		}
+		// Only the slack the last vector reads, not the whole buffer: it is as long as the longest subject so far.
+		Arrays.fill(c, length, length + BLOCK, (byte) OUTSIDE);
+		final int[] w = words, pos = at, bw = blockWords;
+		final int positions = length - WORD + 1;
+		int n = 0;
+		for (int block = 0; block < positions; block += BLOCK) {
+			final int end = Math.min(BLOCK, positions - block);
+			long mask = 0;
+			for (int j = 0; j < end; j += LANES) {
+				final int i = block + j;
+				final IntVector c0 = widen(c, i), c1 = widen(c, i + 1), c2 = widen(c, i + 2), c3 = widen(c, i + 3),
+						c4 = widen(c, i + 4);
+				// One and tells whether any of the five letters is outside the alphabet: only those have that bit.
+				final VectorMask<Integer> outside = c0.or(c1).or(c2).or(c3).or(c4).and(OUTSIDE)
+						.compare(VectorOperators.NE, 0);
+				// The cell of the word, its oldest letter lowest, as CompressedTable numbers them; 0 where a letter is
+				// outside, so that the presence lookup below stays within present.
+				final IntVector word = c0.add(c1.mul(15)).add(c2.mul(225)).add(c3.mul(3375)).add(c4.mul(50625))
+						.blend(0, outside);
+				word.intoArray(bw, j);
+				// The presence bits one lane at a time, but still without a branch on them: a gather of the indices
+				// costs more here than the loads it saves.
+				long bits = 0;
+				for (int k = 0; k < LANES; k++) {
+					final int x = bw[j + k];
+					bits |= (long) (present[x >>> 5] >>> x & 1) << k;
+				}
+				mask |= (bits & ~outside.toLong()) << j;
+			}
+			for (; mask != 0; mask &= mask - 1) {
+				final int b = Long.numberOfTrailingZeros(mask);
+				w[n] = bw[b];
+				pos[n++] = block + b;
+			}
+		}
+		return n;
+	}
+
+	/** {@link #LANES} compressed letters from {@code c[i]}, as ints. */
+	private static IntVector widen(byte[] c, int i) {
+		return (IntVector) ByteVector.fromArray(BYTES, c, i).convertShape(VectorOperators.B2I, INTS, 0);
+	}
+
+	/** {@link #positionsWithHits} as BLAST scans, one position at a time: for a native image. */
+	private int scalarPositionsWithHits(byte[] residues, int start, int length, int[] present) {
+		final byte[] compress = CompressedAlphabet.COMPRESS;
+		final int[] w = words, pos = at;
+		int n = 0;
+		// The word ending at each position, its oldest letter lowest; good counts the letters since one outside the
+		// alphabet.
+		int word = 0, good = 0;
+		for (int p = 0; p < length; p++) {
+			final int c = compress[residues[start + p]];
+			if (c >= CompressedAlphabet.SIZE) {
+				good = 0;
+				word = 0;
+				continue;
+			}
+			word = word / CompressedAlphabet.SIZE + c * NEWEST;
+			if (++good < WORD) {
+				continue;
+			}
+			if ((present[word >>> 5] >>> word & 1) == 0) {
+				continue; // no hits: cells not read
+			}
+			w[n] = word;
+			pos[n++] = p - (WORD - 1);
+		}
+		return n;
 	}
 }
