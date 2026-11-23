@@ -70,7 +70,8 @@ public final class BatchWordFinder implements BatchScan {
 			for (LookupTable t : tables) {
 				total += t.offsets().length;
 			}
-			final int[] start = new int[LookupTable.WORDS + 1], entry = new int[total], query = new int[total];
+			// entry has one more, unused: the scan reads the entry after each one (see find).
+			final int[] start = new int[LookupTable.WORDS + 1], entry = new int[total + 1], query = new int[total];
 			int k = 0;
 			for (int w = 0; w < LookupTable.WORDS; w++) {
 				start[w] = k;
@@ -85,7 +86,7 @@ public final class BatchWordFinder implements BatchScan {
 			start[LookupTable.WORDS] = k;
 			char[] narrow = null;
 			if (length <= Character.MAX_VALUE) {
-				narrow = new char[total];
+				narrow = new char[total + 1];
 				for (int j = 0; j < total; j++) {
 					narrow[j] = (char) entry[j];
 				}
@@ -265,9 +266,11 @@ public final class BatchWordFinder implements BatchScan {
 				int r = 0;
 				// The word's first entry from its own line of cells, the others from entry.
 				final int cell = 2 * word, end = cells[cell + 2];
-				int k = cells[cell];
-				// As entry[k], not entry[++k], so that the copy for narrow entries reads it as a char.
-				for (int e = cells[cell + 1]; k < end; e = entry[k]) {
+				// A counted loop: each hit loads the next one's entry, so that the loop has one test of k against end
+				// instead of the two the break gave it (entry has one more entry for the last hit's read). C2 still
+				// reloads entry's length and checks it per hit, which three source variants have failed to change.
+				int e = cells[cell + 1];
+				for (int k = cells[cell]; k < end; k++) {
 					// The usual hits, decided from the entry: the diagonal's last hit is a window or more back, so
 					// this one replaces it, or it overlaps this one, which is then ignored. Only hits to extend and
 					// hits on an extended diagonal go to the query's finder.
@@ -275,9 +278,12 @@ public final class BatchWordFinder implements BatchScan {
 					final int diag = (e - s) & diagMask & (d.length - 1);
 					final int state = d[diag];
 					// Without branches but one: x = diff - WORD_SIZE is in [0, last] (a hit to extend) when neither
-					// x nor last - x is negative, and the extended flag (bit 15) goes to the sign bit.
-					final int diff = s - (state - offset), x = diff - LookupTable.WORD_SIZE;
-					if ((~(x | (lastL - x)) | state << 16) >= 0) {
+					// x nor last - x is negative. An extended diagonal's position is where a hit is past the
+					// extension less a word (narrow), so a hit within the extension counts as one that overlaps
+					// (ignored), and one a window past it as a new first hit, as the finder would decide; the ones
+					// between go to the finder as hits to extend, where the flag tells.
+					final int diff = s - ((state & (EXTENDED - 1)) - offset), x = diff - LookupTable.WORD_SIZE;
+					if ((x | (lastL - x)) < 0) {
 						final int older = (diff - windowL) >> 31; // -1 if the hit overlaps the last one: keep that
 						d[diag] = (char) ((state & older) | ((s + offset) & ~older));
 					} else if (DEFER) {
@@ -288,15 +294,15 @@ public final class BatchWordFinder implements BatchScan {
 						// The diagonal again from the entry, so that it need not be kept across the call.
 						d[(entry[k] - s) & diagMask & (d.length - 1)] = narrow(next);
 					}
-					if (++k >= end) {
-						break;
-					}
+					// As entry[next], not entry[k + 1], so that the copy for narrow entries reads it as a char.
+					final int next = k + 1;
+					e = entry[next];
 				}
 				if (DEFER) {
 					for (int j = 0; j < r; j++) {
-						final int h = later[j], i = query[h], e = entry[h];
-						final int diag = (e - s) & diagMask & (d.length - 1);
-						d[diag] = narrow(f[i].next(residues, start, length, e - base[i], s, out[i], wide(d[diag]), offset));
+						final int h = later[j], i = query[h], eh = entry[h];
+						final int diag = (eh - s) & diagMask & (d.length - 1);
+						d[diag] = narrow(f[i].next(residues, start, length, eh - base[i], s, out[i], wide(d[diag]), offset));
 					}
 				}
 			}
@@ -309,9 +315,14 @@ public final class BatchWordFinder implements BatchScan {
 		return (state & (EXTENDED - 1)) | (state & EXTENDED) << 15;
 	}
 
-	/** {@link WordFinder#next}'s state in 16 bits: the position plus offset is below {@link #LIMIT}. */
+	/**
+	 * {@link WordFinder#next}'s state in 16 bits: the position plus offset is below {@link #LIMIT}. An extended
+	 * diagonal's position a word earlier, for the scan's test: the finder, called only for hits at or after its own
+	 * position, starts a new pair as with that one.
+	 */
 	private static char narrow(int state) {
-		return (char) (state | state >>> 15);
+		final int extended = state >>> 30;
+		return (char) ((state - LookupTable.WORD_SIZE * extended) | extended << 15);
 	}
 
 	/**
