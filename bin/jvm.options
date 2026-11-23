@@ -18,16 +18,6 @@
 # ExRows' cell loop not inlined into its row loop, so that the values the row loop keeps are not live in it (on
 # AArch64 C2 kept the cell loop's arrays in stack slots otherwise). The pattern also matches the hidden-class copies.
 -XX:CompileCommand=dontinline,swiss.sib.blastp4j.align.GappedAligner$ExRows*::row
-# Higher cutoffs for inlining large hot methods. FreqInlineSize, 325 bytecodes by default, is the limit on the
-# callee's bytecode: 450 admits FastBatchWordFinder.positionsWithHits (433) and BlastpSearch.prelim (450) but not
-# FastBatchWordFinder.find (464), which no caller should hold. It is not enough on its own, because a hot method is
-# compiled before its caller is, and C2 then rejects it for the size of that compiled code instead ("already compiled
-# into a big method"); InlineSmallCode, 2500 bytes of machine code by default, is that second limit. Together they
-# inline the scan (the inlining log says "inline (hot)") and about 200 more call sites per run, among them
-# Chaining.filter (340 bytecodes), CompoRedo.testNearIdentical (331) and CompoRedo$Subject.advance (419), so this
-# measures blastp4j and almostblastp as well as the scan. Experiment.
--XX:FreqInlineSize=450
--XX:InlineSmallCode=5000
 # Vector width: the code uses the preferred vectors everywhere, so these choose it. 256 bits on x86-64, also where the
 # CPU has AVX-512 (Zen 4, Intel Xeons): there 512-bit vectors were slower (the word scan 10% on a Xeon 8573C), and
 # MaxVectorSize keeps AVX-512's instructions and registers at 256 bits, which UseAVX=2 would not. 512 bits on AMD Zen 5
