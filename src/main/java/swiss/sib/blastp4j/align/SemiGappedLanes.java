@@ -80,16 +80,6 @@ public final class SemiGappedLanes {
 	private final byte[][] subject = new byte[L][];
 	private final int[] tmp = new int[L], idx = new int[L];
 	/**
-	 * Each lane's own slot offset: lane l's cell (ai, bi) is in slot {@code bi - ai + off - slotShift[l]}, so that the
-	 * bands of all lanes start at {@link #home} however far their alignments have drifted apart. 0 while an extension
-	 * runs without gaps; {@link #move} changes it, and the lane's cells and letters with it.
-	 */
-	private final int[] slotShift = new int[L];
-	/** How many slots re-centring a lane must save for it to be worth moving its cells. */
-	private static final int MOVE_GAIN = 1;
-	/** The span of the bands after the lane {@link #drifted} chose has been re-centred. */
-	private int moveLo, moveHi;
-	/**
 	 * Each lane's score matrix, 32 x 32 ({@code [a << 5 | b]}), at {@code l << 10}: BLOSUM62, or the matrix its
 	 * extension was submitted with; {@code laneMatrix} is which.
 	 */
@@ -232,8 +222,7 @@ public final class SemiGappedLanes {
 			}
 		}
 		final IntVector firstV = IntVector.fromArray(S, first, 0);
-		final IntVector shiftV = IntVector.fromArray(S, slotShift, 0);
-		final IntVector kStartV = firstV.sub(aiV).add(off).sub(shiftV), widthV = bSizeV.sub(firstV);
+		final IntVector kStartV = firstV.sub(aiV).add(off), widthV = bSizeV.sub(firstV);
 		final VectorMask<Integer> working = widthV.compare(VectorOperators.GT, 0);
 		if (!working.anyTrue()) {
 			return size > 0;
@@ -242,19 +231,14 @@ public final class SemiGappedLanes {
 		final int kHi = kStartV.add(widthV).reduceLanes(VectorOperators.MAX, working);
 		kStartV.intoArray(kStart, 0);
 		widthV.intoArray(width, 0);
-		final int mover = drifted(kLo, kHi);
-		final int uLo = mover < 0 ? kLo : Math.min(kLo, moveLo), uHi = mover < 0 ? kHi : Math.max(kHi, moveHi);
 		// Room for the bands, the cells the gap may add after them, and the letters written ahead.
-		if (uHi - uLo + reach + 72 > slots) {
-			widen(uHi - uLo + reach + 72);
+		if (kHi - kLo + reach + 72 > slots) {
+			widen(kHi - kLo + reach + 72);
 		}
 		// The DP row's slots: the bands and the cells after them, and those of a new extension's first row.
-		window(Math.min(uLo, off) - 3, Math.max(uHi, off) + reach + 3);
-		if (mover >= 0) {
-			move(mover);
-		}
+		window(Math.min(kLo, off) - 2, Math.max(kHi, off) + reach + 3);
 		IntVector.fromArray(S, aRing, (t & (aSize - 1)) * L).intoArray(row, 0);
-		row(mover < 0 ? kLo : moveLo, mover < 0 ? kHi : moveHi);
+		row(kLo, kHi);
 		// Row end, as semiGapped: the next row's band ends after the last live cell, or after the cells that the
 		// gap along the row still reaches, then gets a dead cell.
 		final VectorMask<Integer> busyV = IntVector.fromArray(S, busy, 0).compare(VectorOperators.NE, 0);
@@ -271,10 +255,10 @@ public final class SemiGappedLanes {
 			bs.intoArray(tmp, 0);
 			for (int l = 0; l < L; l++) {
 				if (going.laneIsSet(l) && !shrink.laneIsSet(l)) {
-					final int floor = best[l] - xDrop[l], a = ai[l], nl = n[l], sh = slotShift[l];
+					final int floor = best[l] - xDrop[l], a = ai[l], nl = n[l];
 					int b = tmp[l];
 					for (int g = gapRow[l]; g >= floor && b <= nl; g -= ext, b++) {
-						final int k = (b - a + off - sh - dpBase) * L + l;
+						final int k = (b - a + off - dpBase) * L + l;
 						dpBest[k] = g;
 						dpGap[k] = g - goe;
 					}
@@ -284,8 +268,7 @@ public final class SemiGappedLanes {
 			bs = IntVector.fromArray(S, tmp, 0);
 		}
 		final VectorMask<Integer> dead = bs.compare(VectorOperators.LE, nV).and(going);
-		bs.sub(aiV).add(off - dpBase).sub(IntVector.fromArray(S, slotShift, 0)).mul(L)
-				.add(IntVector.zero(S).addIndex(1)).intoArray(tmp, 0);
+		bs.sub(aiV).add(off - dpBase).mul(L).add(IntVector.zero(S).addIndex(1)).intoArray(tmp, 0);
 		for (int l = 0; l < L; l++) {
 			if (dead.laneIsSet(l)) {
 				dpBest[tmp[l]] = MININT;
@@ -304,92 +287,6 @@ public final class SemiGappedLanes {
 			}
 		}
 		return true;
-	}
-
-	/** Where every band starts: a new extension's first row, and where a re-centred lane's band is put back. */
-	private int home() {
-		return off - 1;
-	}
-
-	/**
-	 * The lane whose re-centring would narrow the span of the bands by at least {@link #MOVE_GAIN} slots, or -1.
-	 * Every slot of the span costs a cell of every lane, so a lane that has drifted away from the others is paid for
-	 * by all of them, every row; moving its cells back costs about as much as a band is wide, once. Only a lane at an
-	 * end of the span can narrow it, so only those two are candidates, with the second-highest and second-lowest end
-	 * giving what the span would be without them. Sets {@link #moveLo} and {@link #moveHi} to the span it would leave.
-	 */
-	private int drifted(int kLo, int kHi) {
-		int lo = Integer.MAX_VALUE, lo2 = Integer.MAX_VALUE, hi = Integer.MIN_VALUE, hi2 = Integer.MIN_VALUE,
-				loLane = -1, hiLane = -1;
-		for (int l = 0; l < L; l++) {
-			if (width[l] <= 0) {
-				continue;
-			}
-			final int s = kStart[l], e = s + width[l];
-			if (s < lo) {
-				lo2 = lo;
-				lo = s;
-				loLane = l;
-			} else if (s < lo2) {
-				lo2 = s;
-			}
-			if (e > hi) {
-				hi2 = hi;
-				hi = e;
-				hiLane = l;
-			} else if (e > hi2) {
-				hi2 = e;
-			}
-		}
-		final int home = home();
-		int lane = -1;
-		moveLo = kLo;
-		moveHi = kHi;
-		for (int c = 0; c < 2; c++) {
-			final int l = c == 0 ? loLane : hiLane;
-			if (l < 0 || kStart[l] == home) {
-				continue;
-			}
-			final int nLo = Math.min(home, l == loLane ? lo2 : lo);
-			final int nHi = Math.max(home + width[l], l == hiLane ? hi2 : hi);
-			if (kHi - kLo - (nHi - nLo) >= MOVE_GAIN && nHi - nLo < moveHi - moveLo) {
-				lane = l;
-				moveLo = nLo;
-				moveHi = nHi;
-			}
-		}
-		return lane;
-	}
-
-	/**
-	 * Puts lane l's band back at {@link #home}: its cells move within the DP row, which the window already holds room
-	 * for, and its letters are written again with the new offset. The cells that move are those the next row reads,
-	 * the same ones {@link #window} copies.
-	 */
-	private void move(int l) {
-		final int delta = kStart[l] - home();
-		final int lo = Math.max(dpBase, dpBase + delta), hi = Math.min(dpBase + dpSlots, dpBase + dpSlots + delta) - 1;
-		final int from = Math.max(first[l] - ai[l] + off - slotShift[l] - 3, lo);
-		final int to = Math.min(bSize[l] - ai[l] + off - slotShift[l] + reach + 3, hi);
-		final int step = delta * L;
-		if (delta > 0) {
-			for (int k = from; k <= to; k++) {
-				final int src = (k - dpBase) * L + l;
-				dpBest[src - step] = dpBest[src];
-				dpGap[src - step] = dpGap[src];
-			}
-		} else {
-			for (int k = to; k >= from; k--) {
-				final int src = (k - dpBase) * L + l;
-				dpBest[src - step] = dpBest[src];
-				dpGap[src - step] = dpGap[src];
-			}
-		}
-		slotShift[l] += delta;
-		kStart[l] -= delta;
-		final int upTo = written[l];
-		written[l] = Math.max(-1, first[l] - 3);
-		letters(l, upTo);
 	}
 
 	/** The cells of slots [kLo, kHi) of the current rows of all lanes. */
@@ -431,7 +328,7 @@ public final class SemiGappedLanes {
 		}
 		// Back to semiGapped's state: bi = k + ai - off.
 		final IntVector aiV = IntVector.fromArray(S, ai, 0);
-		final IntVector toBi = aiV.sub(off).add(IntVector.fromArray(S, slotShift, 0));
+		final IntVector toBi = aiV.sub(off);
 		final VectorMask<Integer> improved = bestV.compare(VectorOperators.GT, bestBefore);
 		bestV.intoArray(best, 0);
 		IntVector.fromArray(S, aOffset, 0).blend(aiV, improved).intoArray(aOffset, 0);
@@ -461,8 +358,8 @@ public final class SemiGappedLanes {
 		final int[] best = new int[n * L], gap = new int[n * L];
 		for (int l = 0; l < L; l++) {
 			if (busy[l] != 0) {
-				final int from = Math.max(first[l] - ai[l] + off - slotShift[l] - 3, Math.max(dpBase, base));
-				final int to = Math.min(bSize[l] - ai[l] + off - slotShift[l] + reach + 3,
+				final int from = Math.max(first[l] - ai[l] + off - 3, Math.max(dpBase, base));
+				final int to = Math.min(bSize[l] - ai[l] + off + reach + 3,
 						Math.min(dpBase + dpSlots, base + n) - 1);
 				for (int k = from; k <= to; k++) {
 					best[(k - base) * L + l] = dpBest[(k - dpBase) * L + l];
@@ -499,7 +396,7 @@ public final class SemiGappedLanes {
 	/** Writes lane l's B letters up to letter {@code upTo} (as semiGapped reads them) into the ring. */
 	private void letters(int l, int upTo) {
 		final byte[] b = subject[l];
-		final int nn = n[l], bb = bBase[l], position = shift[l] + off + 1 - slotShift[l];
+		final int nn = n[l], bb = bBase[l], position = shift[l] + off + 1;
 		// As GappedAligner.bLetters: forwards b[bBase + 1 ..], backwards b[bBase + n - 1 ..], cut at b's ends.
 		final int end = Math.min(upTo + 1,
 				reverse[l] ? Math.min(nn + 1, bb + nn) : Math.min(nn + 1, b.length - bb - 1));
@@ -543,7 +440,6 @@ public final class SemiGappedLanes {
 		}
 		window(off - 1, off + xd / ext + 3);
 		qa[i] = null;
-		slotShift[l] = 0;
 		subject[l] = qb[i];
 		qb[i] = null;
 		bBase[l] = qbBase[i];
