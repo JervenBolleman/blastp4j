@@ -38,15 +38,27 @@ algorithm; preloaded into the Linux x86-64 BLAST+ binary it reproduces the macOS
     gcc -O2 -shared -fPIC -o apple-qsort.so tools/qsort-order/apple-qsort.c
     LD_PRELOAD=$PWD/apple-qsort.so blastp -query queries.fasta -db proteome -outfmt '6 std btop' -num_threads 3
 
-`tools/qsort-order/tie-order.c` checks the shim in a second, without BLAST+ or a database: twelve elements, three
-distinct keys, printed in the order the sort leaves them.
+`tools/qsort-order/tie-case/` holds the smallest case, one query and one subject each, so that the whole difference is
+one `blastp` invocation with no database to build and one line of output to compare:
 
-    gcc -O2 -o tie-order tools/qsort-order/tie-order.c
-    ./tie-order                                 # glibc: 0/0 0/3 0/6 0/9 1/1  1/4 1/7 1/10 2/2  2/5 2/8 2/11
-    LD_PRELOAD=$PWD/apple-qsort.so ./tie-order  # Apple: 0/0 0/3 0/6 0/9 1/10 1/1 1/7 1/4  2/11 2/5 2/8 2/2
+    gcc -O2 -shared -fPIC -o apple-qsort.so tools/qsort-order/apple-qsort.c
+    C=tools/qsort-order/tie-case
+    blastp -query $C/V7AVB7.fasta -subject $C/V7D0Z4.fasta -outfmt '6 std btop'
+    LD_PRELOAD=$PWD/apple-qsort.so blastp -query $C/V7AVB7.fasta -subject $C/V7D0Z4.fasta -outfmt '6 std btop'
 
-glibc's order above is its merge sort's, checked on glibc 2.44; the C standard does not require a stable qsort, so a
-later glibc could order these ties like Apple's and move Linux BLAST+'s output with it.
+The sixth line is the one that moves (columns 3-12), and the second pair, `V7BQ25` against `V7CQY7`, moves its first:
+
+    V7AVB7/V7D0Z4  glibc  23.711  388  285  3   59  437  349  734  6.39e-30  112
+                   Apple  24.422  389  259  2   83  437  347  734  1.91e-32  120
+    V7BQ25/V7CQY7  glibc  40.830  289  163  6  597  878  275  562  1.09e-62  211
+                   Apple  37.465  355  208  8  531  878  215  562  1.30e-59  202
+
+The coordinates and scores are the ones the 500-query search gives on each platform; only the E-values differ, because
+the search space here is a single sequence. Note that both alignments of a pair end at the same query and subject
+offset (437/734 and 878/562): that common endpoint is what brings them into the purge together.
+
+glibc's order is its merge sort's, checked on glibc 2.44; the C standard does not require a stable qsort, so a later
+glibc could order these ties like Apple's and move Linux BLAST+'s output with it.
 
 Running both sorts on every call (glibc's result kept) shows which call sites see ties in a different order: of 11
 `qsort` call sites in this search, one. It is the sort by start in `Blast_HSPListPurgeHSPsWithCommonEndpoints`, which
