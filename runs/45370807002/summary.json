@@ -1,7 +1,7 @@
 {
  "run_id": "45370807002",
  "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/45370807002",
- "date": "2026-11-24 11:26 UTC",
+ "date": "2026-11-24 11:33 UTC",
  "event": "workflow_dispatch",
  "code": [
   "`f9e9bdd` (The scan's per-hit entry read masked, so that C2 drops its bounds check (experiment))"
