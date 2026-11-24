@@ -13,9 +13,11 @@ It writes OUT_DIR/index.html, with a summary table of the full searches on top, 
 numbers (plus, per job, the measured commits and the wall time of each round per system), and each flame graph as
 OUT_DIR/<architecture>/<system>-profile.html. The Markdown is the small subset the workflow writes (headings, paragraphs, fenced code, pipe tables, inline code), so no Markdown library is needed.
 
-"index" writes SITE_DIR/index.html: every run in SITE_DIR/runs/*/summary.json, newest first, and above them violin
+"index" writes SITE_DIR/index.html: every run in SITE_DIR/runs/*/summary.json, newest first, above them violin
 plots of the full search's rounds per measured commit (drawn in the browser with Plotly.js; only the newest commit is
-open). The rounds come from summary.json, or, for runs from before they were kept there, from the run's index.html.
+open), and above those one chart of all the runs over time, six lines: each of blastp4j, almostblastp and fastblastp
+over the BLAST+ task it must match, on each architecture. The rounds come from summary.json, or, for runs from before
+they were kept there, from the run's index.html.
 
 Settings (environment, for "run"): RUN_ID, RUN_URL, REPO_URL (for links to the commits), RUN_DATE (default now),
 RUN_EVENT (what started the run: schedule, push or workflow_dispatch).
@@ -140,6 +142,19 @@ def code_hash(code):
     return m.group(1) if m else ""
 
 
+# The database and the queries changed with the push of 2026-11-22 20:30 UTC (arch-compare.yml): before it the
+# Phaseolus vulgaris proteome and its first 500 proteins, after it the human one and 750 evenly spaced proteins, which
+# is about three times the instructions. A ratio to BLAST+ on one workload is not the same quantity as on the other, so
+# the history chart draws the boundary. Runs from before machine.txt named the proteome are told apart by their date;
+# the first run of the human workload is 2026-11-22 21:50 UTC.
+HUMAN_FROM = "2026-11-22 21:00"
+
+
+def workload(date, named=""):
+    """The proteome a run measured: the name its machine.txt gave, or the one its date implies."""
+    return named or ("UP000005640_9606" if date >= HUMAN_FROM else "UP000000226_3885")
+
+
 def ratio(a, b):
     return a / b if a and b else None
 
@@ -177,6 +192,7 @@ details.commit > summary { cursor: pointer; padding: 8px 0; }
 details.commit[open] > summary { border-bottom: 1px solid var(--line); }
 .plots { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 8px; }
 .plot { min-height: 360px; min-width: 0; overflow: hidden; }
+#history { min-height: 460px; min-width: 0; overflow: hidden; margin-top: 8px; }
 """
 
 
@@ -199,6 +215,13 @@ def page(title, body):
 def write(path, text):
     with open(path, "w", encoding="utf-8") as f:
         f.write(text)
+
+
+def subject(code, limit=70):
+    """The subject of a Code line of machine.txt ("`abc1234` (subject)"), escaped for the charts' hover text."""
+    m = re.match(r"`[0-9a-f]+`\s*\((.*)\)\s*$", (code or "").strip())
+    text = m.group(1) if m else ""
+    return html.escape(text if len(text) <= limit else text[:limit - 1] + "…", quote=False)
 
 
 def commit_link(code):
@@ -238,6 +261,7 @@ def run(out, jobs):
             "cycles": ratio(jvm.get("cycles"), blast.get("cycles")),
             "instructions": ratio(jvm.get("instructions"), blast.get("instructions")),
             "identical": identical, "profile": profiles.get("jvm", ""),
+            "proteome": m.get("Proteome", ""),
             "jvm_commit": tested.get("jvm") or code_hash(m.get("Code", "")), "ref_commit": tested.get("ref", ""),
             "rounds": rounds,
         }
@@ -325,7 +349,9 @@ def per_commit(site, runs):
             run = g["runs"].setdefault(d, {"id": d, "date": s.get("date", d), "measured": False})
             if measured(rounds, "jvm") and (measured(rounds, "blast") or measured(rounds, "ref")):
                 run["measured"] = True
-                job = {"run": d, "arch": r.get("architecture", "?"), "cpu": r.get("cpu", "?"), "ref_commit": ref[:7]}
+                job = {"run": d, "date": s.get("date", d), "arch": r.get("architecture", "?"),
+                       "cpu": r.get("cpu", "?"), "ref_commit": ref[:7],
+                       "workload": workload(s.get("date", ""), r.get("proteome", ""))}
                 job.update({k: rounds[k] for k in ("blast", "jvm", "ref", "almost", "blastfast", "fast", "fastref") if k in rounds})
                 g["jobs"].append(job)
     ordered = sorted(groups.values(), key=lambda g: g["date"], reverse=True)
@@ -441,6 +467,151 @@ PLOT_SCRIPT = """
 """
 
 
+# Draws the history chart: one line per architecture and program, a point per job, over the runs' dates. It reads the
+# same data as the violin plots, which carries each job's date, CPU, workload and rounds.
+HISTORY_SCRIPT = """
+(function () {
+  const el = document.getElementById("history");
+  const data = JSON.parse(document.getElementById("perf-data").textContent);
+  const NAMES = {blast: "BLAST+", jvm: "blastp4j", almost: "almostblastp",
+    blastfast: "BLAST+ blastp-fast", fast: "fastblastp"};
+  // Each program over the BLAST+ task whose output it must match, and the dash that tells the three apart within one
+  // architecture's color.
+  const SERIES = [["jvm", "blast", "solid"], ["almost", "blast", "dash"], ["fast", "blastfast", "dot"]];
+  const ARCH = {aarch64: "--arm", x86_64: "--x86"};
+  function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+  function hex(color) { return /^#[0-9a-f]{6}$/i.test(color) ? color : "#888888"; }
+  function when(x) { return new Date(x.replace(" ", "T") + ":00Z"); }
+  function iso(d) { return d.toISOString().replace("T", " ").slice(0, 16); }
+  function median(xs) {
+    const v = xs.slice().sort(function (a, b) { return a - b; });
+    const h = v.length >> 1;
+    return v.length % 2 ? v[h] : (v[h - 1] + v[h]) / 2;
+  }
+
+  // One point per job and metric: the median of its rounds' ratios, with the bar over all of them. Both times of a
+  // ratio are from the same round of the same job, so the runner's CPU cancels out of it.
+  function points(num, den) {
+    const by = {};
+    for (const commit of data) {
+      for (const j of commit.jobs) {
+        if (!(j.arch in ARCH)) continue;
+        const a = j[num] || [], b = j[den] || [], rs = [];
+        for (let i = 0; i < Math.min(a.length, b.length); i++) {
+          if (a[i] != null && b[i]) rs.push(a[i] / b[i]);
+        }
+        if (!rs.length || !j.date) continue;
+        const lo = Math.min.apply(null, rs), hi = Math.max.apply(null, rs);
+        (by[j.arch] || (by[j.arch] = [])).push({
+          x: j.date.replace(" UTC", ""), y: median(rs), lo: lo, hi: hi, run: j.run, workload: j.workload || "",
+          text: "<b>" + commit.hash + "</b> " + (commit.subject || "") + "<br>" + j.cpu + " · " + j.arch
+            + " · run " + j.run + " · " + j.date + "<br>" + NAMES[num] + " over " + NAMES[den] + ", "
+            + rs.length + (rs.length === 1 ? " round " : " rounds ") + lo.toFixed(3) + "–" + hi.toFixed(3)
+            + "<br>" + (j.workload || "") + " · click for this run's report",
+        });
+      }
+    }
+    for (const arch in by) by[arch].sort(function (p, q) { return p.x < q.x ? -1 : p.x > q.x ? 1 : 0; });
+    return by;
+  }
+
+  function build() {
+    const bg = css("--bg"), out = [];
+    for (const [num, den, dash] of SERIES) {
+      const by = points(num, den);
+      for (const arch of Object.keys(by).sort()) {
+        const color = hex(css(ARCH[arch])), ps = by[arch];
+        out.push({points: ps, trace: {
+          type: "scatter", mode: "lines+markers", name: arch + " " + NAMES[num], legendgroup: arch,
+          x: ps.map(function (p) { return p.x; }), y: ps.map(function (p) { return p.y; }),
+          text: ps.map(function (p) { return p.text; }), customdata: ps.map(function (p) { return p.run; }),
+          hovertemplate: "%{text}<br>ratio <b>%{y:.3f}</b><extra></extra>",
+          line: {color: color, width: 2, dash: dash},
+          marker: {color: color, size: 8, line: {color: bg, width: 1}},
+          error_y: {type: "data", symmetric: false, color: color, thickness: 1, width: 3,
+            array: ps.map(function (p) { return p.hi - p.y; }),
+            arrayminus: ps.map(function (p) { return p.y - p.lo; })},
+        }});
+      }
+    }
+    return out;
+  }
+
+  // Where the workload changed between two runs: the ratios either side are of different searches.
+  function boundaries(ps) {
+    const seen = {};
+    for (const p of ps) seen[p.x] = p.workload;
+    const xs = Object.keys(seen).sort(), out = [];
+    for (let i = 1; i < xs.length; i++) {
+      if (seen[xs[i]] && seen[xs[i - 1]] && seen[xs[i]] !== seen[xs[i - 1]]) {
+        out.push([new Date((when(xs[i - 1]).getTime() + when(xs[i]).getTime()) / 2), seen[xs[i]]]);
+      }
+    }
+    return out;
+  }
+
+  function layout(ps) {
+    const fg = css("--fg"), bg = css("--bg"), line = css("--line"), muted = css("--muted");
+    // The range holds every bar and 1, the parity BLAST+ marks; it does not start at 0, which would flatten the lines.
+    let lo = 1, hi = 1;
+    for (const p of ps) { lo = Math.min(lo, p.lo); hi = Math.max(hi, p.hi); }
+    const pad = (hi - lo) * 0.08 || 0.05;
+    const marks = boundaries(ps);
+    return {
+      paper_bgcolor: bg, plot_bgcolor: bg, font: {color: fg, family: "system-ui, sans-serif", size: 12},
+      height: 460, margin: {l: 60, r: 16, t: 40, b: 100}, hovermode: "closest",
+      legend: {orientation: "h", x: 0, y: -0.16, yanchor: "top", font: {size: 11}, groupclick: "toggleitem"},
+      xaxis: {type: "date", showgrid: false, linecolor: line, tickcolor: line,
+        rangeselector: {x: 0, y: 1.12, bgcolor: css("--head"), activecolor: line, bordercolor: line,
+          font: {color: fg, size: 11}, buttons: [
+            {count: 2, label: "2 days", step: "day", stepmode: "backward"},
+            {count: 7, label: "a week", step: "day", stepmode: "backward"},
+            {step: "all", label: "all"}]}},
+      yaxis: {title: {text: "wall time over BLAST+ (below 1: faster)"}, gridcolor: line, linecolor: line,
+        zeroline: false, range: [lo - pad, hi + pad]},
+      shapes: [{type: "line", xref: "paper", x0: 0, x1: 1, yref: "y", y0: 1, y1: 1, layer: "below",
+        line: {color: muted, width: 1.5, dash: "dash"}}].concat(marks.map(function (m) {
+          return {type: "line", xref: "x", x0: iso(m[0]), x1: iso(m[0]), yref: "paper", y0: 0, y1: 1, layer: "below",
+            line: {color: muted, width: 1, dash: "dot"}};
+        })),
+      annotations: [{xref: "paper", x: 1, xanchor: "right", yref: "y", y: 1, yanchor: "bottom", text: "BLAST+",
+        showarrow: false, font: {size: 11, color: muted}}].concat(marks.map(function (m) {
+          return {xref: "x", x: iso(m[0]), xanchor: "left", yref: "paper", y: 1, yanchor: "top", text: " " + m[1],
+            showarrow: false, font: {size: 10, color: muted}};
+        })),
+      hoverlabel: {bgcolor: css("--head"), bordercolor: line, font: {color: fg}, align: "left"},
+    };
+  }
+
+  function render() {
+    if (!el) return;
+    if (typeof Plotly === "undefined") {
+      el.textContent = "The chart needs Plotly.js from cdn.jsdelivr.net, which did not load.";
+      return;
+    }
+    const built = build();
+    if (!built.length) {
+      el.textContent = "No runs with rounds yet.";
+      return;
+    }
+    const all = [];
+    for (const b of built) all.push.apply(all, b.points);
+    Plotly.purge(el);
+    Plotly.newPlot(el, built.map(function (b) { return b.trace; }), layout(all),
+      {responsive: true, displaylogo: false, modeBarButtonsToRemove: ["select2d", "lasso2d"]});
+    el.on("plotly_click", function (e) {
+      const run = e.points && e.points[0] && e.points[0].customdata;
+      if (run) window.open("runs/" + run + "/", "_blank", "noopener");
+    });
+  }
+
+  render();
+  // Draw again with the other colors when the color scheme changes.
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+})();
+"""
+
+
 def commit_sections(groups):
     """The index's per-commit sections, only the newest open, and the plots' data as JSON for a <script> element."""
     out, data = [], []
@@ -448,7 +619,7 @@ def commit_sections(groups):
         if not g["jobs"]:
             continue
         k = len(data)
-        data.append({"hash": g["hash"], "jobs": g["jobs"]})
+        data.append({"hash": g["hash"], "subject": subject(g["code"]), "jobs": g["jobs"]})
         n = sum(1 for r in g["runs"] if r["measured"])
         links = ", ".join(f'<a href="runs/{html.escape(r["id"])}/">{html.escape(r["date"])}</a>'
                           + ("" if r["measured"] else " (no rounds)") for r in g["runs"])
@@ -494,6 +665,15 @@ def index(site):
 <p class="muted">Every run of the architecture comparison workflow. The ratios are blastp4j over BLAST+ in the full
 search, measured in the same job. Hosted runners are virtual machines on varying CPUs, so compare runs on the same CPU
 model.</p>
+<h2>Over the runs</h2>
+<p class="muted">Six lines: blastp4j, almostblastp and fastblastp, on each architecture, over the BLAST+ task each one
+must match (<code>blastp</code> for the first two, <code>blastp -task blastp-fast</code> for fastblastp, which also
+runs more queries). A point is one job: the median of its rounds' ratios, and the bar is the lowest and the highest of
+them. Numerator and denominator come from the same round of the same job, which is what makes the runs on different
+runner CPUs comparable; what scatter is left between neighbouring points is the runners themselves. A dotted line marks
+a change of database and queries, across which the ratios are of different searches. Click a point for that run's
+report; the table below has every run, the Mac workflow's among them, which this chart leaves out.</p>
+<div id="history"></div>
 <h2>Per commit</h2>
 <p class="muted">Each point is one round of the full search: blastp4j's wall time over BLAST+'s, or over the reference
 commit's, in the same round of the same job, which keeps the different runner CPUs comparable. All rounds of all runs
@@ -508,7 +688,8 @@ of a commit, newest commit first; open a commit to draw its plots.</p>
 </table></div>
 <script type="application/json" id="perf-data">{data}</script>
 <script src="{PLOTLY}" charset="utf-8"></script>
-<script>{PLOT_SCRIPT}</script>"""
+<script>{PLOT_SCRIPT}</script>
+<script>{HISTORY_SCRIPT}</script>"""
     write(os.path.join(site, "index.html"), page("blastp4j vs BLAST+", body))
     print(f"index: {len(runs)} runs; {sum(1 for g in groups if g['jobs'])} commits with rounds of {len(groups)}; "
           f"the rounds of {backfilled} runs read from their pages", file=sys.stderr)

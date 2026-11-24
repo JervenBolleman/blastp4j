@@ -25,7 +25,8 @@
 #
 # The report: each job's sections and machine (CPU model included) go to its step summary and to report/ (the
 # report-<arch> artifact); the report job builds an HTML page from them (.github/scripts/report.py), adds it to the
-# reports branch as runs/<run id>/ with an index of all runs, and deploys that branch to GitHub Pages.
+# reports branch as runs/<run id>/ with an index of all runs, which charts every run's ratios over time and has
+# the rounds of each commit, and deploys that branch to GitHub Pages.
 #
 # Hosted runners are virtual machines: hardware counters are usually missing and wall times are noisy, so compare
 # the ratios between BLAST+ and blastp4j within one job, not times across jobs. ARM runners are free for public
