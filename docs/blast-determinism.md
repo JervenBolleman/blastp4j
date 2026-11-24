@@ -38,6 +38,16 @@ algorithm; preloaded into the Linux x86-64 BLAST+ binary it reproduces the macOS
     gcc -O2 -shared -fPIC -o apple-qsort.so tools/qsort-order/apple-qsort.c
     LD_PRELOAD=$PWD/apple-qsort.so blastp -query queries.fasta -db proteome -outfmt '6 std btop' -num_threads 3
 
+`tools/qsort-order/tie-order.c` checks the shim in a second, without BLAST+ or a database: twelve elements, three
+distinct keys, printed in the order the sort leaves them.
+
+    gcc -O2 -o tie-order tools/qsort-order/tie-order.c
+    ./tie-order                                 # glibc: 0/0 0/3 0/6 0/9 1/1  1/4 1/7 1/10 2/2  2/5 2/8 2/11
+    LD_PRELOAD=$PWD/apple-qsort.so ./tie-order  # Apple: 0/0 0/3 0/6 0/9 1/10 1/1 1/7 1/4  2/11 2/5 2/8 2/2
+
+glibc's order above is its merge sort's, checked on glibc 2.44; the C standard does not require a stable qsort, so a
+later glibc could order these ties like Apple's and move Linux BLAST+'s output with it.
+
 Running both sorts on every call (glibc's result kept) shows which call sites see ties in a different order: of 11
 `qsort` call sites in this search, one. It is the sort by start in `Blast_HSPListPurgeHSPsWithCommonEndpoints`, which
 orders HSPs by query and subject start, score and ends. Of its 182,212 calls, 497 come out in a different order. HSPs
