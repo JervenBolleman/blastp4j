@@ -9,7 +9,6 @@ import java.lang.classfile.TypeKind;
 import java.lang.classfile.instruction.ArrayLoadInstruction;
 import java.lang.classfile.instruction.InvokeInstruction;
 import java.lang.classfile.instruction.LoadInstruction;
-import java.lang.classfile.instruction.OperatorInstruction;
 import java.lang.classfile.instruction.StoreInstruction;
 import java.lang.constant.ClassDesc;
 import java.lang.constant.ConstantDescs;
@@ -71,11 +70,8 @@ public final class BatchWordFinder implements BatchScan {
 			for (LookupTable t : tables) {
 				total += t.offsets().length;
 			}
-			// entry and narrow are a power of two long, and strictly longer than total, so that find can mask the
-			// index of its per-hit read and C2 drops that read's bounds check. The entry after the last hit, which
-			// the scan reads (see find), is one of the padding and zero as it was when there was just one spare.
-			final int capacity = Integer.highestOneBit(Math.max(1, total)) * 2;
-			final int[] start = new int[LookupTable.WORDS + 1], entry = new int[capacity], query = new int[total];
+			// entry has one more, unused: the scan reads the entry after each one (see find).
+			final int[] start = new int[LookupTable.WORDS + 1], entry = new int[total + 1], query = new int[total];
 			int k = 0;
 			for (int w = 0; w < LookupTable.WORDS; w++) {
 				start[w] = k;
@@ -90,7 +86,7 @@ public final class BatchWordFinder implements BatchScan {
 			start[LookupTable.WORDS] = k;
 			char[] narrow = null;
 			if (length <= Character.MAX_VALUE) {
-				narrow = new char[capacity];
+				narrow = new char[total + 1];
 				for (int j = 0; j < total; j++) {
 					narrow[j] = (char) entry[j];
 				}
@@ -202,21 +198,15 @@ public final class BatchWordFinder implements BatchScan {
 	/**
 	 * The code transform of {@link #of}'s copy for a table with narrow entries: in {@link #find}, {@code table.entry()}
 	 * becomes {@code table.narrow()}, and each load from it ({@code aload entry; iload k; iaload}, as javac compiles
-	 * {@code entry[k]}) a char load, and likewise {@code aload entry; iload k; iload mask; iand; iaload} for
-	 * {@code entry[k & entryMask]}, the per-hit read. A load of the array that is not followed so leaves an int load
-	 * of a char array, which the verifier rejects: then {@link #of} falls back to this class, which costs the narrow
-	 * entries, so {@link BatchWordFinderTest} checks that the copy is still made.
+	 * {@code entry[k]}) a char load. A load of the array that is not followed so leaves an int load of a char array,
+	 * which the verifier rejects: then {@link #of} falls back to this class.
 	 */
 	private static CodeTransform narrowEntries() {
 		final ClassDesc table = ClassDesc.of(Table.class.getName());
 		final MethodTypeDesc entryType = MethodTypeDesc.of(ConstantDescs.CD_int.arrayType());
 		final MethodTypeDesc narrowType = MethodTypeDesc.of(ConstantDescs.CD_char.arrayType());
 		return CodeTransform.ofStateful(() -> new CodeTransform() {
-			/**
-			 * The local of the entry array (-1: none yet), whether its store is next, and the load pattern's step:
-			 * 1 the array, 2 the index, 3 a mask after the index, 4 the and of the two. The array load is rewritten
-			 * from 2 (entry[k]) and from 4 (entry[k & entryMask]).
-			 */
+			/** The local of the entry array (-1: none yet), whether its store is next, and the load pattern's step. */
 			private int slot = -1, step;
 			private boolean store;
 
@@ -236,12 +226,7 @@ public final class BatchWordFinder implements BatchScan {
 					step = 1;
 				} else if (step == 1 && e instanceof LoadInstruction l && l.typeKind() == TypeKind.INT) {
 					step = 2;
-				} else if (step == 2 && e instanceof LoadInstruction l && l.typeKind() == TypeKind.INT) {
-					step = 3;
-				} else if (step == 3 && e instanceof OperatorInstruction o && o.opcode() == Opcode.IAND) {
-					step = 4;
-				} else if ((step == 2 || step == 4) && e instanceof ArrayLoadInstruction a
-						&& a.typeKind() == TypeKind.INT) {
+				} else if (step == 2 && e instanceof ArrayLoadInstruction a && a.typeKind() == TypeKind.INT) {
 					code.arrayLoad(TypeKind.CHAR);
 					step = 0;
 					return;
@@ -274,11 +259,6 @@ public final class BatchWordFinder implements BatchScan {
 		final int offset = diagOffset, windowL = window, lastL = window - LookupTable.WORD_SIZE - 1;
 		final WordFinder[] f = finders;
 		final int mask = LookupTable.WORDS - 1;
-		// Table.of makes entry a power of two long, so this masks the per-hit read below without changing its index
-		// and leaves C2 no bounds to check. Read from the array, not written as a constant: C2 drops the check
-		// because the index is ANDed with that array's own length. In the copy for narrow entries the local holds
-		// the char array, and arraylength gives its length, which Table.of makes the same.
-		final int entryMask = entry.length - 1;
 		if (length >= LookupTable.WORD_SIZE) {
 			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
 			for (int s = 0; s <= length - LookupTable.WORD_SIZE; s++) {
@@ -314,10 +294,9 @@ public final class BatchWordFinder implements BatchScan {
 						// The diagonal again from the entry, so that it need not be kept across the call.
 						d[(entry[k] - s) & diagMask & (d.length - 1)] = narrow(next);
 					}
-					// As entry[next & entryMask], not entry[k + 1], so that the copy for narrow entries reads it as a
-					// char: narrowEntries matches this shape too.
+					// As entry[next], not entry[k + 1], so that the copy for narrow entries reads it as a char.
 					final int next = k + 1;
-					e = entry[next & entryMask];
+					e = entry[next];
 				}
 				if (DEFER) {
 					for (int j = 0; j < r; j++) {
