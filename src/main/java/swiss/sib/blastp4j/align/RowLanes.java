@@ -4,6 +4,7 @@ import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.IntVector;
 import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorOperators;
+import jdk.incubator.vector.VectorShuffle;
 import jdk.incubator.vector.VectorSpecies;
 
 import swiss.sib.blastp4j.stats.Blosum62;
@@ -49,17 +50,43 @@ final class RowLanes implements GappedAligner.RowLoops {
 	 */
 	private static final int FLOOR = -(1 << 28);
 	private static final int N = Blosum62.SIZE;
-	/** Lane 0 alone, and a vector of sentinels to shift in. */
-	private static final VectorMask<Integer> LANE0 = VectorMask.fromLong(I, 1);
+	/** The sentinels a shift brings in. */
 	private static final IntVector SENTINEL = IntVector.broadcast(I, FLOOR);
+	/**
+	 * The lanes moved up by 1, 2, 4 and 8, as shuffles whose low lanes are out of range, so that
+	 * {@code v.rearrange(UP, SENTINEL)} takes them from {@link #SENTINEL}. {@code slice}, which is the API's own way to
+	 * say this, costs four vector operations where this costs one: it compares an iota against the origin, rearranges
+	 * both vectors and blends. The ones a shorter vector has no lanes for are never read; {@link #L} is a static final,
+	 * so C2 folds the tests away.
+	 */
+	private static final VectorShuffle<Integer> UP1 = VectorShuffle.iota(I, -1, 1, false),
+			UP2 = VectorShuffle.iota(I, -2, 1, false), UP4 = L >= 8 ? VectorShuffle.iota(I, -4, 1, false) : UP1,
+			UP8 = L >= 16 ? VectorShuffle.iota(I, -8, 1, false) : UP1;
 
 	private final int goe, ext;
 	/**
-	 * What one group of lanes leaves for the next and for the row's bookkeeping. Fields, not returned values, because
-	 * {@link #group} has to stay small enough for C2 to inline the vector helpers into it: at 932 bytes of bytecode in
-	 * one method they hit {@code NodeCountInliningCutoff}, {@code slice} fell back to its Java implementation, and the
-	 * kernel allocated a vector per call (3.5 times slower than the cells, 55 young collections against 20). One
-	 * instance per aligner, so one per thread, as {@link GappedAligner} is.
+	 * What one group of lanes leaves for the next and for the row's bookkeeping: fields rather than returned values, so
+	 * that no vector crosses a method boundary. One instance per aligner, so one per thread, as {@link GappedAligner}
+	 * is.
+	 * <p>
+	 * <b>What decides whether C2 emits this kernel as vectors or calls it.</b> Not the number of operations in one
+	 * method: 123 of them in a row still compile to vectors (measured). C2 intrinsifies a Vector API operation only
+	 * when the vector class and the lane count it passes to {@code VectorSupport} are compile-time constants, and only
+	 * within one compilation; where that fails the operation runs its Java implementation, a loop over an
+	 * {@code int[]}, and allocates. Three things broke it here, each worth 100 to 300 ms an invocation of
+	 * {@code RowKernelBench}:
+	 * <ul>
+	 * <li>a <b>variable lane index</b> ({@code lane(lanes - 1)} for the last, partial group of a row). C2 then needs
+	 * the vector as a real object on that path, and with it every vector feeding it, so the whole group fell back:
+	 * 9.5 GB of {@code int[]} an invocation. The lanes past the band carry {@link #FLOOR} instead, so every lane is
+	 * read at the constant {@code L - 1};</li>
+	 * <li>a <b>vector passed as an argument</b>: only a receiver is profiled, so the table registers arrived as the
+	 * abstract declared type and the table lookup — the point of the kernel — had no constant lane count. They are
+	 * loaded inside {@link #group} instead;</li>
+	 * <li>a <b>shared helper called twice</b>: C2 inlined the prefix maximum at the first call site and refused it at
+	 * the second, and the vector crossing that boundary cost 7 of 29 young collections. Both are written out in
+	 * {@link #group}.</li>
+	 * </ul>
 	 */
 	private int gapRow, bestScore, floor, last, newFirst;
 	private boolean leading;
@@ -113,18 +140,21 @@ final class RowLanes implements GappedAligner.RowLoops {
 		bestScore = 0;
 		floor = -xDrop;
 		int first = 0;
+		// The diagonal of the band's first column, which an earlier row dropped: the sentinel at h[first] (column
+		// first - 1) rather than a blend into lane 0 of the first group, so that the group has no vector of its own
+		// that a branch decides. The group loop writes next[c + 1] onwards, so it never overwrites it.
+		h[0] = FLOOR;
 		for (int ai = 1; ai <= m; ai++) {
 			final int letter = GappedAligner.letterA(a, aBase, m, ai, reverse);
 			for (int k = 0; k < N; k++) {
 				table[k] = (byte) scores[letter * N + k];
 			}
-			final ByteVector low = ByteVector.fromArray(B, table, 0), high = ByteVector.fromArray(B, table, 16);
 			gapRow = FLOOR;
 			last = first;
 			newFirst = first;
 			leading = true;
 			for (int c = first; c < bSize; c += L) {
-				group(g, h, next, e, bs, low, high, c, bSize, first, ai, xDrop);
+				group(g, h, next, e, bs, table, c, bSize, ai, xDrop);
 			}
 			final int[] written = next;
 			next = h;
@@ -133,6 +163,7 @@ final class RowLanes implements GappedAligner.RowLoops {
 			if (first == bSize) {
 				break;
 			}
+			h[first] = FLOOR;
 			if (last < bSize - 1) {
 				bSize = last + 1;
 			} else {
@@ -155,63 +186,88 @@ final class RowLanes implements GappedAligner.RowLoops {
 	/**
 	 * One group of lanes of a row: the scores of its cells, the gap along the row through them, and the X-drop as a
 	 * mask over them. Reads and writes the fields above, which is what keeps it small.
+	 * <p>
+	 * Every lane this reads is read at a <b>constant</b> index. A variable one ({@code lane(lanes - 1)} for the last,
+	 * partial group of a row) cannot be intrinsified, and C2 then has to have the vector as a real object on that path,
+	 * which costs not only that lane but every vector feeding it: the whole group fell back to the Java implementation
+	 * and the kernel allocated 9.5 GB of {@code int[]} an invocation. The lanes past the band are therefore set to
+	 * {@link #FLOOR} instead, so that the group's last lane holds what its last live lane holds.
 	 */
-	private void group(GappedAligner g, int[] h, int[] next, int[] e, byte[] bs, ByteVector low, ByteVector high, int c,
-			int bSize, int first, int ai, int xDrop) {
+	private void group(GappedAligner g, int[] h, int[] next, int[] e, byte[] bs, byte[] table, int c, int bSize, int ai,
+			int xDrop) {
 		final int goe = this.goe, ext = this.ext;
-		final IntVector step = IOTA.mul(ext), stepBefore = IOTA.sub(1).mul(ext);
+		// The two table registers are loaded here and not once per row: passed in, they are parameters of the declared
+		// type ByteVector, C2 has no exact type for them (only a receiver is profiled, not an argument), so the vector
+		// class and the lane count that selectFromTwoVectorOp needs as constants are not constants, and the table
+		// lookup — the whole point of this kernel — runs in Java and allocates. Two L1 loads a group is the price of
+		// the lookup being a TBL.
+		final ByteVector low = ByteVector.fromArray(B, table, 0), high = ByteVector.fromArray(B, table, 16);
+		final IntVector step = IOTA.mul(ext);
 		final int lanes = Math.min(L, bSize - c);
-		// Which lanes are in the band. The loads and the stores need no mask of their own: the arrays hold
-		// GappedAligner.PAD columns beyond the band, a lane past its last column reads what an earlier row left and
-		// writes where nothing reads, and the prefix maximums below only ever move a lane up, so those lanes cannot
-		// reach the ones in the band.
-		final VectorMask<Integer> in = IOTA.lt(lanes);
+		// The lanes past the band's last column. The loads and the stores need no mask of their own: the arrays hold
+		// GappedAligner.PAD columns beyond the band, so a lane past it reads what an earlier row left and writes where
+		// nothing reads before the band grows there.
+		final VectorMask<Integer> out = IOTA.compare(VectorOperators.GE, lanes);
 		// H0 = max(diagonal, gap down the column). B's letter of the diagonal is the one before the column, as the row
-		// loop reads it, and its score comes from the table rather than from a gather. The band's first column has no
-		// diagonal: an earlier row dropped the cell above-left of it.
+		// loop reads it, and its score comes from the table rather than from a gather.
 		final int bOff = Math.max(c - 1, 0);
 		final ByteVector letters = ByteVector.fromArray(B, bs, bOff).and((byte) 31);
 		IntVector subst = (IntVector) letters.selectFrom(low, high).convertShape(VectorOperators.B2I, I, 0);
 		if (c == 0) {
 			// The letters start at the band's column 0, one later than the lanes want; lane 0's diagonal is the
-			// sentinel below in any case.
+			// sentinel the row loop left at h[first] in any case.
 			subst = shiftOne(subst);
 		}
-		IntVector diag = IntVector.fromArray(I, h, c).add(subst);
-		if (c == first) {
-			diag = diag.blend(FLOOR, LANE0);
-		}
 		final IntVector e0 = IntVector.fromArray(I, e, c + 1);
-		final IntVector h0 = diag.max(e0);
+		// Past the band the sentinel, so that the two prefix maximums below carry the band's own last lane into lane
+		// L - 1 and every lane this group reads is read at a constant index.
+		final IntVector h0 = IntVector.fromArray(I, h, c).add(subst).max(e0).blend(FLOOR, out);
 		// The gap along the row as a prefix maximum: A(t) = max(k <= t)(H0(k) + k * ext), then
 		// G(t) = max(carried - t * ext, A(t - 1) - goe - (t - 1) * ext) and H = max(H0, G).
-		final IntVector lifted = prefixMax(h0.add(step));
+		IntVector lifted = h0.add(step);
+		lifted = lifted.max(lifted.rearrange(UP1, SENTINEL));
+		lifted = lifted.max(lifted.rearrange(UP2, SENTINEL));
+		if (L >= 8) {
+			lifted = lifted.max(lifted.rearrange(UP4, SENTINEL));
+		}
+		if (L >= 16) {
+			lifted = lifted.max(lifted.rearrange(UP8, SENTINEL));
+		}
 		final IntVector gap = IntVector.broadcast(I, gapRow).sub(step)
-				.max(shiftOne(lifted).sub(stepBefore).sub(goe));
+				.max(shiftOne(lifted).sub(step).add(ext - goe));
 		final IntVector hv = h0.max(gap);
-		// What the next group carries, from the lifted prefix maximum rather than from the last cell, so that the lane
-		// is a constant wherever the group is full: G(c + lanes) = max(G(c) - lanes * ext, A - goe - (lanes - 1) * ext).
-		final int a = lanes == L ? lifted.lane(L - 1) : lifted.lane(lanes - 1);
+		// What the next group carries, from the lifted prefix maximum rather than from the last cell:
+		// G(c + lanes) = max(G(c) - lanes * ext, A - goe - (lanes - 1) * ext).
+		final int a = lifted.lane(L - 1);
 		gapRow = Math.max(gapRow - lanes * ext, a - goe - (lanes - 1) * ext);
 		// The X-drop, as a mask against a floor that is a prefix maximum of the scores. Including a dropped cell in
-		// that maximum is harmless: it is below the floor, so it is never the maximum.
-		final IntVector run = prefixMax(hv);
-		final VectorMask<Integer> dropped = hv.lt(run.max(bestScore).sub(xDrop)).and(in);
+		// that maximum is harmless: it is below the floor, so it is never the maximum. The lanes past the band are at
+		// the sentinel, so they drop with it and need no mask of their own.
+		IntVector run = hv.max(hv.rearrange(UP1, SENTINEL));
+		run = run.max(run.rearrange(UP2, SENTINEL));
+		if (L >= 8) {
+			run = run.max(run.rearrange(UP4, SENTINEL));
+		}
+		if (L >= 16) {
+			run = run.max(run.rearrange(UP8, SENTINEL));
+		}
+		final VectorMask<Integer> dropped = hv.lt(run.max(bestScore).sub(xDrop));
 		// A dropped cell's score is killed so that it cannot feed a diagonal into the next row.
 		hv.blend(FLOOR, dropped).intoArray(next, c + 1);
 		hv.sub(goe).max(e0.sub(ext)).intoArray(e, c + 1);
 		// The bookkeeping, from the mask's bits: one read of it rather than three.
-		final long live = dropped.not().and(in).toLong();
+		final VectorMask<Integer> alive = dropped.not();
+		final long live = alive.toLong();
 		if (live != 0) {
 			last = c + 63 - Long.numberOfLeadingZeros(live);
 			// The group's best, read from the prefix maximum's last lane. A group all of whose cells are dropped
-			// cannot beat the best score (they are all below the floor), so the lanes need no mask here.
-			final int top = lanes == L ? run.lane(L - 1) : run.lane(lanes - 1);
+			// cannot beat the best score (they are all below the floor), so the lanes need no mask here either.
+			final int top = run.lane(L - 1);
 			if (top > bestScore) {
 				bestScore = top;
 				floor = top - xDrop;
 				g.aOffset = ai;
-				g.bOffset = c + hv.eq(top).and(VectorMask.fromLong(I, live)).firstTrue();
+				g.bOffset = c + hv.eq(top).and(alive).firstTrue();
 			}
 			if (leading) {
 				newFirst = c + Long.numberOfTrailingZeros(live);
@@ -225,24 +281,14 @@ final class RowLanes implements GappedAligner.RowLoops {
 	/**
 	 * {@code v} moved up by one lane, the lane below it filled with {@link #FLOOR}.
 	 * <p>
-	 * {@code slice}'s origin has to be a constant: with a loop's variable there, C2 builds a shuffle object at run time
-	 * instead of emitting the shift, which allocates and was most of this kernel's first cost. That is why the prefix
-	 * maximum below is unrolled and why {@link #L} is a static final the folds depend on.
+	 * The shuffle has to be a constant: built from a loop's variable it is an object made at run time, which allocates
+	 * and was most of this kernel's first cost. That is why the two prefix maximums in {@link #group} are unrolled, and
+	 * written out there rather than shared as a method of their own: C2 inlines such a method at the first of the two
+	 * call sites and refuses it at the second ("callee is too large"), and a vector that crosses a method boundary is a
+	 * real object, which cost this kernel 7 of its 29 young collections an invocation. {@link #L} is a static final, so
+	 * the tests on it fold.
 	 */
 	private static IntVector shiftOne(IntVector v) {
-		return SENTINEL.slice(L - 1, v);
-	}
-
-	/** The inclusive prefix maximum over the lanes: {@code log2(L)} shift-and-maximum steps, each shift a constant. */
-	private static IntVector prefixMax(IntVector v) {
-		v = v.max(SENTINEL.slice(L - 1, v));
-		v = v.max(SENTINEL.slice(L - 2, v));
-		if (L >= 8) {
-			v = v.max(SENTINEL.slice(L - 4, v));
-		}
-		if (L >= 16) {
-			v = v.max(SENTINEL.slice(L - 8, v));
-		}
-		return v;
+		return v.rearrange(UP1, SENTINEL);
 	}
 }
