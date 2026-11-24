@@ -31,17 +31,25 @@ public final class GappedAligner {
 	static final int HSP_MAX_WINDOW = 11;
 
 	private static final int N = Blosum62.SIZE;
+	/** Lanes a row loop may read or write beyond the band's last column (see {@link RowLanes}). */
+	static final int PAD = 16;
+	/** Whether the score-only rows of a BLOSUM62 search are computed several cells of a row at a time. */
+	static final boolean ROW_LANES = Boolean.getBoolean("blastp4j.rowLanes");
+	// The state the row loops read is not private: Rows is nested and reads it as the outer class's own, and RowLanes
+	// is a row loop outside this nest that reads the same. One per aligner, so one per thread.
 	/** The score matrix; BLOSUM62 unless set otherwise. */
-	private ScoreMatrix matrix = ScoreMatrix.BLOSUM62;
+	ScoreMatrix matrix = ScoreMatrix.BLOSUM62;
 	private final int gapOpen, gapExtend;
 
-	private int[] best = new int[256], bestGap = new int[256];
+	int[] best = new int[256], bestGap = new int[256];
 	/** ExRows' copy of a band of {@link #best} and {@link #bestGap} before rows computed without traceback. */
 	private int[] savedBest = new int[256], savedGap = new int[256];
+	/** {@link RowLanes}' second score array: it writes the row it computes where nothing reads the row above. */
+	int[] rowNext = new int[256];
 	/** semiGapped's best and bestGap, interleaved. */
-	private int[] dp = new int[512];
+	int[] dp = new int[512];
 	/** semiGapped's B letters in the order it reads them. */
-	private byte[] bLetters = new byte[256];
+	byte[] bLetters = new byte[256];
 	private byte[] trace = new byte[1 << 16];
 	private int[] rowStart = new int[256];
 
@@ -72,7 +80,17 @@ public final class GappedAligner {
 	 */
 	public GappedAligner(int gapOpen, int gapExtend) {
 		this(gapOpen, gapExtend, Rows.of(gapOpen + gapExtend, gapExtend, null),
-				Rows.of(gapOpen + gapExtend, gapExtend, Rows.BLOSUM62));
+				blosum62Rows(gapOpen + gapExtend, gapExtend));
+	}
+
+	/**
+	 * The row loop for BLOSUM62: {@link RowLanes}, which computes several cells of a row at once, where it can be used,
+	 * and {@link Rows} otherwise. Chosen by a property so that a benchmark can measure both from one build; the field
+	 * is final, so C2 folds the choice either way.
+	 */
+	private static RowLoops blosum62Rows(int goe, int ext) {
+		final RowLoops lanes = ROW_LANES ? RowLanes.of(goe, ext, ScoreMatrix.BLOSUM62.scores) : null;
+		return lanes != null ? lanes : Rows.of(goe, ext, Rows.BLOSUM62);
 	}
 
 	/** With the given row loops (the tests compare the copies with {@link Rows} itself). */
@@ -110,6 +128,7 @@ public final class GappedAligner {
 			best = new int[size];
 			bestGap = new int[size];
 			savedBest = new int[size];
+			rowNext = new int[size];
 			savedGap = new int[size];
 			dp = new int[2 * size];
 		}
@@ -120,8 +139,8 @@ public final class GappedAligner {
 	 * {@code b[bBase + n - 1 .. bBase - 1]} backwards (the last of each is a sentinel), cut at the ends of {@code b}.
 	 */
 	private byte[] bLetters(byte[] b, int bBase, int n, boolean reverse) {
-		if (bLetters.length < n + 1) {
-			bLetters = new byte[Math.max(n + 1, bLetters.length * 2)];
+		if (bLetters.length < n + 1 + PAD) {
+			bLetters = new byte[Math.max(n + 1 + PAD, bLetters.length * 2)];
 		}
 		final byte[] letters = bLetters;
 		if (!reverse) {
@@ -135,7 +154,7 @@ public final class GappedAligner {
 	}
 
 	/** Letter {@code a} (1-based) of A, read forwards from {@code aBase} or backwards from {@code aBase + m}. */
-	private static int letterA(byte[] a, int aBase, int m, int index, boolean reverse) {
+	static int letterA(byte[] a, int aBase, int m, int index, boolean reverse) {
 		return reverse ? a[aBase + m - index] : a[aBase + index];
 	}
 
@@ -152,7 +171,8 @@ public final class GappedAligner {
 		if (n <= 0 || m <= 0) {
 			return 0;
 		}
-		ensureDp(n + 2);
+		// PAD beyond the band so that RowLanes' vectors load and store past its last column without a mask.
+		ensureDp(n + 2 + PAD);
 		// best and bestGap of a column next to each other, as BLAST's BlastGapDP: dp[2 * i] and dp[2 * i + 1].
 		final int[] dp = this.dp;
 		// B read in one direction by one loop: its index is the loop's, so C2 checks its bounds once per row.
