@@ -289,10 +289,7 @@ public final class BatchWordFinder implements BatchScan {
 					} else if (DEFER) {
 						later[r++] = k;
 					} else {
-						final int i = query[k];
-						final int next = f[i].next(residues, start, length, e - base[i], s, out[i], wide(state), offset);
-						// The diagonal again from the entry, so that it need not be kept across the call.
-						d[(entry[k] - s) & diagMask & (d.length - 1)] = narrow(next);
+						extend(residues, start, length, out, k, s, e, state, offset);
 					}
 					// As entry[next], not entry[k + 1], so that the copy for narrow entries reads it as a char.
 					final int next = k + 1;
@@ -308,6 +305,28 @@ public final class BatchWordFinder implements BatchScan {
 			}
 		}
 		diagOffset += length + window;
+	}
+
+	/**
+	 * The hit at {@code k} that {@link #find} cannot decide from its entry alone: extends it with the query's finder
+	 * and stores the diagonal's new state. A method of its own, and not inlined into {@link #find} (see
+	 * {@code bin/jvm.options}), so that the arrays only it reads — {@code query}, {@code base}, the finders and
+	 * {@code out} — are not live in the scan's loop over the hits. The loop keeps seven values of its own, which is
+	 * well within the registers; with these four as well C2 gave every one of them a stack home and the loop then
+	 * reloaded its own invariants, the diagonals twice and the hit index twice, on each of the 4,458 M entries.
+	 * <p>
+	 * Reads the arrays from {@link #table} rather than taking them, which would make them live in the loop again. The
+	 * hit's entry is read here a second time, as in the loop before, so that the diagonal need not be kept across the
+	 * call to the finder.
+	 */
+	private void extend(byte[] residues, int start, int length, List<UngappedHsp>[] out, int k, int s, int e,
+			int state, int offset) {
+		final Table t = table;
+		final int[] query = t.query(), base = t.base(), entry = t.entry();
+		final char[] d = diags;
+		final int i = query[k];
+		final int next = finders[i].next(residues, start, length, e - base[i], s, out[i], wide(state), offset);
+		d[(entry[k] - s) & diagMask & (d.length - 1)] = narrow(next);
 	}
 
 	/** A 16-bit state as {@link WordFinder#next}'s. */
