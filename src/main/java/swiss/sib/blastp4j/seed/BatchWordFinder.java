@@ -91,7 +91,11 @@ public final class BatchWordFinder implements BatchScan {
 					narrow[j] = (char) entry[j];
 				}
 			}
-			final int[] cells = new int[2 * LookupTable.WORDS + 1];
+			// Twice the 2 * WORDS + 1 entries the scan reads, so that the length is a power of two: find then masks the
+		// index with length - 1, which is a no-op for an index that is already in range but leaves C2 no bounds to
+		// check (an index ANDed with length - 1 cannot exceed it). The padding is never read, so the cache sees the
+		// same lines; only the allocation and its zeroing double, once per batch.
+		final int[] cells = new int[4 * LookupTable.WORDS];
 			for (int w = 0; w < LookupTable.WORDS; w++) {
 				cells[2 * w] = start[w];
 				cells[2 * w + 1] = start[w] < start[w + 1] ? entry[start[w]] : 0;
@@ -259,18 +263,23 @@ public final class BatchWordFinder implements BatchScan {
 		final int offset = diagOffset, windowL = window, lastL = window - LookupTable.WORD_SIZE - 1;
 		final WordFinder[] f = finders;
 		final int mask = LookupTable.WORDS - 1;
+		// See Table.of: cells' length is a power of two, so this mask takes the bounds checks out of the loop below
+		// without changing an index (the highest is 2 * WORDS, and the length is 4 * WORDS). It has to be read from
+		// the array, not written as the constant 4 * WORDS - 1: C2 drops the check because the index is ANDed with
+		// this array's own length, and with a constant it checks the bounds again.
+		final int cellMask = cells.length - 1;
 		if (length >= LookupTable.WORD_SIZE) {
 			int word = (residues[start] << LookupTable.CHAR_BITS) | residues[start + 1];
 			for (int s = 0; s <= length - LookupTable.WORD_SIZE; s++) {
 				word = ((word << LookupTable.CHAR_BITS) | residues[start + s + 2]) & mask;
 				int r = 0;
 				// The word's first entry from its own line of cells, the others from entry.
-				final int cell = 2 * word, end = cells[cell + 2];
+				final int cell = 2 * word, end = cells[(cell + 2) & cellMask];
 				// A counted loop: each hit loads the next one's entry, so that the loop has one test of k against end
 				// instead of the two the break gave it (entry has one more entry for the last hit's read). C2 still
 				// reloads entry's length and checks it per hit, which three source variants have failed to change.
-				int e = cells[cell + 1];
-				for (int k = cells[cell]; k < end; k++) {
+				int e = cells[(cell + 1) & cellMask];
+				for (int k = cells[cell & cellMask]; k < end; k++) {
 					// The usual hits, decided from the entry: the diagonal's last hit is a window or more back, so
 					// this one replaces it, or it overlaps this one, which is then ignored. Only hits to extend and
 					// hits on an extended diagonal go to the query's finder.
