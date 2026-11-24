@@ -18,9 +18,6 @@
 # ExRows' cell loop not inlined into its row loop, so that the values the row loop keeps are not live in it (on
 # AArch64 C2 kept the cell loop's arrays in stack slots otherwise). The pattern also matches the hidden-class copies.
 -XX:CompileCommand=dontinline,swiss.sib.blastp4j.align.GappedAligner$ExRows*::row
-# The scan's slow path not inlined into its loop over the hits, so that the arrays only it reads (the queries, their
-# bases, the finders and the output lists) do not take registers in the loop. The pattern also matches the copies.
--XX:CompileCommand=dontinline,swiss.sib.blastp4j.seed.BatchWordFinder*::extend
 # Vector width: the code uses the preferred vectors everywhere, so these choose it. 256 bits on x86-64, also where the
 # CPU has AVX-512 (Zen 4, Intel Xeons): there 512-bit vectors were slower (the word scan 10% on a Xeon 8573C), and
 # MaxVectorSize keeps AVX-512's instructions and registers at 256 bits, which UseAVX=2 would not. 512 bits on AMD Zen 5
