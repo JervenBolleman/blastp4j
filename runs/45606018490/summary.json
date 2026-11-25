@@ -1,0 +1,125 @@
+{
+ "run_id": "45606018490",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/45606018490",
+ "date": "2026-11-25 12:59 UTC",
+ "event": "workflow_dispatch",
+ "code": [
+  "`efef397` (README: the last E-value difference is a defect in blastp's erfc [skip ci])"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "zen5": false,
+   "blast_wall": 84.2,
+   "jvm_wall": 87.66,
+   "ref_wall": 85.66,
+   "blastfast_wall": 56.55,
+   "fast_wall": 55.39,
+   "fast": 0.9794871794871796,
+   "wall": 1.0410926365795723,
+   "cycles": 0.9155357142857143,
+   "instructions": 1.1179821282352522,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html",
+   "proteome": "UP000005640_9606",
+   "jvm_commit": "efef397",
+   "ref_commit": "fe38c50",
+   "rounds": {
+    "blast": [
+     84.28,
+     84.2,
+     84.2
+    ],
+    "jvm": [
+     87.21,
+     88.87,
+     87.66
+    ],
+    "almost": [
+     84.54,
+     85.21,
+     82.7
+    ],
+    "blastfast": [
+     56.5,
+     56.55,
+     56.69
+    ],
+    "fast": [
+     54.22,
+     55.39,
+     55.96
+    ],
+    "ref": [
+     88.23,
+     85.43,
+     85.66
+    ],
+    "fastref": [
+     54.21,
+     54.38,
+     55.16
+    ]
+   }
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "AMD EPYC 7763 64-Core Processor",
+   "cpus": "4",
+   "zen5": false,
+   "blast_wall": 155.65,
+   "jvm_wall": 122.36,
+   "ref_wall": 123.96,
+   "blastfast_wall": 103.37,
+   "fast_wall": 78.96,
+   "fast": 0.7638579858759794,
+   "wall": 0.7861227112110504,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html",
+   "proteome": "UP000005640_9606",
+   "jvm_commit": "efef397",
+   "ref_commit": "fe38c50",
+   "rounds": {
+    "blast": [
+     155.65,
+     155.69,
+     155.43
+    ],
+    "jvm": [
+     122.36,
+     122.72,
+     122.17
+    ],
+    "almost": [
+     118.53,
+     118.03,
+     115.61
+    ],
+    "blastfast": [
+     104.08,
+     102.58,
+     103.37
+    ],
+    "fast": [
+     79.23,
+     78.96,
+     78.27
+    ],
+    "ref": [
+     121.13,
+     124.33,
+     123.96
+    ],
+    "fastref": [
+     78.77,
+     77.75,
+     78.36
+    ]
+   }
+  }
+ ]
+}
