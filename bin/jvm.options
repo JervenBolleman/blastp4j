@@ -26,5 +26,12 @@
 [x86_64] -XX:MaxVectorSize=32
 [zen5] -XX:UseAVX=3
 [zen5] -XX:MaxVectorSize=64
+# The X-drop rows of a score-only extension several cells at a time (RowLanes), on AArch64 only: there
+# SemiGappedLanes is off (it needs 8 int lanes and the Neoverse-N2 gives 4), so those extensions are the scalar ones
+# step 8 set out to vectorise. On x86-64 the lanes take every unrestricted extension and GappedAligner.semiGapped
+# never runs at all, so the option would do nothing there but is left off to say so. Locally, where
+# -XX:MaxVectorSize=16 reproduces the AArch64 shape (SemiGappedLanes off, 8 short lanes), RowKernelBench is 355 ms
+# against the cells' 449 and a full search is byte-identical.
+[aarch64] -Dblastp4j.rowLanes=true
 # The word finder uses the Vector API, an incubator module, which the JVM then reports with a warning on stderr.
 --add-modules=jdk.incubator.vector
