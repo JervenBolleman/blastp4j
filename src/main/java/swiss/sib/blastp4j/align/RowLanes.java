@@ -72,6 +72,13 @@ final class RowLanes implements GappedAligner.RowLoops {
 	/** The row loop for the extensions this one hands back, and the two bounds that decide which those are. */
 	private final GappedAligner.RowLoops cells;
 	private final int bandLimit, dropLimit;
+	/**
+	 * The matrix as bytes, a row every 32, so that a row's two table registers are two loads from it. Built once: a
+	 * copy of the row into a 32-byte scratch array every row was 28 stores and 28 loads for the 38.5 cells of an
+	 * average band, nearly one store a cell, which is what the vectors are here to avoid. This class is only chosen for
+	 * BLOSUM62 (see {@link #of}), so the matrix cannot change under it.
+	 */
+	private final byte[] table = new byte[32 * 32];
 	/** The band, de-interleaved from {@code dp}; see {@link #rows}. Grown together, so one length serves. */
 	private short[] rowH = new short[256], rowE = new short[256], rowNext = new short[256];
 	/**
@@ -100,10 +107,15 @@ final class RowLanes implements GappedAligner.RowLoops {
 	private int gapRow, bestScore, floor, last, newFirst;
 	private boolean leading;
 
-	private RowLanes(int goe, int ext, GappedAligner.RowLoops cells, int maxCell) {
+	private RowLanes(int goe, int ext, GappedAligner.RowLoops cells, int[] matrix, int maxCell) {
 		this.goe = goe;
 		this.ext = ext;
 		this.cells = cells;
+		for (int letter = 0; letter < N; letter++) {
+			for (int k = 0; k < N; k++) {
+				table[(letter << 5) + k] = (byte) matrix[letter * N + k];
+			}
+		}
 		// An alignment through a cell of row i and column j has at most min(i, j) aligned pairs and pays for every gap,
 		// so no score passes maxCell * min(m, n); the lift of the prefix maximum adds (L - 1) * ext on top of it and a
 		// diagonal one more cell.
@@ -132,7 +144,7 @@ final class RowLanes implements GappedAligner.RowLoops {
 		// so the lowest value anywhere is a gap opened from a sentinel and carried across one group of lanes. Four gap
 		// openings and two groups of extension is generous for that, and these costs never come near it.
 		return FLOOR - 4 * goe - 2 * L * ext - maxCell > Short.MIN_VALUE
-				? new RowLanes(goe, ext, cells, maxCell)
+				? new RowLanes(goe, ext, cells, matrix, maxCell)
 				: null;
 	}
 
@@ -154,7 +166,7 @@ final class RowLanes implements GappedAligner.RowLoops {
 			return cells.rows(g, a, aBase, m, n, reverse, xDrop, bSize);
 		}
 		final int goe = this.goe, ext = this.ext;
-		final int[] dp = g.dp, scores = g.matrix.scores;
+		final int[] dp = g.dp;
 		if (rowH.length < n + 2 + GappedAligner.PAD) {
 			final int size = Math.max(n + 2 + GappedAligner.PAD, rowH.length * 2);
 			rowH = new short[size];
@@ -177,8 +189,6 @@ final class RowLanes implements GappedAligner.RowLoops {
 			h[j + 1] = (short) dp[2 * j];
 			e[j + 1] = (short) dp[2 * j + 1];
 		}
-		// A matrix row as two table registers, padded to 32 bytes.
-		final byte[] table = new byte[32];
 		bestScore = 0;
 		floor = -xDrop;
 		int first = 0;
@@ -187,16 +197,14 @@ final class RowLanes implements GappedAligner.RowLoops {
 		// that a branch decides. The group loop writes next[c + 1] onwards, so it never overwrites it.
 		h[0] = FLOOR;
 		for (int ai = 1; ai <= m; ai++) {
-			final int letter = GappedAligner.letterA(a, aBase, m, ai, reverse);
-			for (int k = 0; k < N; k++) {
-				table[k] = (byte) scores[letter * N + k];
-			}
+			// The row of the matrix this row of A reads, as an offset into the byte copy of it.
+			final int row = GappedAligner.letterA(a, aBase, m, ai, reverse) << 5;
 			gapRow = FLOOR;
 			last = first;
 			newFirst = first;
 			leading = true;
 			for (int c = first; c < bSize; c += L) {
-				group(g, h, next, e, bs, table, c, bSize, ai, xDrop);
+				group(g, h, next, e, bs, row, c, bSize, ai, xDrop);
 			}
 			final short[] written = next;
 			next = h;
@@ -229,7 +237,7 @@ final class RowLanes implements GappedAligner.RowLoops {
 	 * One group of lanes of a row: the scores of its cells, the gap along the row through them, and the X-drop as a
 	 * mask over them. Reads and writes the fields above, which is what keeps every vector inside one compilation.
 	 */
-	private void group(GappedAligner g, short[] h, short[] next, short[] e, byte[] bs, byte[] table, int c, int bSize,
+	private void group(GappedAligner g, short[] h, short[] next, short[] e, byte[] bs, int row, int c, int bSize,
 			int ai, int xDrop) {
 		final short goe = (short) this.goe, ext = (short) this.ext;
 		// The two table registers are loaded here and not once per row: passed in, they are parameters of the declared
@@ -237,7 +245,8 @@ final class RowLanes implements GappedAligner.RowLoops {
 		// class and the lane count that selectFromTwoVectorOp needs as constants are not constants, and the table
 		// lookup — the whole point of this kernel — runs in Java and allocates. Two L1 loads a group is the price of
 		// the lookup being a TBL.
-		final ByteVector low = ByteVector.fromArray(B, table, 0), high = ByteVector.fromArray(B, table, 16);
+		final byte[] table = this.table;
+		final ByteVector low = ByteVector.fromArray(B, table, row), high = ByteVector.fromArray(B, table, row + 16);
 		final ShortVector step = IOTA.mul(ext);
 		final int lanes = Math.min(L, bSize - c);
 		// The lanes past the band's last column. The loads and the stores need no mask of their own: the arrays hold
