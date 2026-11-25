@@ -252,23 +252,49 @@ against 402.5 to 411.7 G) and 1.22 times its instructions (625.2 to 637.1 G). Wa
 architecture comparison workflow used then, the warm-up costs 1.5 to 2.5% of cycles instead.
 
 **What the runner comparison can resolve.** The workflow builds the code and its reference in the same job and runs
-them in the same interleaved rounds, so the two are compared within one machine. Run 45594428603 ran the same commit
-on both sides (efef397 against itself) and the medians agreed to 0.17% on the Neoverse-N2 and 0.6% on a Xeon 6975P-C
--- but that is one sample, and a wider one says not to read much into it. Over eight runs whose `fast` and `fastref`
-were identical code (the commit under test touched only a file fastblastp does not use), the paired difference had a
-standard deviation of 2.3% on both architectures: median +0.09% and mean absolute 1.81% on the N2, median -0.26% and
-1.59% on x86-64, over a range of -5.0% to +4.4%. The three rounds of one side spread only 1.1 to 1.8%, and the
-first-to-last drift within a job is about zero, so the spread attaches to a side for the whole job rather than to the
-rounds and more rounds buy little. **One paired run resolves about 5%, not 2%**; a 2% change would take some ten
-paired runs to decide, which is what the local instruction counts and JMH are for.
+them in the same interleaved rounds, so the two are compared within one machine. How much that resolves is measured
+rather than guessed: `bin/run-noise.py` reads every run's `summary.json` from the reports branch and collects the jobs
+whose two sides held the *same* program. Three kinds qualify -- a calibration run with `code` and `reference` the same
+commit (45594428603), a commit that touches only the workflow, the report script or the documentation, and, for
+fastblastp alone, a commit that touches only `BatchWordFinder` or `WordFinder`, which blastp-fast does not use. Of the
+170 runs to 2026-11-25 that leaves 8 such jobs per architecture for the full search and 14 for fastblastp, whose
+paired difference is pure noise. Its standard deviation, by how a side's three rounds are summarised:
 
-The query splitting (6da852d, see [Usage](#usage)) is a case of that. It read 1.0 to 2.1% slower than its parent on
-the Neoverse-N2 in three paired runs (45582360043, 45606018490, and 45619175394 with the code and the reference
-exchanged) and -1.3% to +0.7% on x86-64, which against a per-run spread of 2.3% is no difference at all. The
-mechanism says the same: no batch of this workload is split, since of the 750 human queries the longest is 3,907
-residues and the largest batch 11,397 against the 19,800 that BLAST splits at, so the added work is one sum of a
-batch's residues and one test per batch, 40 of each in an 85-second run. The change is a correctness fix in any case,
-and all four runs report the full search identical to BLAST+ on both architectures.
+| | full search | | | fastblastp | | |
+|---|---:|---:|---:|---:|---:|---:|
+| | median | mean | minimum | median | mean | minimum |
+| AArch64 (Neoverse-N2) | 0.93% | 1.09% | 0.82% | 1.95% | 1.57% | 1.97% |
+| x86-64 (mixed CPUs) | 0.75% | 0.63% | 1.05% | 1.95% | 1.73% | 2.28% |
+
+So **one paired run resolves about 2% of the full search and about 4% of fastblastp** (2σ), and the slots do no
+systematic harm: the mean difference is -0.51% to +0.19%. The minimum of the rounds is the best statistic for the
+full search and the worst for fastblastp; the median and the mean are within a few tenths of each other.
+
+Whether to add rounds or runs depends on where that noise lives, which the same jobs answer. For the full search the
+difference of two interleaved single rounds has a standard deviation of 1.84% on AArch64 and 1.57% on x86-64, and the
+spread of the job means, 1.08% and 0.63%, is just what three such rounds predict on their own (1.06% and 0.90%):
+nothing attaches to a side for the whole job, so k rounds give about 1.8%/sqrt(k) and six rounds would resolve 1.5%.
+fastblastp is the other case: its rounds differ by 2.0% but its job means by 1.57% and 1.72% against the 1.15% the
+rounds predict, which leaves a job-level component of 1.1 to 1.3% that no number of rounds removes. Its run is about
+a third as long, so one job's compilation outcome is a larger share of it.
+
+Across runs instead of within a job, the same commit 7a203fd in the 19 scheduled runs to 2026-11-22 varied by 1.35%
+on the Neoverse-N2 against BLAST+'s 0.49%: there the JVM is the noisy program, not the machine. On x86-64 the machine
+is the noise -- that commit took 32.69 and 32.89 s in two EPYC 9V74 runs and 43.15 s in a third, a spread of 16.5%,
+while its ratio to BLAST+ moved 1.65% -- and the CPU model differs from run to run (six models in 19 runs), which is
+why a comparison has to be within a job. Where the model does repeat (EPYC 7763 seven times, Xeon 6975P-C four) the
+run-to-run spread of blastp4j was 0.72% and 0.37%, so a commit measured in its own run against another run of the
+same model resolves about as much as a paired job, when the lottery grants the same model twice.
+
+The query splitting (6da852d, see [Usage](#usage)) is the first change measured against those figures. On the
+Neoverse-N2 it took 1.68%, 1.70% and 1.06% more wall time than its parent in three paired runs (45582360043,
+45606018490, and 45619175394 with the code and the reference exchanged), a mean of 1.48% against a standard error of
+0.63%, and on x86-64 +0.61%, -0.59% and +0.58% on three CPU models, a mean of 0.20% against 0.36%. So AArch64 shows
+about 1.5%, at the edge of what three runs can say, and x86-64 shows nothing. No mechanism accounts for it: no batch
+of this workload is split, since of the 750 human queries the longest is 3,907 residues and the largest batch 11,397
+against the 19,800 that BLAST splits at, so the added work is one sum of a batch's residues and one test per batch,
+40 of each in an 85-second run. What is left is code layout, and the change is a correctness fix in any case: all
+four runs report the full search identical to BLAST+ on both architectures.
 
 ### fastblastp's speed
 
