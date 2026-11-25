@@ -1,0 +1,125 @@
+{
+ "run_id": "45582360043",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/45582360043",
+ "date": "2026-11-25 10:21 UTC",
+ "event": "workflow_dispatch",
+ "code": [
+  "`efef397` (README: the last E-value difference is a defect in blastp's erfc [skip ci])"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "zen5": false,
+   "blast_wall": 84.03,
+   "jvm_wall": 88.68,
+   "ref_wall": 85.76,
+   "blastfast_wall": 56.31,
+   "fast_wall": 53.93,
+   "fast": 0.957733972651394,
+   "wall": 1.0553373795073189,
+   "cycles": 0.9291148303947014,
+   "instructions": 1.1531772336861612,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html",
+   "proteome": "UP000005640_9606",
+   "jvm_commit": "efef397",
+   "ref_commit": "fe38c50",
+   "rounds": {
+    "blast": [
+     84.03,
+     84.31,
+     83.83
+    ],
+    "jvm": [
+     88.68,
+     88.68,
+     87.18
+    ],
+    "almost": [
+     83.34,
+     83.03,
+     83.84
+    ],
+    "blastfast": [
+     56.91,
+     56.31,
+     55.62
+    ],
+    "fast": [
+     54.89,
+     53.93,
+     53.88
+    ],
+    "ref": [
+     89.05,
+     85.76,
+     85.35
+    ],
+    "fastref": [
+     54.98,
+     53.75,
+     54.05
+    ]
+   }
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "INTEL(R) XEON(R) PLATINUM 8573C",
+   "cpus": "4",
+   "zen5": false,
+   "blast_wall": 164.51,
+   "jvm_wall": 103.01,
+   "ref_wall": 102.75,
+   "blastfast_wall": 108.46,
+   "fast_wall": 63.72,
+   "fast": 0.587497695002766,
+   "wall": 0.6261625433104371,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html",
+   "proteome": "UP000005640_9606",
+   "jvm_commit": "efef397",
+   "ref_commit": "fe38c50",
+   "rounds": {
+    "blast": [
+     164.47,
+     164.51,
+     164.53
+    ],
+    "jvm": [
+     103.01,
+     102.99,
+     104.88
+    ],
+    "almost": [
+     96.45,
+     96.42,
+     97.06
+    ],
+    "blastfast": [
+     108.46,
+     107.82,
+     108.87
+    ],
+    "fast": [
+     63.72,
+     63.09,
+     64.06
+    ],
+    "ref": [
+     102.75,
+     102.38,
+     103.85
+    ],
+    "fastref": [
+     63.24,
+     63.82,
+     63.86
+    ]
+   }
+  }
+ ]
+}
