@@ -44,8 +44,6 @@ public final class GappedAligner {
 	int[] best = new int[256], bestGap = new int[256];
 	/** ExRows' copy of a band of {@link #best} and {@link #bestGap} before rows computed without traceback. */
 	private int[] savedBest = new int[256], savedGap = new int[256];
-	/** {@link RowLanes}' second score array: it writes the row it computes where nothing reads the row above. */
-	int[] rowNext = new int[256];
 	/** semiGapped's best and bestGap, interleaved. */
 	int[] dp = new int[512];
 	/** semiGapped's B letters in the order it reads them. */
@@ -89,8 +87,9 @@ public final class GappedAligner {
 	 * is final, so C2 folds the choice either way.
 	 */
 	private static RowLoops blosum62Rows(int goe, int ext) {
-		final RowLoops lanes = ROW_LANES ? RowLanes.of(goe, ext, ScoreMatrix.BLOSUM62.scores) : null;
-		return lanes != null ? lanes : Rows.of(goe, ext, Rows.BLOSUM62);
+		final RowLoops cells = Rows.of(goe, ext, Rows.BLOSUM62);
+		final RowLoops lanes = ROW_LANES ? RowLanes.of(goe, ext, ScoreMatrix.BLOSUM62.scores, cells) : null;
+		return lanes != null ? lanes : cells;
 	}
 
 	/** With the given row loops (the tests compare the copies with {@link Rows} itself). */
@@ -128,7 +127,6 @@ public final class GappedAligner {
 			best = new int[size];
 			bestGap = new int[size];
 			savedBest = new int[size];
-			rowNext = new int[size];
 			savedGap = new int[size];
 			dp = new int[2 * size];
 		}
