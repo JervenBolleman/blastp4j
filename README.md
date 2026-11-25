@@ -252,20 +252,23 @@ against 402.5 to 411.7 G) and 1.22 times its instructions (625.2 to 637.1 G). Wa
 architecture comparison workflow used then, the warm-up costs 1.5 to 2.5% of cycles instead.
 
 **What the runner comparison can resolve.** The workflow builds the code and its reference in the same job and runs
-them in the same interleaved rounds, so the two are compared within one machine. Run 45594428603 calibrated it with
-the same commit on both sides (efef397 against itself): the medians agreed to 0.17% on the Neoverse-N2 and 0.6% on a
-Xeon 6975P-C, the fast path to 0.6% and 0.8%, while the three rounds of one side spread 3.6% and 2.5%. A median
-difference under about 1% is therefore nothing and a single round is worth nothing, and since both sides of that run
-held the same code, a repeat of a pair can agree with itself and still be an artifact: what settles a small
-difference is a slot swap, the same two commits with the code and the reference exchanged.
+them in the same interleaved rounds, so the two are compared within one machine. Run 45594428603 ran the same commit
+on both sides (efef397 against itself) and the medians agreed to 0.17% on the Neoverse-N2 and 0.6% on a Xeon 6975P-C
+-- but that is one sample, and a wider one says not to read much into it. Over eight runs whose `fast` and `fastref`
+were identical code (the commit under test touched only a file fastblastp does not use), the paired difference had a
+standard deviation of 2.3% on both architectures: median +0.09% and mean absolute 1.81% on the N2, median -0.26% and
+1.59% on x86-64, over a range of -5.0% to +4.4%. The three rounds of one side spread only 1.1 to 1.8%, and the
+first-to-last drift within a job is about zero, so the spread attaches to a side for the whole job rather than to the
+rounds and more rounds buy little. **One paired run resolves about 5%, not 2%**; a 2% change would take some ten
+paired runs to decide, which is what the local instruction counts and JMH are for.
 
-The query splitting (6da852d, see [Usage](#usage)) is what that calibration was made for. It took 1.0 to 2.1% more
-wall time than its parent on the Neoverse-N2 in three runs (45582360043, 45606018490, and 45619175394 with the slots
-swapped, so the difference follows the commit and not the slot) and nothing on x86-64, where the three runs gave
-+0.25%, -1.3% and +0.7% on three different CPUs. No batch of this workload is split: the 750 queries' longest is
-3,907 residues and the largest batch 11,397, against the 19,800 that BLAST splits at, so the added work is one sum of
-a batch's residues and one test per batch, 40 of each in an 85-second run. The difference is code layout, not work,
-and the change is a correctness fix that stands whatever it costs.
+The query splitting (6da852d, see [Usage](#usage)) is a case of that. It read 1.0 to 2.1% slower than its parent on
+the Neoverse-N2 in three paired runs (45582360043, 45606018490, and 45619175394 with the code and the reference
+exchanged) and -1.3% to +0.7% on x86-64, which against a per-run spread of 2.3% is no difference at all. The
+mechanism says the same: no batch of this workload is split, since of the 750 human queries the longest is 3,907
+residues and the largest batch 11,397 against the 19,800 that BLAST splits at, so the added work is one sum of a
+batch's residues and one test per batch, 40 of each in an 85-second run. The change is a correctness fix in any case,
+and all four runs report the full search identical to BLAST+ on both architectures.
 
 ### fastblastp's speed
 
