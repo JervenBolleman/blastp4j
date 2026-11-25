@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>blastp4j vs BLAST+, 2026-11-25 13:57 UTC</title>
+<style>
+:root { --bg: #fdfdfc; --fg: #1d1d1b; --muted: #66645e; --line: #dddad3; --head: #f1efe9; --accent: #2f5d8a; --bad: #b3261e;
+  --arm: #2a78d6; --x86: #eb6834; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #17181a; --fg: #e6e4df; --muted: #a09d96; --line: #34363a; --head: #222428; --accent: #8db7e0; --bad: #f2867d;
+    --arm: #3987e5; --x86: #d95926; }
+}
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 1100px; padding: 24px 16px 64px; }
+h1 { font-size: 1.6rem; margin: 0 0 4px; }
+h2 { font-size: 1.3rem; margin-top: 2.5rem; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+h3, h4 { font-size: 1.05rem; margin-top: 1.6rem; }
+a { color: var(--accent); }
+.muted { color: var(--muted); }
+.bad { color: var(--bad); }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; font-size: 13px; margin: 8px 0; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--head); }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+pre { background: var(--head); border: 1px solid var(--line); padding: 8px 10px; overflow-x: auto; font-size: 12px; }
+code { font-size: 0.9em; }
+dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px 16px; font-size: 13px; }
+dl.facts dt { color: var(--muted); }
+dl.facts dd { margin: 0; overflow-wrap: anywhere; }
+details.commit { border: 1px solid var(--line); border-radius: 4px; margin: 8px 0; padding: 0 12px; }
+details.commit > summary { cursor: pointer; padding: 8px 0; }
+details.commit[open] > summary { border-bottom: 1px solid var(--line); }
+.plots { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 8px; }
+.plot { min-height: 360px; min-width: 0; overflow: hidden; }
+#history { min-height: 460px; min-width: 0; overflow: hidden; margin-top: 8px; }
+</style>
+</head>
+<body>
+<p class="muted"><a href="../../">All runs</a></p>
+<h1>blastp4j against BLAST+</h1>
+<p class="muted">2026-11-25 13:57 UTC · code <a href="https://github.com/JervenBolleman/blastp4j/commit/efef397"><code>efef397</code></a> (README: the last E-value difference is a defect in blastp&#x27;s erfc [skip ci]) · <a href="https://github.com/JervenBolleman/blastp4j/actions/runs/45619725679">workflow run</a>.
+Hosted runners are virtual machines and differ from run to run: compare the ratios within one row, not times across runs.</p>
+<div class="scroll"><table>
+<thead><tr><th>architecture</th><th>CPU model</th><th class=num>CPUs</th><th class=num>BLAST+ wall s</th>
+<th class=num>blastp4j wall s</th><th class=num>wall</th><th class=num>cycles</th><th class=num>instructions</th>
+<th class=num>BLAST+ blastp-fast wall s</th><th class=num>fastblastp wall s</th><th class=num>fast wall</th><th>output</th><th></th></tr></thead>
+<tbody><tr><td>aarch64</td><td>Neoverse-N2</td><td class=num>4</td><td class=num>84.87</td><td class=num>86.37</td><td class=num><b>1.02×</b></td><td class=num>0.94×</td><td class=num>1.15×</td><td class=num>57.84</td><td class=num>55.7</td><td class=num><b>0.96×</b></td><td>identical</td><td><a href="aarch64/jvm-profile.html">flame graph</a> <a href="aarch64/almost-profile.html">almost</a> <a href="aarch64/fast-profile.html">fast</a></td></tr><tr><td>x86_64</td><td>INTEL(R) XEON(R) PLATINUM 8573C</td><td class=num>4</td><td class=num>164.27</td><td class=num>101.92</td><td class=num><b>0.62×</b></td><td class=num>–</td><td class=num>–</td><td class=num>108.11</td><td class=num>62.86</td><td class=num><b>0.58×</b></td><td>identical</td><td><a href="x86_64/jvm-profile.html">flame graph</a> <a href="x86_64/almost-profile.html">almost</a> <a href="x86_64/fast-profile.html">fast</a></td></tr></tbody>
+</table></div>
+<p class="muted">Wall times are medians of the full-search rounds; the ratios are blastp4j over BLAST+, and fastblastp
+over BLAST+ with <code>-task blastp-fast</code>. Each output is compared with BLAST+'s for its task.</p>
+<section><h2 id="aarch64">aarch64: Neoverse-N2</h2><dl class="facts"><dt>Architecture</dt><dd>aarch64</dd><dt>CPU model</dt><dd>Neoverse-N2</dd><dt>Vendor</dt><dd>ARM</dd><dt>CPUs</dt><dd>4</dd><dt>Memory</dt><dd>15 GB</dd><dt>Kernel</dt><dd>7.0.0-1017-azure</dd><dt>Runner</dt><dd>ubuntu-24.04-arm, image ubuntu24-arm64 20261116.188.1</dd><dt>JDK</dt><dd>OpenJDK Runtime Environment Temurin-27.0.1.0.2+1 (build 27.0.1.0.2+1)</dd><dt>JVM vectors</dt><dd>MaxVectorSize=16 UseSVE=2</dd><dt>CPU family</dt><dd></dd><dt>JVM options</dt><dd>-XX:-UseCountedLoopSafepoints -XX:CompileCommand=quiet -XX:CompileCommand=dontinline,swiss.sib.blastp4j.compo.OptimizeTargetFreq::* -XX:CompileCommand=dontinline,swiss.sib.blastp4j.align.GappedAligner$ExRows*::row --add-modules=jdk.incubator.vector</dd><dt>BLAST+</dt><dd>2.17.0</dd><dt>Code</dt><dd><code>efef397</code> (README: the last E-value difference is a defect in blastp&#x27;s erfc [skip ci])</dd><dt>Proteome</dt><dd>UP000005640_9606</dd><dt>Queries</dt><dd>750, evenly spaced (blastp-fast: 1800); rounds: 3</dd></dl><p>Search outputs: identical. Stack accesses in the X-drop alignment function (aarch64):</p>
+<div class="scroll"><table><thead><tr><th>code</th><th class=num>instructions</th><th class=num>stack loads / stores</th><th class=num>in loops: instructions</th><th class=num>stack loads / stores</th><th class=num>samples</th><th class=num>on stack loads</th><th class=num>on stack stores</th></tr></thead><tbody><tr><td>BLAST+ Blast_SemiGappedAlign (GCC: (GNU) 11.5.0)</td><td class=num>319</td><td class=num>38 / 27</td><td class=num>204</td><td class=num>18 / 5</td><td class=num>412425</td><td class=num>1.4%</td><td class=num>0.1%</td></tr><tr><td>blastp4j semiGapped (C2, 27.0.1.0.2)</td><td class=num>988</td><td class=num>45 / 80</td><td class=num>136</td><td class=num>0 / 5</td><td class=num>4054</td><td class=num>0.5%</td><td class=num>0.4%</td></tr></tbody></table></div>
+<h4>Benchmarks: .  (one thread; score ± 99.9% error)</h4>
+<p>bin/jvm-options: <code>-XX:-UseCountedLoopSafepoints -XX:CompileCommand=quiet -XX:CompileCommand=dontinline,swiss.sib.blastp4j.compo.OptimizeTargetFreq::* -XX:CompileCommand=dontinline,swiss.sib.blastp4j.align.GappedAligner$ExRows*::row --add-modules=jdk.incubator.vector </code></p>
+<p>Variants: launcher <code></code>; oops-on <code>-XX:+UseCompressedOops</code>; oops-off <code>-XX:-UseCompressedOops</code>; </p>
+<div class="scroll"><table><thead><tr><th>benchmark</th><th>parameters</th><th>unit</th><th class=num>main efef397 launcher</th><th class=num>main efef397 oops-on</th><th class=num>main efef397 oops-off</th></tr></thead><tbody><tr><td>ResidueAccessBench.array</td><td></td><td>ms/op</td><td class=num>726.9 ± 1.29</td><td class=num>726.7 ± 0.688</td><td class=num>701.1 ± 0.375</td></tr><tr><td>ResidueAccessBench.chunks</td><td></td><td>ms/op</td><td class=num>853.3 ± 98.7</td><td class=num>861.7 ± 2.27</td><td class=num>847.9 ± 102.1</td></tr><tr><td>ResidueAccessBench.segment</td><td></td><td>ms/op</td><td class=num>866.9 ± 1.32</td><td class=num>866.2 ± 3.33</td><td class=num>861.4 ± 2.02</td></tr><tr><td>StatisticsBench.classicEvalue</td><td></td><td>ns/op</td><td class=num>11.0 ± 0.00327</td><td class=num>11.0 ± 0.00268</td><td class=num>11.0 ± 0.00377</td></tr><tr><td>StatisticsBench.spougeAndFormat</td><td></td><td>ns/op</td><td class=num>965.9 ± 6.64</td><td class=num>950.9 ± 5.06</td><td class=num>980.2 ± 9.32</td></tr><tr><td>StatisticsBench.spougeEvalue</td><td></td><td>ns/op</td><td class=num>261.7 ± 0.0733</td><td class=num>261.7 ± 0.263</td><td class=num>260.7 ± 0.184</td></tr><tr><td>SegBench.segments</td><td></td><td>ms/op</td><td class=num>604.9 ± 4.84</td><td class=num>608.2 ± 4.35</td><td class=num>615.0 ± 4.1</td></tr><tr><td>DatabaseLoadBench.load</td><td>file=uniprot_sprot.fasta</td><td>ms/op</td><td class=num>45.2 ± 19.8</td><td class=num>43.8 ± 18.0</td><td class=num>45.1 ± 19.8</td></tr><tr><td>DatabaseLoadBench.load</td><td>file=uniprot_sprot.fasta.gz</td><td>ms/op</td><td class=num>91.8 ± 13.3</td><td class=num>91.2 ± 13.2</td><td class=num>90.4 ± 12.4</td></tr><tr><td>DatabaseLoadBench.load</td><td>file=blastdb/sprot</td><td>ms/op</td><td class=num>0.878 ± 1.17</td><td class=num>0.449 ± 0.0829</td><td class=num>0.583 ± 0.339</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs0, query=HBA_HUMAN, source=fasta</td><td>ms/op</td><td class=num>72.5 ± 1.65</td><td class=num>68.2 ± 2.04</td><td class=num>71.4 ± 1.83</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs0, query=HBA_HUMAN, source=blastdb</td><td>ms/op</td><td class=num>68.6 ± 2.19</td><td class=num>68.2 ± 1.75</td><td class=num>70.9 ± 1.79</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs0, query=CDK1_HUMAN, source=fasta</td><td>ms/op</td><td class=num>215.0 ± 1.22</td><td class=num>215.6 ± 1.73</td><td class=num>219.4 ± 1.25</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs0, query=CDK1_HUMAN, source=blastdb</td><td>ms/op</td><td class=num>213.0 ± 1.82</td><td class=num>212.2 ± 1.29</td><td class=num>218.3 ± 1.36</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs0, query=BRCA1_HUMAN, source=fasta</td><td>ms/op</td><td class=num>818.1 ± 33.6</td><td class=num>815.5 ± 33.5</td><td class=num>812.1 ± 35.1</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs0, query=BRCA1_HUMAN, source=blastdb</td><td>ms/op</td><td class=num>824.8 ± 40.0</td><td class=num>823.5 ± 41.2</td><td class=num>814.4 ± 36.1</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs2, query=HBA_HUMAN, source=fasta</td><td>ms/op</td><td class=num>74.4 ± 2.52</td><td class=num>78.2 ± 1.66</td><td class=num>77.8 ± 4.1</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs2, query=HBA_HUMAN, source=blastdb</td><td>ms/op</td><td class=num>73.8 ± 1.92</td><td class=num>74.0 ± 2.6</td><td class=num>75.8 ± 1.98</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs2, query=CDK1_HUMAN, source=fasta</td><td>ms/op</td><td class=num>273.0 ± 2.32</td><td class=num>280.1 ± 3.01</td><td class=num>277.7 ± 5.35</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs2, query=CDK1_HUMAN, source=blastdb</td><td>ms/op</td><td class=num>274.5 ± 6.85</td><td class=num>281.1 ± 2.43</td><td class=num>277.8 ± 2.49</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs2, query=BRCA1_HUMAN, source=fasta</td><td>ms/op</td><td class=num>863.4 ± 34.2</td><td class=num>862.3 ± 33.5</td><td class=num>860.2 ± 36.3</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs2, query=BRCA1_HUMAN, source=blastdb</td><td>ms/op</td><td class=num>876.6 ± 47.2</td><td class=num>876.3 ± 49.0</td><td class=num>860.9 ± 30.0</td></tr><tr><td>CompoRedoBench.redo</td><td>query=CDK1_HUMAN</td><td>ms/op</td><td class=num>155.2 ± 3.99</td><td class=num>156.1 ± 6.79</td><td class=num>153.6 ± 1.75</td></tr><tr><td>CompoRedoBench.redo</td><td>query=BRCA1_HUMAN</td><td>ms/op</td><td class=num>202.5 ± 5.8</td><td class=num>203.2 ± 3.63</td><td class=num>203.1 ± 6.18</td></tr><tr><td>ExhaustiveSearchBench.search</td><td>query=HBA_HUMAN</td><td>s/op</td><td class=num>0.41 ± 0.00327</td><td class=num>0.411 ± 0.00766</td><td class=num>0.414 ± 0.00271</td></tr><tr><td>ExhaustiveSearchBench.search</td><td>query=CDK1_HUMAN</td><td>s/op</td><td class=num>0.734 ± 0.00865</td><td class=num>0.73 ± 0.00523</td><td class=num>0.734 ± 0.00816</td></tr><tr><td>GappedScoreBench.gapped</td><td>query=CDK1_HUMAN</td><td>ms/op</td><td class=num>28.6 ± 1.09</td><td class=num>28.5 ± 1.41</td><td class=num>28.7 ± 0.943</td></tr><tr><td>GappedScoreBench.gapped</td><td>query=BRCA1_HUMAN</td><td>ms/op</td><td class=num>228.0 ± 4.01</td><td class=num>228.3 ± 4.49</td><td class=num>228.1 ± 2.67</td></tr><tr><td>RowKernelBench.extend</td><td>query=CDK1_HUMAN, restricted=false</td><td>ms/op</td><td class=num>24.7 ± 0.0364</td><td class=num>24.7 ± 0.0163</td><td class=num>24.7 ± 0.0543</td></tr><tr><td>RowKernelBench.extend</td><td>query=BRCA1_HUMAN, restricted=false</td><td>ms/op</td><td class=num>134.9 ± 0.101</td><td class=num>134.9 ± 0.232</td><td class=num>135.0 ± 0.183</td></tr><tr><td>SeedSearchBench.seed</td><td>query=HBA_HUMAN</td><td>ms/op</td><td class=num>66.6 ± 0.473</td><td class=num>62.2 ± 0.811</td><td class=num>63.2 ± 1.45</td></tr><tr><td>SeedSearchBench.seed</td><td>query=CDK1_HUMAN</td><td>ms/op</td><td class=num>113.9 ± 1.78</td><td class=num>111.5 ± 1.25</td><td class=num>118.9 ± 1.61</td></tr><tr><td>SeedSearchBench.seed</td><td>query=BRCA1_HUMAN</td><td>ms/op</td><td class=num>480.4 ± 36.0</td><td class=num>486.3 ± 40.6</td><td class=num>482.3 ± 40.5</td></tr><tr><td>BatchScanBench.scan</td><td>batchSize=1000</td><td>ms/op</td><td class=num>432.4 ± 5.8</td><td class=num>430.7 ± 2.06</td><td class=num>445.7 ± 4.38</td></tr><tr><td>BatchScanBench.scan</td><td>batchSize=10000</td><td>ms/op</td><td class=num>2342.5 ± 65.2</td><td class=num>2311.1 ± 22.4</td><td class=num>2353.5 ± 19.6</td></tr><tr><td>WordFinderBench.find</td><td>query=HBA_HUMAN</td><td>ms/op</td><td class=num>61.9 ± 4.28</td><td class=num>61.8 ± 3.77</td><td class=num>64.5 ± 5.54</td></tr><tr><td>WordFinderBench.find</td><td>query=CDK1_HUMAN</td><td>ms/op</td><td class=num>113.2 ± 6.17</td><td class=num>111.8 ± 5.09</td><td class=num>117.4 ± 5.52</td></tr></tbody></table></div>
+<h4>Full search, 4 threads</h4>
+<pre>systems: blast jvm almost blastfast fast; query ../data/queries.fasta (blastp-fast: ../data/fast-queries.fasta); db ../data/blastdb/sprot; 4 threads; output in target/compare
+== timing, 3 rounds (wall s, user s, sys s)
+round 1 blast: 84.90 333.15 0.70 (reference)
+round 1 jvm: 87.67 310.26 0.54 (identical)
+round 1 almost: 86.21 303.24 0.60 (identical)
+round 1 blastfast: 57.82 226.28 1.12 (reference)
+round 1 fast: 55.70 199.37 0.77 (identical)
+round 2 blast: 84.87 332.92 0.76 (identical)
+round 2 jvm: 86.05 304.12 0.53 (identical)
+round 2 almost: 85.82 301.42 0.65 (identical)
+round 2 blastfast: 58.45 229.06 1.28 (identical)
+round 2 fast: 56.56 202.89 0.77 (identical)
+round 3 blast: 84.63 332.55 0.69 (identical)
+round 3 jvm: 86.37 305.47 0.52 (identical)
+round 3 almost: 86.59 304.42 0.58 (identical)
+round 3 blastfast: 57.84 227.52 1.20 (identical)
+round 3 fast: 55.50 199.31 0.74 (identical)
+blast median wall: 84.87 s
+jvm median wall: 86.37 s
+almost median wall: 86.21 s
+blastfast median wall: 57.84 s
+fast median wall: 55.70 s
+== perf stat
+events of this core: stall_frontend:u stall_backend:u l1d_cache_refill:u
+blast: instructions:u=2808.7G cycles:u=1122.8G branches:u=503.3G branch-misses:u=25.2G stall_frontend:u=138.9G stall_backend:u=177.0G l1d_cache_refill:u=4.7G (identical)
+jvm: instructions:u=3238.9G cycles:u=1056.8G branches:u=363.3G branch-misses:u=12.3G stall_frontend:u=63.6G stall_backend:u=205.3G l1d_cache_refill:u=3.4G (identical)
+almost: instructions:u=3156.0G cycles:u=1022.8G branches:u=351.6G branch-misses:u=11.7G stall_frontend:u=61.9G stall_backend:u=193.9G l1d_cache_refill:u=3.5G (identical)
+blastfast: instructions:u=1841.5G cycles:u=757.3G branches:u=349.0G branch-misses:u=16.7G stall_frontend:u=103.1G stall_backend:u=148.6G l1d_cache_refill:u=2.9G (identical)
+fast: instructions:u=1980.1G cycles:u=667.4G branches:u=232.0G branch-misses:u=7.3G stall_frontend:u=42.6G stall_backend:u=141.5G l1d_cache_refill:u=2.9G (identical)
+== async-profiler (jvm)
+flame graph: target/compare/jvm-profile.html (identical)
+self time, top 15 methods:
+ 25.87%  GappedAligner$Rows.rows_[j]
+ 17.57%  BatchWordFinder.find_[j]
+ 10.99%  GappedAligner$ExRows.scoreRows_[j]
+ 10.02%  WordFinder.extendLeft_[i]
+  9.60%  GappedAligner$ExRows.row_[j]
+  3.54%  OptimizeTargetFreq.optimize_[j]
+  3.21%  WordFinder.extendRight_[i]
+  3.10%  __ieee754_log
+  2.27%  OptimizeTargetFreq.factorLtriangPosDef_[j]
+  1.99%  WordFinder.extendTwoHit_[i]
+  0.95%  WordFinder.next_[i]
+  0.81%  OptimizeTargetFreq.stepBound_[j]
+  0.71%  OptimizeTargetFreq.multiplyByA_[j]
+  0.51%  OptimizeTargetFreq.euclideanNorm_[j]
+  0.47%  OptimizeTargetFreq.solveLtriangPosDef_[j]
+== machine code (jvm)
+cycles:u samples (identical); the full listing per method in jvm-machcode.txt:
+1787025 samples, 90.41% in printed compiled methods (9.59% elsewhere: interpreter, stubs, native, unprinted code)
+the 15 printed compiled methods with the most:
+   25.81%  c2 swiss.sib.blastp4j.align.GappedAligner$Rows/0x000003f001083c00::rows
+   17.76%  c2 swiss.sib.blastp4j.seed.BatchWordFinder/0x000003f001082000::find
+   12.93%  c2 swiss.sib.blastp4j.seed.WordFinder::extendTwoHit
+   11.03%  c2 swiss.sib.blastp4j.align.GappedAligner$ExRows/0x000003f00108a800::scoreRows
+    9.64%  c2 swiss.sib.blastp4j.align.GappedAligner$ExRows/0x000003f00108a800::row
+    3.51%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::optimize
+    2.17%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::factorLtriangPosDef
+    0.71%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::stepBound
+    0.70%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::multiplyByA
+    0.48%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::solveLtriangPosDef
+    0.47%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::euclideanNorm
+    0.46%  c2 swiss.sib.blastp4j.align.GappedAligner$ExRows/0x000003f00108a800::rows
+    0.46%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::multiplyByAtranspose
+    0.44%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::scaledSymmetricProductA
+    0.41%  c2 swiss.sib.blastp4j.seed.BatchWordFinder/0x000003f001082000::find
+
+the 40 instructions with the most samples:
+    6.14%  0xff9c1fd1f10c  cmp w1, w17                                      swiss.sib.blastp4j.align.GappedAligner$Rows/0x000003f001083c00::rows
+    4.66%  0xff9c1fd1f114  sub w24, w1, #0xc                                swiss.sib.blastp4j.align.GappedAligner$Rows/0x000003f001083c00::rows
+    3.26%  0xff9c1fd57150  ldr w12, [sp, #20]                               swiss.sib.blastp4j.seed.BatchWordFinder/0x000003f001082000::find
+    2.44%  0xff9c1fd8f18c  cmp w16, w10                                     swiss.sib.blastp4j.align.GappedAligner$ExRows/0x000003f00108a800::scoreRows
+    2.33%  0xff9c1fd417d4  ldr w13, [x21, #12]                              swiss.sib.blastp4j.align.GappedAligner$ExRows/0x000003f00108a800::row
+    1.90%  0xff9c1fd57408  cmp w13, w17                                     swiss.sib.blastp4j.seed.BatchWordFinder/0x000003f001082000::find
+    1.83%  0xff9c1fd8f194  ldr w19, [sp, #124]                              swiss.sib.blastp4j.align.GappedAligner$ExRows/0x000003f00108a800::scoreRows
+    1.57%  0xff9c1fd1f0e0  add x1, x16, w5, sxtw                            swiss.sib.blastp4j.align.GappedAligner$Rows/0x000003f001083c00::rows
+    1.34%  0xff9c1fd4178c  cmp w17, w15                                     swiss.sib.blastp4j.align.GappedAligner$ExRows/0x000003f00108a800::row
+    1.30%  0xff9c1fd57420  sub w11, w12, #0x28                              swiss.sib.blastp4j.seed.BatchWordFinder/0x000003f001082000::find
+    1.24%  0xff9c1fd1f130  b 0x0000ff9c1fd1f0b0                             swiss.sib.blastp4j.align.GappedAligner$Rows/0x000003f001083c00::rows
+    1.21%  0xff9c1fd57490  sub w11, w18, #0x28                              swiss.sib.blastp4j.seed.BatchWordFinder/0x000003f001082000::find
+    1.13%  0xff9c1fd8f188  ldr w22, [x13, #12]                              swiss.sib.blastp4j.align.GappedAligner$ExRows/0x000003f00108a800::scoreRows
+    1.02%  0xff9c1fd1f13c  str w6, [x25, #12]                               swiss.sib.blastp4j.align.GappedAligner$Rows/0x000003f001083c00::rows
+    1.00%  0xff9c1fcfd45c  sub w22, w23, #0x2                               swiss.sib.blastp4j.seed.WordFinder::extendTwoHit
+    0.99%  0xff9c1fd57338  cmp w10, w13                                     swiss.sib.blastp4j.seed.BatchWordFinder/0x000003f001082000::find
+    0.86%  0xff9c1fcfd408  sub w15, w15, #0x2                               swiss.sib.blastp4j.seed.WordFinder::extendTwoHit
+    0.75%  0xff9c1fcfd454  cmp w10, w12                                     swiss.sib.blastp4j.seed.WordFinder::extendTwoHit
+    0.69%  0xff9c1fd417d0  csel w17, wzr, w17, gt                           swiss.sib.blastp4j.align.GappedAligner$ExRows/0x000003f00108a800::row
+    0.69%  0xff9c1fd574cc  ldr w10, [sp, #64]                               swiss.sib.blastp4j.seed.BatchWordFinder/0x000003f001082000::find
+    0.67%  0xff9c1fd1f0d4  lsl w1, w5, #1                                   swiss.sib.blastp4j.align.GappedAligner$Rows/0x000003f001083c00::rows
+    0.64%  0xff9c1fd57474  ldr w10, [sp, #64]                               swiss.sib.blastp4j.seed.BatchWordFinder/0x000003f001082000::find
+    0.62%  0xff9c1fcfd440  cmp w10, w16                                     swiss.sib.blastp4j.seed.WordFinder::extendTwoHit
+    0.60%  0xff9c1fd1f128  cmp w1, w0                                       swiss.sib.blastp4j.align.GappedAligner$Rows/0x000003f001083c00::rows
+    0.54%  0xff9c1fd8f110  sub w13, w16, #0x180                             swiss.sib.blastp4j.align.GappedAligner$ExRows/0x000003f00108a800::scoreRows
+    0.52%  0xff9c1fcfd488  cmp w22, w25                                     swiss.sib.blastp4j.seed.WordFinder::extendTwoHit
+    0.51%  0xff9c1fd4176c  cmp w16, w24                                     swiss.sib.blastp4j.align.GappedAligner$ExRows/0x000003f00108a800::row
+    0.49%  0xff9c1fd1f0f0  cmp w13, w20                                     swiss.sib.blastp4j.align.GappedAligner$Rows/0x000003f001083c00::rows
+    0.49%  0xff9c1fd1f11c  cmp w13, w24                                     swiss.sib.blastp4j.align.GappedAligner$Rows/0x000003f001083c00::rows
+    0.47%  0xff9c1fd417e4  sub w19, w14, #0x180                             swiss.sib.blastp4j.align.GappedAligner$ExRows/0x000003f00108a800::row
+    0.43%  0xff9c1fd41744  cmp w18, w19                                     swiss.sib.blastp4j.align.GappedAligner$ExRows/0x000003f00108a800::row
+    0.43%  0xff9c1fcfd604  ldrsb w10, [x6, #13]                             swiss.sib.blastp4j.seed.WordFinder::extendTwoHit
+    0.42%  0xff9c1fd8f15c  add w19, w19, w7                                 swiss.sib.blastp4j.align.GappedAligner$ExRows/0x000003f00108a800::scoreRows
+    0.41%  0xff9c1fd1f108  ldr w7, [x13, #12]                               swiss.sib.blastp4j.align.GappedAligner$Rows/0x000003f001083c00::rows
+    0.41%  0xff9c1fd41804  add w17, w17, #0x40                              swiss.sib.blastp4j.align.GappedAligner$ExRows/0x000003f00108a800::row
+    0.40%  0xff9c1fd1f3c8  cmp w13, w17                                     swiss.sib.blastp4j.align.GappedAligner$Rows/0x000003f001083c00::rows
+    0.39%  0xff9c1fd1f0e4  cmp w19, w14                                     swiss.sib.blastp4j.align.GappedAligner$Rows/0x000003f001083c00::rows
+    0.38%  0xff9c1fd1f100  add x13, x21, w13, sxtw #2                       swiss.sib.blastp4j.align.GappedAligner$Rows/0x000003f001083c00::rows
+    0.38%  0xff9c1fd1f0f8  and w13, w7, #0x1f                               swiss.sib.blastp4j.align.GappedAligner$Rows/0x000003f001083c00::rows
+    0.38%  0xff9c1fd8f198  cmp w16, w19                                     swiss.sib.blastp4j.align.GappedAligner$ExRows/0x000003f00108a800::scoreRows
+
+hardware events by method (jvm-events.txt):
+totals: cycles 1060.2G, branch-misses 12.4G, l1d_cache_refill 4.0G, stall_backend 218.9G, stall_frontend 70.3G
+share of each event&#x27;s total (per 1,000 cycles in the method, scaled to perf stat&#x27;s counts per cycle):
+                                                                    cycles             branch-misses          l1d_cache_refill             stall_backend            stall_frontend
+lign.GappedAligner$Rows/0x000003f001083c00::rows                    26.03%          28.89% (  12.9)           1.43% (   0.2)          15.35% ( 114.6)          21.89% (  50.6)
+4j.seed.BatchWordFinder/0x000003f001082000::find                    17.86%          15.12% (   9.8)          45.16% (   8.2)          32.63% ( 355.0)          11.54% (  38.9)
+swiss.sib.blastp4j.seed.WordFinder::extendTwoHit                    13.01%          15.04% (  13.4)          22.09% (   5.5)          18.90% ( 282.4)          11.41% (  52.8)
+ppedAligner$ExRows/0x000003f00108a800::scoreRows                    11.20%           8.06% (   8.4)           0.50% (   0.1)           6.07% ( 105.2)           6.19% (  33.3)
+ign.GappedAligner$ExRows/0x000003f00108a800::row                     9.79%          20.24% (  24.0)           1.40% (   0.5)           2.43% (  48.3)          16.75% ( 103.0)
+.sib.blastp4j.compo.OptimizeTargetFreq::optimize                     3.54%           1.62% (   5.3)           1.16% (   1.1)           5.46% ( 300.2)           1.22% (  20.8)
+4j.compo.OptimizeTargetFreq::factorLtriangPosDef                     2.19%           0.04% (   0.2)           0.05% (   0.1)           1.61% ( 142.9)           0.07% (   1.9)
+sib.blastp4j.compo.OptimizeTargetFreq::stepBound                     0.72%           1.60% (  26.0)           0.07% (   0.3)           0.50% ( 135.0)           1.39% ( 116.5)
+b.blastp4j.compo.OptimizeTargetFreq::multiplyByA                     0.71%           0.08% (   1.4)           0.32% (   1.5)           0.34% (  93.1)           0.13% (  11.2)
+p4j.compo.OptimizeTargetFreq::solveLtriangPosDef                     0.48%           0.01% (   0.4)           0.02% (   0.1)           0.29% ( 117.6)           0.03% (   3.3)
+blastp4j.compo.OptimizeTargetFreq::euclideanNorm                     0.47%           0.33% (   8.1)           0.03% (   0.2)           0.64% ( 262.8)           0.29% (  36.2)
+gn.GappedAligner$ExRows/0x000003f00108a800::rows                     0.47%           0.56% (  14.0)           0.23% (   1.6)           0.12% (  51.8)           0.52% (  67.0)
+j.compo.OptimizeTargetFreq::multiplyByAtranspose                     0.46%           0.01% (   0.3)           0.18% (   1.3)           0.27% ( 115.2)           0.04% (   5.0)
+ompo.OptimizeTargetFreq::scaledSymmetricProductA                     0.44%           0.01% (   0.1)           0.75% (   5.4)           0.57% ( 249.0)           0.04% (   5.3)
+d.BatchWordFinder/0x000003f001092000::find (OSR)                     0.40%           0.33% (   9.5)           0.71% (   5.7)           0.66% ( 319.0)           0.31% (  46.2)
+elsewhere                                                            9.47%                     5.64%                    20.64%                    11.43%                    24.44%
+== async-profiler (almost)
+flame graph: target/compare/almost-profile.html (identical)
+self time, top 15 methods:
+ 27.08%  GappedAligner$Rows.rows_[j]
+ 17.39%  BatchWordFinder.find_[j]
+ 11.48%  GappedAligner$ExRows.scoreRows_[j]
+ 10.55%  WordFinder.extendLeft_[i]
+ 10.23%  GappedAligner$ExRows.row_[j]
+  3.44%  WordFinder.extendRight_[i]
+  2.77%  logd2_u10advsimd
+  2.52%  WordFinder.extendTwoHit_[i]
+  1.98%  DoubleVector.reduceLanesTemplate_[i]
+  1.36%  DoubleVector.zero_[i]
+  1.11%  DoubleVector.intoArray_[i]
+  1.03%  WordFinder.next_[i]
+  0.42%  GappedAligner.letterA_[i]
+  0.39%  GappedAligner$ExRows.rows_[j]
+  0.29%  GappedAligner.bLetters_[i]
+== machine code (almost)
+cycles:u samples (identical); the full listing per method in almost-machcode.txt:
+1735129 samples, 88.95% in printed compiled methods (11.05% elsewhere: interpreter, stubs, native, unprinted code)
+the 15 printed compiled methods with the most:
+   26.63%  c2 swiss.sib.blastp4j.align.GappedAligner$Rows/0x0000007e01084400::rows
+   18.34%  c2 swiss.sib.blastp4j.seed.BatchWordFinder/0x0000007e01081c00::find
+   13.39%  c2 swiss.sib.blastp4j.seed.WordFinder::extendTwoHit
+   11.34%  c2 swiss.sib.blastp4j.align.GappedAligner$ExRows/0x0000007e0108a400::scoreRows
+    9.80%  c2 swiss.sib.blastp4j.align.GappedAligner$ExRows/0x0000007e0108a400::row
+    1.86%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreqFast::optimize
+    1.51%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreqFast::factorLtriangPosDef
+    0.52%  c1 swiss.sib.blastp4j.compo.OptimizeTargetFreqFast::optimize
+    0.47%  c2 swiss.sib.blastp4j.compo.CompositionAdjustment::scoresStdAlphabet
+    0.46%  c2 swiss.sib.blastp4j.align.GappedAligner$ExRows/0x0000007e0108a400::rows
+    0.41%  c2 swiss.sib.blastp4j.seed.BatchWordFinder/0x0000007e01081c00::find
+    0.36%  c2 swiss.sib.blastp4j.compo.CompoRedo::redo
+    0.36%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreqFast::axpby
+    0.34%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreqFast::stepBound
+    0.34%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreqFast::solveLtriangPosDef
+
+the 40 instructions with the most samples:
+    6.33%  0xff5197d1da4c  cmp w23, w2                                      swiss.sib.blastp4j.align.GappedAligner$Rows/0x0000007e01084400::rows
+    4.83%  0xff5197d1da54  sub w17, w23, #0xc                               swiss.sib.blastp4j.align.GappedAligner$Rows/0x0000007e01084400::rows
+    3.54%  0xff5197d69950  ldr w12, [sp, #20]                               swiss.sib.blastp4j.seed.BatchWordFinder/0x0000007e01081c00::find
+    2.54%  0xff5197d640ec  cmp w16, w10                                     swiss.sib.blastp4j.align.GappedAligner$ExRows/0x0000007e0108a400::scoreRows
+    2.47%  0xff5197d8054c  ldr w13, [x21, #12]                              swiss.sib.blastp4j.align.GappedAligner$ExRows/0x0000007e0108a400::row
+    1.91%  0xff5197d69c08  cmp w13, w17                                     swiss.sib.blastp4j.seed.BatchWordFinder/0x0000007e01081c00::find
+    1.88%  0xff5197d640f4  ldr w7, [sp, #124]                               swiss.sib.blastp4j.align.GappedAligner$ExRows/0x0000007e0108a400::scoreRows
+    1.63%  0xff5197d1da20  add x17, x16, w3, sxtw                           swiss.sib.blastp4j.align.GappedAligner$Rows/0x0000007e01084400::rows
+    1.46%  0xff5197d80500  add x10, x6, x10                                 swiss.sib.blastp4j.align.GappedAligner$ExRows/0x0000007e0108a400::row
+    1.33%  0xff5197d69c20  sub w11, w12, #0x28                              swiss.sib.blastp4j.seed.BatchWordFinder/0x0000007e01081c00::find
+    1.25%  0xff5197d1da70  b 0x0000ff5197d1d9f0                             swiss.sib.blastp4j.align.GappedAligner$Rows/0x0000007e01084400::rows
+    1.24%  0xff5197d69c90  sub w11, w18, #0x28                              swiss.sib.blastp4j.seed.BatchWordFinder/0x0000007e01081c00::find
+    1.21%  0xff5197d640e8  ldr w24, [x17, #12]                              swiss.sib.blastp4j.align.GappedAligner$ExRows/0x0000007e0108a400::scoreRows
+    1.02%  0xff5197d1da84  orr w1, wzr, #0xc0000000                         swiss.sib.blastp4j.align.GappedAligner$Rows/0x0000007e01084400::rows
+    1.01%  0xff5197d0049c  sub w15, w25, #0x2                               swiss.sib.blastp4j.seed.WordFinder::extendTwoHit
+    0.93%  0xff5197d69b38  cmp w10, w13                                     swiss.sib.blastp4j.seed.BatchWordFinder/0x0000007e01081c00::find
+    0.89%  0xff5197d00448  sub w18, w18, #0x2                               swiss.sib.blastp4j.seed.WordFinder::extendTwoHit
+    0.77%  0xff5197d00494  cmp w16, w15                                     swiss.sib.blastp4j.seed.WordFinder::extendTwoHit
+    0.71%  0xff5197d69ccc  ldr w10, [sp, #64]                               swiss.sib.blastp4j.seed.BatchWordFinder/0x0000007e01081c00::find
+    0.69%  0xff5197d69c74  ldr w10, [sp, #64]                               swiss.sib.blastp4j.seed.BatchWordFinder/0x0000007e01081c00::find
+    0.69%  0xff5197d1da14  lsl w17, w3, #1                                  swiss.sib.blastp4j.align.GappedAligner$Rows/0x0000007e01084400::rows
+    0.61%  0xff5197d1da68  cmp w23, w0                                      swiss.sib.blastp4j.align.GappedAligner$Rows/0x0000007e01084400::rows
+    0.57%  0xff5197d80548  csel w17, wzr, w17, gt                           swiss.sib.blastp4j.align.GappedAligner$ExRows/0x0000007e0108a400::row
+    0.53%  0xff5197d64070  sub w7, w16, #0x180                              swiss.sib.blastp4j.align.GappedAligner$ExRows/0x0000007e0108a400::scoreRows
+    0.52%  0xff5197d804e4  cmp w16, w24                                     swiss.sib.blastp4j.align.GappedAligner$ExRows/0x0000007e0108a400::row
+    0.51%  0xff5197d004c8  cmp w15, w23                                     swiss.sib.blastp4j.seed.WordFinder::extendTwoHit
+    0.51%  0xff5197d1da30  cmp w21, w1                                      swiss.sib.blastp4j.align.GappedAligner$Rows/0x0000007e01084400::rows
+    0.50%  0xff5197d1da5c  cmp w1, w17                                      swiss.sib.blastp4j.align.GappedAligner$Rows/0x0000007e01084400::rows
+    0.48%  0xff5197d00480  cmp w16, w14                                     swiss.sib.blastp4j.seed.WordFinder::extendTwoHit
+    0.48%  0xff5197d80540  cmp w18, w13                                     swiss.sib.blastp4j.align.GappedAligner$ExRows/0x0000007e0108a400::row
+    0.46%  0xff5197d8055c  sub w19, w14, #0x180                             swiss.sib.blastp4j.align.GappedAligner$ExRows/0x0000007e0108a400::row
+    0.46%  0xff5197d804c4  cmp w18, w19                                     swiss.sib.blastp4j.align.GappedAligner$ExRows/0x0000007e0108a400::row
+    0.43%  0xff5197d640bc  add w20, w19, w15                                swiss.sib.blastp4j.align.GappedAligner$ExRows/0x0000007e0108a400::scoreRows
+    0.43%  0xff5197d8057c  add w17, w17, #0x40                              swiss.sib.blastp4j.align.GappedAligner$ExRows/0x0000007e0108a400::row
+    0.43%  0xff5197d00634  ldr w14, [x3, #16]                               swiss.sib.blastp4j.seed.WordFinder::extendTwoHit
+    0.41%  0xff5197d1da48  ldr w4, [x17, #12]                               swiss.sib.blastp4j.align.GappedAligner$Rows/0x0000007e01084400::rows
+    0.40%  0xff5197d1da24  cmp w19, w22                                     swiss.sib.blastp4j.align.GappedAligner$Rows/0x0000007e01084400::rows
+    0.40%  0xff5197d1da2c  ldrb w4, [x17, #12]                              swiss.sib.blastp4j.align.GappedAligner$Rows/0x0000007e01084400::rows
+    0.40%  0xff5197d1da40  add x17, x20, w1, sxtw #2                        swiss.sib.blastp4j.align.GappedAligner$Rows/0x0000007e01084400::rows
+    0.40%  0xff5197d640f8  cmp w16, w7                                      swiss.sib.blastp4j.align.GappedAligner$ExRows/0x0000007e0108a400::scoreRows
+
+hardware events by method (almost-events.txt):
+totals: cycles 1026.8G, branch-misses 11.9G, l1d_cache_refill 4.4G, stall_backend 221.6G, stall_frontend 67.5G
+share of each event&#x27;s total (per 1,000 cycles in the method, scaled to perf stat&#x27;s counts per cycle):
+                                                                    cycles             branch-misses          l1d_cache_refill             stall_backend            stall_frontend
+lign.GappedAligner$Rows/0x0000007e01084400::rows                    26.93%          29.81% (  12.7)           1.38% (   0.2)          15.09% ( 106.2)          22.67% (  50.9)
+4j.seed.BatchWordFinder/0x0000007e01081c00::find                    18.50%          15.75% (   9.8)          41.04% (   7.5)          31.95% ( 327.5)          12.15% (  39.7)
+swiss.sib.blastp4j.seed.WordFinder::extendTwoHit                    13.51%          15.74% (  13.4)          20.19% (   5.0)          18.54% ( 260.2)          12.05% (  54.0)
+ppedAligner$ExRows/0x0000007e0108a400::scoreRows                    11.56%           8.49% (   8.4)           0.43% (   0.1)           5.99% (  98.3)           6.54% (  34.2)
+ign.GappedAligner$ExRows/0x0000007e0108a400::row                     9.98%          21.53% (  24.8)           1.25% (   0.4)           2.69% (  51.2)          17.10% ( 103.7)
+.blastp4j.compo.OptimizeTargetFreqFast::optimize                     1.88%           0.06% (   0.4)           0.44% (   0.8)           2.01% ( 202.0)           0.19% (   6.1)
+ompo.OptimizeTargetFreqFast::factorLtriangPosDef                     1.53%           0.02% (   0.2)           0.06% (   0.1)           0.99% ( 123.4)           0.06% (   2.3)
+.blastp4j.compo.OptimizeTargetFreqFast::optimize                     0.51%           0.01% (   0.3)           4.32% (  28.6)           1.58% ( 588.0)           0.15% (  18.1)
+j.compo.CompositionAdjustment::scoresStdAlphabet                     0.47%           0.24% (   5.8)           0.46% (   3.3)           0.66% ( 263.3)           0.44% (  56.3)
+gn.GappedAligner$ExRows/0x0000007e0108a400::rows                     0.47%           0.60% (  14.8)           0.21% (   1.5)           0.13% (  55.0)           0.52% (  67.7)
+4j.seed.BatchWordFinder/0x0000007e01081c00::find                     0.39%           0.32% (   9.3)           0.65% (   5.5)           0.67% ( 324.3)           0.26% (  39.8)
+swiss.sib.blastp4j.compo.CompoRedo::redo                             0.37%           0.31% (   9.6)           0.58% (   5.3)           0.43% ( 219.0)           0.76% ( 125.2)
+sib.blastp4j.compo.OptimizeTargetFreqFast::axpby                     0.36%           0.02% (   0.7)           0.27% (   2.5)           0.35% ( 186.1)           0.06% (  10.1)
+blastp4j.compo.OptimizeTargetFreqFast::stepBound                     0.35%           0.00% (   0.0)           0.04% (   0.4)           1.09% ( 598.6)           0.01% (   2.5)
+compo.OptimizeTargetFreqFast::solveLtriangPosDef                     0.34%           0.01% (   0.5)           0.02% (   0.2)           0.31% ( 173.9)           0.04% (   6.7)
+elsewhere                                                           10.19%                     5.46%                    24.68%                    15.45%                    24.66%
+== async-profiler (fast)
+flame graph: target/compare/fast-profile.html (identical)
+self time, top 15 methods:
+ 19.92%  GappedAligner$ExRows.row_[j]
+ 18.08%  GappedAligner$Rows.rows_[j]
+ 16.11%  GappedAligner$ExRows.scoreRows_[j]
+ 10.54%  FastBatchWordFinder.find_[j]
+  5.37%  OptimizeTargetFreq.optimize_[j]
+  4.75%  __ieee754_log
+  3.29%  OptimizeTargetFreq.factorLtriangPosDef_[j]
+  1.47%  IntVector128$IntMask128.toLong_[i]
+  1.21%  OptimizeTargetFreq.stepBound_[j]
+  1.02%  OptimizeTargetFreq.multiplyByA_[j]
+  0.82%  OptimizeTargetFreq.solveLtriangPosDef_[j]
+  0.80%  OptimizeTargetFreq.multiplyByAtranspose_[j]
+  0.77%  GappedAligner$ExRows.rows_[j]
+  0.73%  FastBatchWordFinder.positionsWithHits_[j]
+  0.61%  OptimizeTargetFreq.scaledSymmetricProductA_[j]
+== machine code (fast)
+cycles:u samples (identical); the full listing per method in fast-machcode.txt:
+1184310 samples, 81.66% in printed compiled methods (18.34% elsewhere: interpreter, stubs, native, unprinted code)
+the 15 printed compiled methods with the most:
+   19.11%  c2 swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::row
+   17.05%  c2 swiss.sib.blastp4j.align.GappedAligner$Rows/0x00007f8001082400::rows
+   14.50%  c2 swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::scoreRows
+   11.46%  c2 swiss.sib.blastp4j.seed.FastBatchWordFinder::find
+    5.11%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::optimize
+    3.12%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::factorLtriangPosDef
+    2.07%  c2 swiss.sib.blastp4j.seed.FastBatchWordFinder::positionsWithHits
+    1.02%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::multiplyByA
+    1.01%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::stepBound
+    0.92%  c2 swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::rows
+    0.70%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::solveLtriangPosDef
+    0.67%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::multiplyByAtranspose
+    0.67%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::euclideanNorm
+    0.65%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::scaledSymmetricProductA
+    0.47%  c2 swiss.sib.blastp4j.seed.CompressedTable$Neighbours::neighbours
+
+the 40 instructions with the most samples:
+    5.06%  0xff27d3d21018  ldr w14, [sp, #40]                               swiss.sib.blastp4j.seed.FastBatchWordFinder::find
+    4.74%  0xff27d3d4d8d4  ldr w13, [x21, #12]                              swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::row
+    4.12%  0xff27d3d1300c  cmp w23, w2                                      swiss.sib.blastp4j.align.GappedAligner$Rows/0x00007f8001082400::rows
+    3.26%  0xff27d3d4e32c  cmp w18, w10                                     swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::scoreRows
+    3.08%  0xff27d3d13014  sub w17, w23, #0xc                               swiss.sib.blastp4j.align.GappedAligner$Rows/0x00007f8001082400::rows
+    2.76%  0xff27d3d20f1c  ldr w12, [sp, #56]                               swiss.sib.blastp4j.seed.FastBatchWordFinder::find
+    2.58%  0xff27d3d4d88c  cmp w17, w15                                     swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::row
+    2.37%  0xff27d3d4e334  ldr w20, [sp, #124]                              swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::scoreRows
+    1.51%  0xff27d3d4e328  ldr w22, [x15, #12]                              swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::scoreRows
+    1.33%  0xff27d3d4d8d0  csel w17, wzr, w17, gt                           swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::row
+    1.00%  0xff27d3d12fe0  add x17, x16, w3, sxtw                           swiss.sib.blastp4j.align.GappedAligner$Rows/0x00007f8001082400::rows
+    0.99%  0xff27d3d4d8e4  sub w19, w14, #0x180                             swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::row
+    0.98%  0xff27d3d4d86c  cmp w16, w24                                     swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::row
+    0.81%  0xff27d3d13030  b 0x0000ff27d3d12fb0                             swiss.sib.blastp4j.align.GappedAligner$Rows/0x00007f8001082400::rows
+    0.78%  0xff27d3d4d904  add w17, w17, #0x40                              swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::row
+    0.76%  0xff27d3d4d844  cmp w18, w19                                     swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::row
+    0.72%  0xff27d3d4e2b0  sub w20, w18, #0x180                             swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::scoreRows
+    0.61%  0xff27d3d4d8c8  cmp w18, w13                                     swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::row
+    0.59%  0xff27d3d13044  str w27, [x24, #12]                              swiss.sib.blastp4j.align.GappedAligner$Rows/0x00007f8001082400::rows
+    0.57%  0xff27d3d4e2fc  add w21, w15, w13                                swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::scoreRows
+    0.56%  0xff27d3d4d85c  mov w0, w16                                      swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::row
+    0.53%  0xff27d3d4d858  str w14, [x21, #12]                              swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::row
+    0.51%  0xff27d3d723d8  ldr d17, [x25, #16]                              swiss.sib.blastp4j.compo.OptimizeTargetFreq::factorLtriangPosDef
+    0.50%  0xff27d3d4e338  cmp w18, w20                                     swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::scoreRows
+    0.45%  0xff27d3d4e370  str w1, [x19, #12]                               swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::scoreRows
+    0.42%  0xff27d3d20f44  ldr w13, [sp]                                    swiss.sib.blastp4j.seed.FastBatchWordFinder::find
+    0.42%  0xff27d3d12fd4  lsl w17, w3, #1                                  swiss.sib.blastp4j.align.GappedAligner$Rows/0x00007f8001082400::rows
+    0.41%  0xff27d3d21114  str w10, [sp, #64]                               swiss.sib.blastp4j.seed.FastBatchWordFinder::find
+    0.41%  0xff27d3d21088  ldr w14, [sp, #44]                               swiss.sib.blastp4j.seed.FastBatchWordFinder::find
+    0.40%  0xff27d3d13028  cmp w23, w0                                      swiss.sib.blastp4j.align.GappedAligner$Rows/0x00007f8001082400::rows
+    0.32%  0xff27d3d4d854  add w17, w17, #0x10                              swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::row
+    0.32%  0xff27d3d12ff0  cmp w21, w1                                      swiss.sib.blastp4j.align.GappedAligner$Rows/0x00007f8001082400::rows
+    0.32%  0xff27d3d4e318  add x15, x15, w21, sxtw #2                       swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::scoreRows
+    0.31%  0xff27d3d4e308  cmp w18, w23                                     swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::scoreRows
+    0.31%  0xff27d3d1301c  cmp w1, w17                                      swiss.sib.blastp4j.align.GappedAligner$Rows/0x00007f8001082400::rows
+    0.31%  0xff27d3d4d898  ldr w20, [sp, #80]                               swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::row
+    0.30%  0xff27d3d4d8cc  ldr w22, [x10, #12]                              swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::row
+    0.29%  0xff27d3d4e2e8  sxtw x15, w16                                    swiss.sib.blastp4j.align.GappedAligner$ExRows/0x00007f8001089c00::scoreRows
+    0.29%  0xff27d3d20f78  ldr w11, [sp, #168]                              swiss.sib.blastp4j.seed.FastBatchWordFinder::find
+    0.28%  0xff27d3d8a7ec  cmp w27, w11                                     swiss.sib.blastp4j.compo.OptimizeTargetFreq::optimize
+
+hardware events by method (fast-events.txt):
+totals: cycles 697.8G, branch-misses 7.5G, l1d_cache_refill 3.2G, stall_backend 146.8G, stall_frontend 53.6G
+share of each event&#x27;s total (per 1,000 cycles in the method, scaled to perf stat&#x27;s counts per cycle):
+                                                                    cycles             branch-misses          l1d_cache_refill             stall_backend            stall_frontend
+ign.GappedAligner$ExRows/0x00007f8001089c00::row                    19.54%          42.46% (  23.8)           2.13% (   0.5)           4.90% (  53.2)          27.97% (  91.3)
+lign.GappedAligner$Rows/0x00007f8001082400::rows                    17.29%          19.93% (  12.6)           0.93% (   0.2)          10.04% ( 123.1)          12.17% (  44.9)
+ppedAligner$ExRows/0x00007f8001089c00::scoreRows                    14.84%          11.96% (   8.8)           0.56% (   0.2)           7.85% ( 112.2)           7.27% (  31.2)
+wiss.sib.blastp4j.seed.FastBatchWordFinder::find                    11.59%           4.96% (   4.7)          31.14% (  11.8)          39.39% ( 720.7)           3.56% (  19.6)
+.sib.blastp4j.compo.OptimizeTargetFreq::optimize                     5.19%           2.69% (   5.7)           1.38% (   1.2)           7.88% ( 321.5)           1.61% (  19.8)
+4j.compo.OptimizeTargetFreq::factorLtriangPosDef                     3.17%           0.05% (   0.2)           0.07% (   0.1)           2.30% ( 153.6)           0.12% (   2.5)
+tp4j.seed.FastBatchWordFinder::positionsWithHits                     2.09%           0.32% (   1.7)          17.34% (  36.3)           1.95% ( 197.8)           0.49% (  15.0)
+b.blastp4j.compo.OptimizeTargetFreq::multiplyByA                     1.04%           0.14% (   1.5)           0.40% (   1.7)           0.49% (  99.6)           0.19% (  11.6)
+sib.blastp4j.compo.OptimizeTargetFreq::stepBound                     1.03%           2.32% (  24.7)           0.10% (   0.4)           0.76% ( 155.9)           1.66% ( 102.8)
+gn.GappedAligner$ExRows/0x00007f8001089c00::rows                     0.94%           1.09% (  12.6)           0.38% (   1.8)           0.24% (  54.8)           0.78% (  53.0)
+p4j.compo.OptimizeTargetFreq::solveLtriangPosDef                     0.71%           0.03% (   0.4)           0.04% (   0.2)           0.41% ( 123.1)           0.06% (   5.2)
+j.compo.OptimizeTargetFreq::multiplyByAtranspose                     0.69%           0.02% (   0.3)           0.24% (   1.5)           0.40% ( 124.0)           0.07% (   6.1)
+blastp4j.compo.OptimizeTargetFreq::euclideanNorm                     0.68%           0.51% (   8.2)           0.04% (   0.2)           0.93% ( 290.8)           0.40% (  37.6)
+ompo.OptimizeTargetFreq::scaledSymmetricProductA                     0.66%           0.01% (   0.2)           0.93% (   6.2)           0.83% ( 263.6)           0.06% (   5.8)
+tp4j.seed.CompressedTable$Neighbours::neighbours                     0.48%           0.26% (   6.1)           0.48% (   4.4)           0.23% ( 104.1)           0.16% (  21.1)
+elsewhere                                                           16.96%                    10.51%                    33.32%                    17.58%                    39.53%</pre></section><section><h2 id="x86_64">x86_64: INTEL(R) XEON(R) PLATINUM 8573C</h2><dl class="facts"><dt>Architecture</dt><dd>x86_64</dd><dt>CPU model</dt><dd>INTEL(R) XEON(R) PLATINUM 8573C</dd><dt>Vendor</dt><dd>GenuineIntel</dd><dt>CPUs</dt><dd>4</dd><dt>Memory</dt><dd>15 GB</dd><dt>Kernel</dt><dd>7.0.0-1017-azure</dd><dt>Runner</dt><dd>ubuntu-24.04, image ubuntu24 20261116.376.1</dd><dt>JDK</dt><dd>OpenJDK Runtime Environment Temurin-27.0.1.1+4 (build 27.0.1.1+4)</dd><dt>JVM vectors</dt><dd>MaxVectorSize=64 UseAVX=3</dd><dt>CPU family</dt><dd>6</dd><dt>JVM options</dt><dd>-XX:-UseCompressedOops -XX:-UseCountedLoopSafepoints -XX:CompileCommand=quiet -XX:CompileCommand=dontinline,swiss.sib.blastp4j.compo.OptimizeTargetFreq::* -XX:CompileCommand=dontinline,swiss.sib.blastp4j.align.GappedAligner$ExRows*::row -XX:MaxVectorSize=32 --add-modules=jdk.incubator.vector</dd><dt>BLAST+</dt><dd>2.17.0</dd><dt>Code</dt><dd><code>efef397</code> (README: the last E-value difference is a defect in blastp&#x27;s erfc [skip ci])</dd><dt>Proteome</dt><dd>UP000005640_9606</dd><dt>Queries</dt><dd>750, evenly spaced (blastp-fast: 1800); rounds: 3</dd></dl><h4>Benchmarks: .  (one thread; score ± 99.9% error)</h4>
+<p>bin/jvm-options: <code>-XX:-UseCompressedOops -XX:-UseCountedLoopSafepoints -XX:CompileCommand=quiet -XX:CompileCommand=dontinline,swiss.sib.blastp4j.compo.OptimizeTargetFreq::* -XX:CompileCommand=dontinline,swiss.sib.blastp4j.align.GappedAligner$ExRows*::row -XX:MaxVectorSize=32 --add-modules=jdk.incubator.vector </code></p>
+<p>Variants: launcher <code></code>; oops-on <code>-XX:+UseCompressedOops</code>; oops-off <code>-XX:-UseCompressedOops</code>; </p>
+<div class="scroll"><table><thead><tr><th>benchmark</th><th>parameters</th><th>unit</th><th class=num>main efef397 launcher</th><th class=num>main efef397 oops-on</th><th class=num>main efef397 oops-off</th></tr></thead><tbody><tr><td>ResidueAccessBench.array</td><td></td><td>ms/op</td><td class=num>991.8 ± 14.4</td><td class=num>954.7 ± 16.7</td><td class=num>990.2 ± 2.5</td></tr><tr><td>ResidueAccessBench.chunks</td><td></td><td>ms/op</td><td class=num>1030.5 ± 97.8</td><td class=num>1014.6 ± 89.9</td><td class=num>1040.4 ± 42.7</td></tr><tr><td>ResidueAccessBench.segment</td><td></td><td>ms/op</td><td class=num>1073.5 ± 21.5</td><td class=num>1081.1 ± 116.4</td><td class=num>1087.1 ± 26.5</td></tr><tr><td>StatisticsBench.classicEvalue</td><td></td><td>ns/op</td><td class=num>6.4 ± 0.0209</td><td class=num>6.44 ± 0.0536</td><td class=num>6.4 ± 0.0357</td></tr><tr><td>StatisticsBench.spougeAndFormat</td><td></td><td>ns/op</td><td class=num>928.8 ± 11.2</td><td class=num>933.3 ± 9.06</td><td class=num>932.2 ± 5.13</td></tr><tr><td>StatisticsBench.spougeEvalue</td><td></td><td>ns/op</td><td class=num>259.0 ± 2.57</td><td class=num>257.4 ± 0.991</td><td class=num>258.1 ± 1.07</td></tr><tr><td>SegBench.segments</td><td></td><td>ms/op</td><td class=num>612.3 ± 7.41</td><td class=num>609.2 ± 3.93</td><td class=num>618.4 ± 8.09</td></tr><tr><td>DatabaseLoadBench.load</td><td>file=uniprot_sprot.fasta</td><td>ms/op</td><td class=num>50.6 ± 34.5</td><td class=num>50.9 ± 25.9</td><td class=num>50.7 ± 32.8</td></tr><tr><td>DatabaseLoadBench.load</td><td>file=uniprot_sprot.fasta.gz</td><td>ms/op</td><td class=num>133.4 ± 20.9</td><td class=num>134.4 ± 15.4</td><td class=num>134.0 ± 19.9</td></tr><tr><td>DatabaseLoadBench.load</td><td>file=blastdb/sprot</td><td>ms/op</td><td class=num>0.484 ± 0.0881</td><td class=num>0.531 ± 0.285</td><td class=num>0.776 ± 1.43</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs0, query=HBA_HUMAN, source=fasta</td><td>ms/op</td><td class=num>54.9 ± 7.6</td><td class=num>54.2 ± 5.45</td><td class=num>54.1 ± 2.04</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs0, query=HBA_HUMAN, source=blastdb</td><td>ms/op</td><td class=num>58.6 ± 7.97</td><td class=num>55.9 ± 9.08</td><td class=num>55.0 ± 7.98</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs0, query=CDK1_HUMAN, source=fasta</td><td>ms/op</td><td class=num>213.4 ± 5.49</td><td class=num>224.5 ± 3.24</td><td class=num>202.6 ± 8.16</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs0, query=CDK1_HUMAN, source=blastdb</td><td>ms/op</td><td class=num>200.8 ± 6.43</td><td class=num>222.5 ± 2.43</td><td class=num>212.5 ± 3.74</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs0, query=BRCA1_HUMAN, source=fasta</td><td>ms/op</td><td class=num>863.3 ± 57.4</td><td class=num>870.0 ± 45.9</td><td class=num>868.0 ± 56.4</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs0, query=BRCA1_HUMAN, source=blastdb</td><td>ms/op</td><td class=num>844.5 ± 8.6</td><td class=num>864.8 ± 39.2</td><td class=num>843.5 ± 7.08</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs2, query=HBA_HUMAN, source=fasta</td><td>ms/op</td><td class=num>64.2 ± 16.5</td><td class=num>60.8 ± 4.85</td><td class=num>69.5 ± 17.5</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs2, query=HBA_HUMAN, source=blastdb</td><td>ms/op</td><td class=num>59.7 ± 10.6</td><td class=num>60.5 ± 8.58</td><td class=num>62.8 ± 8.22</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs2, query=CDK1_HUMAN, source=fasta</td><td>ms/op</td><td class=num>206.8 ± 10.0</td><td class=num>206.0 ± 4.59</td><td class=num>208.4 ± 15.9</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs2, query=CDK1_HUMAN, source=blastdb</td><td>ms/op</td><td class=num>205.2 ± 15.8</td><td class=num>209.8 ± 21.9</td><td class=num>205.8 ± 11.1</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs2, query=BRCA1_HUMAN, source=fasta</td><td>ms/op</td><td class=num>832.9 ± 4.16</td><td class=num>838.7 ± 36.1</td><td class=num>838.5 ± 11.1</td></tr><tr><td>BlastpSearchBench.search</td><td>mode=cbs2, query=BRCA1_HUMAN, source=blastdb</td><td>ms/op</td><td class=num>833.1 ± 13.3</td><td class=num>824.0 ± 40.2</td><td class=num>832.7 ± 10.5</td></tr><tr><td>CompoRedoBench.redo</td><td>query=CDK1_HUMAN</td><td>ms/op</td><td class=num>164.9 ± 30.6</td><td class=num>183.2 ± 64.3</td><td class=num>165.4 ± 25.2</td></tr><tr><td>CompoRedoBench.redo</td><td>query=BRCA1_HUMAN</td><td>ms/op</td><td class=num>204.5 ± 55.2</td><td class=num>205.5 ± 22.5</td><td class=num>201.6 ± 19.2</td></tr><tr><td>ExhaustiveSearchBench.search</td><td>query=HBA_HUMAN</td><td>s/op</td><td class=num>0.383 ± 0.00608</td><td class=num>0.382 ± 0.00635</td><td class=num>0.388 ± 0.0279</td></tr><tr><td>ExhaustiveSearchBench.search</td><td>query=CDK1_HUMAN</td><td>s/op</td><td class=num>0.592 ± 0.0376</td><td class=num>0.577 ± 0.0438</td><td class=num>0.625 ± 0.0272</td></tr><tr><td>GappedScoreBench.gapped</td><td>query=CDK1_HUMAN</td><td>ms/op</td><td class=num>41.4 ± 17.3</td><td class=num>41.2 ± 12.9</td><td class=num>42.6 ± 18.3</td></tr><tr><td>GappedScoreBench.gapped</td><td>query=BRCA1_HUMAN</td><td>ms/op</td><td class=num>317.9 ± 12.5</td><td class=num>319.5 ± 14.2</td><td class=num>314.4 ± 3.25</td></tr><tr><td>RowKernelBench.extend</td><td>query=CDK1_HUMAN, restricted=false</td><td>ms/op</td><td class=num>34.9 ± 2.62</td><td class=num>34.9 ± 0.585</td><td class=num>34.7 ± 2.18</td></tr><tr><td>RowKernelBench.extend</td><td>query=BRCA1_HUMAN, restricted=false</td><td>ms/op</td><td class=num>186.5 ± 0.875</td><td class=num>192.6 ± 0.283</td><td class=num>186.6 ± 0.503</td></tr><tr><td>SeedSearchBench.seed</td><td>query=HBA_HUMAN</td><td>ms/op</td><td class=num>50.0 ± 4.33</td><td class=num>47.7 ± 3.82</td><td class=num>48.7 ± 3.99</td></tr><tr><td>SeedSearchBench.seed</td><td>query=CDK1_HUMAN</td><td>ms/op</td><td class=num>101.9 ± 3.04</td><td class=num>103.9 ± 2.22</td><td class=num>101.9 ± 2.45</td></tr><tr><td>SeedSearchBench.seed</td><td>query=BRCA1_HUMAN</td><td>ms/op</td><td class=num>549.8 ± 9.48</td><td class=num>562.9 ± 7.84</td><td class=num>565.3 ± 41.1</td></tr><tr><td>BatchScanBench.scan</td><td>batchSize=1000</td><td>ms/op</td><td class=num>462.3 ± 9.25</td><td class=num>448.2 ± 1.73</td><td class=num>463.0 ± 14.2</td></tr><tr><td>BatchScanBench.scan</td><td>batchSize=10000</td><td>ms/op</td><td class=num>2057.5 ± 80.7</td><td class=num>2033.9 ± 21.3</td><td class=num>2046.5 ± 21.6</td></tr><tr><td>WordFinderBench.find</td><td>query=HBA_HUMAN</td><td>ms/op</td><td class=num>50.0 ± 8.49</td><td class=num>49.7 ± 13.1</td><td class=num>47.9 ± 6.31</td></tr><tr><td>WordFinderBench.find</td><td>query=CDK1_HUMAN</td><td>ms/op</td><td class=num>100.9 ± 6.87</td><td class=num>101.6 ± 5.63</td><td class=num>100.7 ± 12.7</td></tr></tbody></table></div>
+<h4>Full search, 4 threads</h4>
+<pre>systems: blast jvm almost blastfast fast; query ../data/queries.fasta (blastp-fast: ../data/fast-queries.fasta); db ../data/blastdb/sprot; 4 threads; output in target/compare
+== timing, 3 rounds (wall s, user s, sys s)
+round 1 blast: 164.72 651.16 0.71 (reference)
+round 1 jvm: 101.56 369.42 0.61 (identical)
+round 1 almost: 96.05 346.57 0.76 (identical)
+round 1 blastfast: 107.74 425.72 1.66 (reference)
+round 1 fast: 62.86 229.29 1.24 (identical)
+round 2 blast: 164.14 649.73 0.68 (identical)
+round 2 jvm: 102.20 370.87 0.80 (identical)
+round 2 almost: 98.35 354.68 0.73 (identical)
+round 2 blastfast: 109.45 432.27 1.73 (identical)
+round 2 fast: 63.86 231.79 1.38 (identical)
+round 3 blast: 164.27 649.42 0.96 (identical)
+round 3 jvm: 101.92 370.70 0.68 (identical)
+round 3 almost: 95.55 345.30 0.65 (identical)
+round 3 blastfast: 108.11 427.56 1.72 (identical)
+round 3 fast: 62.65 228.44 1.22 (identical)
+blast median wall: 164.27 s
+jvm median wall: 101.92 s
+almost median wall: 96.05 s
+blastfast median wall: 108.11 s
+fast median wall: 62.86 s
+== perf stat
+skipped: no hardware counters (perf stat -e cycles:u)
+== async-profiler (jvm)
+flame graph: target/compare/jvm-profile.html (identical)
+self time, top 15 methods:
+ 16.62%  BatchWordFinder.find_[j]
+ 16.46%  IntVector.lanewiseTemplate_[i]
+ 11.27%  IntVector.intoArray_[i]
+ 10.29%  WordFinder.extendLeft_[i]
+  3.89%  WordFinder.extendRight_[i]
+  3.79%  dlog_stub (stub gen)
+  3.58%  IntVector256$IntMask256.laneIsSet_[i]
+  3.02%  WordFinder.extendTwoHit_[i]
+  2.77%  OptimizeTargetFreq.factorLtriangPosDef_[j]
+  2.74%  OptimizeTargetFreq.optimize_[j]
+  1.98%  IntVector.blendTemplate_[i]
+  1.50%  IntVector256$IntMask256.or_[i]
+  1.48%  SemiGappedLanes.start_[j]
+  1.18%  OptimizeTargetFreq.stepBound_[j]
+  1.08%  OptimizeTargetFreq.multiplyByA_[j]
+== machine code (jvm)
+cpu-clock:u samples (identical); the full listing per method in jvm-machcode.txt:
+1960376 samples, 87.28% in printed compiled methods (12.72% elsewhere: interpreter, stubs, native, unprinted code)
+the 15 printed compiled methods with the most:
+   17.27%  c2 swiss.sib.blastp4j.align.SemiGappedLanes::row
+   16.80%  c2 swiss.sib.blastp4j.seed.BatchWordFinder/0x0000000036081c00::find
+   15.90%  c2 swiss.sib.blastp4j.seed.WordFinder::extendTwoHit
+   15.00%  c2 swiss.sib.blastp4j.align.TracebackLanes::row
+    3.66%  c2 swiss.sib.blastp4j.align.SemiGappedLanes::step
+    2.76%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::optimize
+    2.67%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::factorLtriangPosDef
+    1.43%  c2 swiss.sib.blastp4j.align.SemiGappedLanes::start
+    1.33%  c2 swiss.sib.blastp4j.align.TracebackLanes::step
+    1.16%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::stepBound
+    1.10%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::multiplyByA
+    0.65%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::solveLtriangPosDef
+    0.59%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::multiplyByAtranspose
+    0.55%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::euclideanNorm
+    0.55%  c2 swiss.sib.blastp4j.align.SemiGappedLanes::letters
+
+the 40 instructions with the most samples:
+    4.92%  0x7fe8c3d4f0b6  vpblendmd ymm5{k7},ymm5,ymm25                    swiss.sib.blastp4j.align.SemiGappedLanes::row
+    3.09%  0x7fe8c3e25a34  vpaddd ymm4,ymm4,YMMWORD PTR [r13+r8*4+0xc]      swiss.sib.blastp4j.align.TracebackLanes::row
+    2.05%  0x7fe8c3d9836e  mov ebx,r9d                                      swiss.sib.blastp4j.seed.BatchWordFinder/0x0000000036081c00::find
+    1.31%  0x7fe8c3d983ab  cmp r8d,DWORD PTR [rsp+0x10]                     swiss.sib.blastp4j.seed.BatchWordFinder/0x0000000036081c00::find
+    1.00%  0x7fe8c3d4f0d3  vpmaxsd ymm6,ymm5,ymm6                           swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.89%  0x7fe8c3d9839e  mov r11d,DWORD PTR [rsp+0xa8]                    swiss.sib.blastp4j.seed.BatchWordFinder/0x0000000036081c00::find
+    0.84%  0x7fe8c3d9834b  mov DWORD PTR [rsp+0xa8],r11d                    swiss.sib.blastp4j.seed.BatchWordFinder/0x0000000036081c00::find
+    0.83%  0x7fe8c3d4f0cd  vpsubd ymm5,ymm12,ymm16                          swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.82%  0x7fe8c3d9825b  mov DWORD PTR [rsp+0x6c],r8d                     swiss.sib.blastp4j.seed.BatchWordFinder/0x0000000036081c00::find
+    0.77%  0x7fe8c3d1f0e8  mov r8d,DWORD PTR [rsp+0x24]                     swiss.sib.blastp4j.seed.WordFinder::extendTwoHit
+    0.67%  0x7fe8c3e25b10  vmovq r8,xmm30                                   swiss.sib.blastp4j.align.TracebackLanes::row
+    0.66%  0x7fe8c3d4f0c8  vpmaxsd ymm12,ymm5,ymm12                         swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.66%  0x7fe8c3d4f0f0  vpblendmd ymm8{k6},ymm6,ymm8                     swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.66%  0x7fe8c3d4f102  vmovdqu YMMWORD PTR [r8+r11*4+0xc],ymm9          swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.64%  0x7fe8c3d4f120  vpmaxsd ymm20,ymm9,ymm20                         swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.61%  0x7fe8c3d4f0d8  vpmaxsd ymm5,ymm5,ymm29                          swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.60%  0x7fe8c3d98322  mov r11d,DWORD PTR [rsp+0xa8]                    swiss.sib.blastp4j.seed.BatchWordFinder/0x0000000036081c00::find
+    0.58%  0x7fe8c3e259b4  vpxor xmm2,xmm2,xmm2                             swiss.sib.blastp4j.align.TracebackLanes::row
+    0.52%  0x7fe8c3d9837f  add r10d,0x27                                    swiss.sib.blastp4j.seed.BatchWordFinder/0x0000000036081c00::find
+    0.52%  0x7fe8c3d98356  sub r11d,DWORD PTR [rsp+0xb8]                    swiss.sib.blastp4j.seed.BatchWordFinder/0x0000000036081c00::find
+    0.52%  0x7fe8c3d4f0bc  vmovq r8,xmm1                                    swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.51%  0x7fe8c3d98390  or r8d,r10d                                      swiss.sib.blastp4j.seed.BatchWordFinder/0x0000000036081c00::find
+    0.47%  0x7fe8c3d4f0ab  lea r8,[rcx+0xc]                                 swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.46%  0x7fe8c3d98317  mov r10,QWORD PTR [rsp+0x38]                     swiss.sib.blastp4j.seed.BatchWordFinder/0x0000000036081c00::find
+    0.45%  0x7fe8c3e25a4f  vpmaxsd ymm7,ymm8,ymm2                           swiss.sib.blastp4j.align.TracebackLanes::row
+    0.44%  0x7fe8c3d9830d  andn r10d,r12d,DWORD PTR [rsp+0x34]              swiss.sib.blastp4j.seed.BatchWordFinder/0x0000000036081c00::find
+    0.43%  0x7fe8c3e259a8  vmovq r8,xmm29                                   swiss.sib.blastp4j.align.TracebackLanes::row
+    0.43%  0x7fe8c3d1f040  add r8d,r9d                                      swiss.sib.blastp4j.seed.WordFinder::extendTwoHit
+    0.43%  0x7fe8c3e25a54  vpsubd ymm5,ymm4,ymm10                           swiss.sib.blastp4j.align.TracebackLanes::row
+    0.43%  0x7fe8c3d1f07a  add eax,r8d                                      swiss.sib.blastp4j.seed.WordFinder::extendTwoHit
+    0.43%  0x7fe8c3e25ae8  vpcmpnltd k7,ymm3,ymm5                           swiss.sib.blastp4j.align.TracebackLanes::row
+    0.42%  0x7fe8c3d9830a  and r9d,r12d                                     swiss.sib.blastp4j.seed.BatchWordFinder/0x0000000036081c00::find
+    0.40%  0x7fe8c3e25afa  kandb k7,k2,k7                                   swiss.sib.blastp4j.align.TracebackLanes::row
+    0.40%  0x7fe8c3d98377  mov r10d,ebx                                     swiss.sib.blastp4j.seed.BatchWordFinder/0x0000000036081c00::find
+    0.38%  0x7fe8c3d4f090  vpmaxsd ymm12,ymm8,ymm10                         swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.38%  0x7fe8c3e25a3b  vpbroadcastd ymm7,DWORD PTR [rip+0xfffffffffffff9d0] # 0x00007fe8c3e25414 swiss.sib.blastp4j.align.TracebackLanes::row
+    0.38%  0x7fe8c3d98302  add r12d,0xffffffd8                              swiss.sib.blastp4j.seed.BatchWordFinder/0x0000000036081c00::find
+    0.37%  0x7fe8c3d4f038  vpord ymm5,ymm17,YMMWORD PTR [r14+r8*4+0xc]      swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.37%  0x7fe8c3d1f05e  add r9d,DWORD PTR [r11+rax*4+0xc]                swiss.sib.blastp4j.seed.WordFinder::extendTwoHit
+    0.37%  0x7fe8c3d98205  inc r10d                                         swiss.sib.blastp4j.seed.BatchWordFinder/0x0000000036081c00::find
+
+== async-profiler (almost)
+flame graph: target/compare/almost-profile.html (identical)
+self time, top 15 methods:
+ 18.16%  BatchWordFinder.find_[j]
+ 18.02%  IntVector.lanewiseTemplate_[i]
+ 12.55%  IntVector.intoArray_[i]
+ 10.94%  WordFinder.extendLeft_[i]
+  4.30%  WordFinder.extendRight_[i]
+  3.88%  IntVector256$IntMask256.laneIsSet_[i]
+  3.19%  WordFinder.extendTwoHit_[i]
+  2.14%  DoubleVector.reduceLanesTemplate_[i]
+  2.06%  IntVector.blendTemplate_[i]
+  1.63%  IntVector256$IntMask256.or_[i]
+  1.50%  SemiGappedLanes.start_[j]
+  1.41%  __jsvml_log4_ha_l9
+  0.97%  SemiGappedLanes.step_[j]
+  0.93%  IntVector.fromArray0Template_[i]
+  0.91%  WordFinder.next_[j]
+== machine code (almost)
+cpu-clock:u samples (identical); the full listing per method in almost-machcode.txt:
+1854110 samples, 88.12% in printed compiled methods (11.88% elsewhere: interpreter, stubs, native, unprinted code)
+the 15 printed compiled methods with the most:
+   18.39%  c2 swiss.sib.blastp4j.align.SemiGappedLanes::row
+   17.82%  c2 swiss.sib.blastp4j.seed.WordFinder::next
+   17.18%  c2 swiss.sib.blastp4j.seed.BatchWordFinder/0x00000000810c0000::find
+   16.15%  c2 swiss.sib.blastp4j.align.TracebackLanes::row
+    3.77%  c2 swiss.sib.blastp4j.align.SemiGappedLanes::step
+    2.03%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreqFast::factorLtriangPosDef
+    1.55%  c2 swiss.sib.blastp4j.align.SemiGappedLanes::start
+    1.41%  c2 swiss.sib.blastp4j.align.TracebackLanes::step
+    1.30%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreqFast::optimize
+    0.62%  c2 swiss.sib.blastp4j.align.SemiGappedLanes::letters
+    0.56%  c2 swiss.sib.blastp4j.compo.CompositionAdjustment::scoresStdAlphabet
+    0.50%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreqFast::scaledSymmetricProductA
+    0.43%  c2 swiss.sib.blastp4j.seed.BatchWordFinder/0x00000000810c0000::find
+    0.40%  c2 swiss.sib.blastp4j.align.TracebackLanes::finish
+    0.39%  c1 swiss.sib.blastp4j.align.SemiGappedLanes::row
+
+the 40 instructions with the most samples:
+    5.22%  0x7fbf3fd570b6  vpblendmd ymm5{k7},ymm5,ymm25                    swiss.sib.blastp4j.align.SemiGappedLanes::row
+    3.41%  0x7fbf3fe55634  vpaddd ymm4,ymm4,YMMWORD PTR [r13+r8*4+0xc]      swiss.sib.blastp4j.align.TracebackLanes::row
+    1.76%  0x7fbf3fdbd0e5  mov ecx,r8d                                      swiss.sib.blastp4j.seed.BatchWordFinder/0x00000000810c0000::find
+    1.73%  0x7fbf3fdbd11f  cmp r10d,DWORD PTR [rsp+0x6c]                    swiss.sib.blastp4j.seed.BatchWordFinder/0x00000000810c0000::find
+    1.09%  0x7fbf3fd570d3  vpmaxsd ymm6,ymm5,ymm6                           swiss.sib.blastp4j.align.SemiGappedLanes::row
+    1.01%  0x7fbf3fdbd11a  mov r10d,DWORD PTR [r10+rbp*4+0xc]               swiss.sib.blastp4j.seed.BatchWordFinder/0x00000000810c0000::find
+    0.98%  0x7fbf3fdbcfd7  mov DWORD PTR [rsp+0x94],r10d                    swiss.sib.blastp4j.seed.BatchWordFinder/0x00000000810c0000::find
+    0.88%  0x7fbf3fd570cd  vpsubd ymm5,ymm12,ymm16                          swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.81%  0x7fbf3fdb9a53  vmovd edi,xmm4                                   swiss.sib.blastp4j.seed.WordFinder::next
+    0.74%  0x7fbf3fdbd0c4  mov ebp,r10d                                     swiss.sib.blastp4j.seed.BatchWordFinder/0x00000000810c0000::find
+    0.72%  0x7fbf3fd57102  vmovdqu YMMWORD PTR [r8+r11*4+0xc],ymm9          swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.71%  0x7fbf3fe55710  vmovq r8,xmm30                                   swiss.sib.blastp4j.align.TracebackLanes::row
+    0.70%  0x7fbf3fdbd0d2  and r10d,DWORD PTR [rsp+0x90]                    swiss.sib.blastp4j.seed.BatchWordFinder/0x00000000810c0000::find
+    0.70%  0x7fbf3fd570c8  vpmaxsd ymm12,ymm5,ymm12                         swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.67%  0x7fbf3fd570f0  vpblendmd ymm8{k6},ymm6,ymm8                     swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.67%  0x7fbf3fd57120  vpmaxsd ymm20,ymm9,ymm20                         swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.64%  0x7fbf3fd570d8  vpmaxsd ymm5,ymm5,ymm29                          swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.64%  0x7fbf3fdbd08c  andn r11d,r11d,DWORD PTR [rsp+0xb0]              swiss.sib.blastp4j.seed.BatchWordFinder/0x00000000810c0000::find
+    0.62%  0x7fbf3fdbd10c  or edi,r12d                                      swiss.sib.blastp4j.seed.BatchWordFinder/0x00000000810c0000::find
+    0.61%  0x7fbf3fdbd0a4  lea r10d,[rbp+0x1]                               swiss.sib.blastp4j.seed.BatchWordFinder/0x00000000810c0000::find
+    0.57%  0x7fbf3fdbd10f  jl 0x00007fbf3fdbd081                            swiss.sib.blastp4j.seed.BatchWordFinder/0x00000000810c0000::find
+    0.57%  0x7fbf3fdbd0fd  mov r11d,DWORD PTR [rsp+0xb0]                    swiss.sib.blastp4j.seed.BatchWordFinder/0x00000000810c0000::find
+    0.54%  0x7fbf3fd570bc  vmovq r8,xmm1                                    swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.51%  0x7fbf3fe5564f  vpmaxsd ymm7,ymm8,ymm2                           swiss.sib.blastp4j.align.TracebackLanes::row
+    0.50%  0x7fbf3fdbd0be  movzx r9d,WORD PTR [r8+r11*2+0xe]                swiss.sib.blastp4j.seed.BatchWordFinder/0x00000000810c0000::find
+    0.50%  0x7fbf3fe555a8  vmovq r8,xmm29                                   swiss.sib.blastp4j.align.TracebackLanes::row
+    0.49%  0x7fbf3fd570ab  lea r8,[rcx+0xc]                                 swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.47%  0x7fbf3fdbd0f9  add r12d,0x27                                    swiss.sib.blastp4j.seed.BatchWordFinder/0x00000000810c0000::find
+    0.47%  0x7fbf3fdbcf7a  inc r8d                                          swiss.sib.blastp4j.seed.BatchWordFinder/0x00000000810c0000::find
+    0.45%  0x7fbf3fe55654  vpsubd ymm5,ymm4,ymm10                           swiss.sib.blastp4j.align.TracebackLanes::row
+    0.45%  0x7fbf3fdb9a32  add r10d,r11d                                    swiss.sib.blastp4j.seed.WordFinder::next
+    0.45%  0x7fbf3fdb99fe  add r11d,ebx                                     swiss.sib.blastp4j.seed.WordFinder::next
+    0.43%  0x7fbf3fe551cf  cmp esi,ebp                                      swiss.sib.blastp4j.align.TracebackLanes::row
+    0.42%  0x7fbf3fdbd089  and r8d,r11d                                     swiss.sib.blastp4j.seed.BatchWordFinder/0x00000000810c0000::find
+    0.42%  0x7fbf3fd57090  vpmaxsd ymm12,ymm8,ymm10                         swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.42%  0x7fbf3fe556e8  vpcmpnltd k7,ymm3,ymm5                           swiss.sib.blastp4j.align.TracebackLanes::row
+    0.42%  0x7fbf3fdbd0ca  sub r10d,DWORD PTR [rsp+0xb4]                    swiss.sib.blastp4j.seed.BatchWordFinder/0x00000000810c0000::find
+    0.42%  0x7fbf3fd57038  vpord ymm5,ymm17,YMMWORD PTR [r14+r8*4+0xc]      swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.41%  0x7fbf3fe5563b  vpbroadcastd ymm7,DWORD PTR [rip+0xfffffffffffff9d0] # 0x00007fbf3fe55014 swiss.sib.blastp4j.align.TracebackLanes::row
+    0.41%  0x7fbf3fe55664  vpbroadcastd ymm6,DWORD PTR [rip+0xfffffffffffff9a7] # 0x00007fbf3fe55014 swiss.sib.blastp4j.align.TracebackLanes::row
+
+== async-profiler (fast)
+flame graph: target/compare/fast-profile.html (identical)
+self time, top 15 methods:
+ 18.62%  IntVector.intoArray_[i]
+ 14.01%  IntVector.lanewiseTemplate_[i]
+  8.02%  FastBatchWordFinder.find_[j]
+  5.63%  dlog_stub (stub gen)
+  4.40%  OptimizeTargetFreq.factorLtriangPosDef_[j]
+  4.32%  OptimizeTargetFreq.optimize_[j]
+  3.74%  IntVector256$IntMask256.laneIsSet_[i]
+  2.52%  IntVector256$IntMask256.toLong_[i]
+  2.48%  IntVector.blendTemplate_[i]
+  1.87%  OptimizeTargetFreq.stepBound_[j]
+  1.74%  OptimizeTargetFreq.multiplyByA_[j]
+  1.64%  IntVector256$IntMask256.or_[i]
+  1.09%  OptimizeTargetFreq.solveLtriangPosDef_[j]
+  1.03%  IntVector$IntSpecies.broadcastBits_[i]
+  1.02%  IntVector.fromArray0Template_[i]
+== machine code (fast)
+cpu-clock:u samples (identical); the full listing per method in fast-machcode.txt:
+1316249 samples, 76.99% in printed compiled methods (23.01% elsewhere: interpreter, stubs, native, unprinted code)
+the 15 printed compiled methods with the most:
+   24.45%  c2 swiss.sib.blastp4j.align.TracebackLanes::row
+   11.69%  c2 swiss.sib.blastp4j.align.SemiGappedLanes::row
+    8.06%  c2 swiss.sib.blastp4j.seed.FastBatchWordFinder::find
+    3.97%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::optimize
+    3.84%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::factorLtriangPosDef
+    2.57%  c2 swiss.sib.blastp4j.seed.FastBatchWordFinder::positionsWithHits
+    2.04%  c2 swiss.sib.blastp4j.align.TracebackLanes::step
+    1.69%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::stepBound
+    1.58%  c2 swiss.sib.blastp4j.align.SemiGappedLanes::step
+    1.58%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::multiplyByA
+    0.99%  c2 swiss.sib.blastp4j.seed.FastWordFinder::hit
+    0.96%  c2 swiss.sib.blastp4j.align.SemiGappedLanes::step
+    0.96%  c2 swiss.sib.blastp4j.align.SemiGappedLanes::step
+    0.92%  c2 swiss.sib.blastp4j.compo.OptimizeTargetFreq::solveLtriangPosDef
+    0.90%  c2 swiss.sib.blastp4j.align.SemiGappedLanes::start
+
+the 40 instructions with the most samples:
+    4.91%  0x7f3bbfe52626  vpaddd ymm4,ymm4,YMMWORD PTR [r13+r8*4+0xc]      swiss.sib.blastp4j.align.TracebackLanes::row
+    3.41%  0x7f3bbfe3ccb7  mov DWORD PTR [rsp+0x28],r8d                     swiss.sib.blastp4j.seed.FastBatchWordFinder::find
+    3.21%  0x7f3bbfd55f36  vpblendmd ymm5{k7},ymm5,ymm25                    swiss.sib.blastp4j.align.SemiGappedLanes::row
+    1.62%  0x7f3bbfe3cbdf  mov DWORD PTR [rsp+0x30],r11d                    swiss.sib.blastp4j.seed.FastBatchWordFinder::find
+    1.24%  0x7f3bbfe528c9  cmp esi,ebp                                      swiss.sib.blastp4j.align.TracebackLanes::row
+    1.04%  0x7f3bbfe52702  vmovq r8,xmm30                                   swiss.sib.blastp4j.align.TracebackLanes::row
+    0.75%  0x7f3bbfe5259a  vmovq r8,xmm29                                   swiss.sib.blastp4j.align.TracebackLanes::row
+    0.71%  0x7f3bbfe52641  vpmaxsd ymm7,ymm8,ymm2                           swiss.sib.blastp4j.align.TracebackLanes::row
+    0.70%  0x7f3bbfe52646  vpsubd ymm5,ymm4,ymm10                           swiss.sib.blastp4j.align.TracebackLanes::row
+    0.65%  0x7f3bbfe526ec  kandb k7,k2,k7                                   swiss.sib.blastp4j.align.TracebackLanes::row
+    0.64%  0x7f3bbfe526da  vpcmpnltd k7,ymm3,ymm5                           swiss.sib.blastp4j.align.TracebackLanes::row
+    0.64%  0x7f3bbfd55f53  vpmaxsd ymm6,ymm5,ymm6                           swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.60%  0x7f3bbfe5262d  vpbroadcastd ymm7,DWORD PTR [rip+0xfffffffffffff9de] # 0x00007f3bbfe52014 swiss.sib.blastp4j.align.TracebackLanes::row
+    0.59%  0x7f3bbfd55f4d  vpsubd ymm5,ymm12,ymm16                          swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.56%  0x7f3bbfe52656  vpbroadcastd ymm6,DWORD PTR [rip+0xfffffffffffff9b5] # 0x00007f3bbfe52014 swiss.sib.blastp4j.align.TracebackLanes::row
+    0.56%  0x7f3bbfe5263c  vpmaxsd ymm4,ymm8,ymm5                           swiss.sib.blastp4j.align.TracebackLanes::row
+    0.50%  0x7f3bbfe5267c  vpblendmd ymm7{k7},ymm26,ymm7                    swiss.sib.blastp4j.align.TracebackLanes::row
+    0.49%  0x7f3bbfd55f48  vpmaxsd ymm12,ymm5,ymm12                         swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.49%  0x7f3bbfe5261f  vpgatherdd ymm4{k4},DWORD PTR [rcx+ymm7*4]       swiss.sib.blastp4j.align.TracebackLanes::row
+    0.48%  0x7f3bbfd55f70  vpblendmd ymm8{k6},ymm6,ymm8                     swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.46%  0x7f3bbfd55fa0  vpmaxsd ymm20,ymm9,ymm20                         swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.45%  0x7f3bbfd55f58  vpmaxsd ymm5,ymm5,ymm29                          swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.45%  0x7f3bbfe52673  vpbroadcastd ymm7,DWORD PTR [rip+0xfffffffffffff994] # 0x00007f3bbfe52010 swiss.sib.blastp4j.align.TracebackLanes::row
+    0.45%  0x7f3bbfe3ccfd  cmp r12d,DWORD PTR [rsp+0x8]                     swiss.sib.blastp4j.seed.FastBatchWordFinder::find
+    0.42%  0x7f3bbfd55f82  vmovdqu YMMWORD PTR [r8+r11*4+0xc],ymm9          swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.42%  0x7f3bbfe3cc09  mov r10d,DWORD PTR [rsp+0x2c]                    swiss.sib.blastp4j.seed.FastBatchWordFinder::find
+    0.39%  0x7f3bbfe52602  vpsubd ymm3,ymm2,ymm16                           swiss.sib.blastp4j.align.TracebackLanes::row
+    0.39%  0x7f3bbfe526ae  vpmaxsd ymm4,ymm5,ymm3                           swiss.sib.blastp4j.align.TracebackLanes::row
+    0.38%  0x7f3bbfe526fc  vpmovdb xmm0,ymm8                                swiss.sib.blastp4j.align.TracebackLanes::row
+    0.37%  0x7f3bbfe526d4  vpblendmd ymm25{k2},ymm25,ymm26                  swiss.sib.blastp4j.align.TracebackLanes::row
+    0.36%  0x7f3bbfd55f3c  vmovq r8,xmm1                                    swiss.sib.blastp4j.align.SemiGappedLanes::row
+    0.35%  0x7f3bbfe3cdc4  mov r10,QWORD PTR [rsp+0x70]                     swiss.sib.blastp4j.seed.FastBatchWordFinder::find
+    0.35%  0x7f3bbfdec9a1  vsubsd xmm10,xmm10,xmm14                         swiss.sib.blastp4j.compo.OptimizeTargetFreq::factorLtriangPosDef
+    0.34%  0x7f3bbfe525a6  vpxor xmm2,xmm2,xmm2                             swiss.sib.blastp4j.align.TracebackLanes::row
+    0.32%  0x7f3bbfdec99b  vmulsd xmm14,xmm14,QWORD PTR [rsi+rdx*8+0x10]    swiss.sib.blastp4j.compo.OptimizeTargetFreq::factorLtriangPosDef
+    0.32%  0x7f3bbfe1f8df  vmulsd xmm2,xmm0,QWORD PTR [rsp+0xf0]            swiss.sib.blastp4j.compo.OptimizeTargetFreq::optimize
+    0.31%  0x7f3bbfe5264b  vpcmpltd k7,ymm4,ymm6                            swiss.sib.blastp4j.align.TracebackLanes::row
+    0.30%  0x7f3bbfe526a8  vpmaxsd ymm21,ymm6,ymm21                         swiss.sib.blastp4j.align.TracebackLanes::row
+    0.30%  0x7f3bbfe5268f  vpxord xmm27,xmm27,xmm27                         swiss.sib.blastp4j.align.TracebackLanes::row
+    0.30%  0x7f3bbfe52617  kxnorw k4,k4,k4                                  swiss.sib.blastp4j.align.TracebackLanes::row
+</pre></section>
+</body>
+</html>

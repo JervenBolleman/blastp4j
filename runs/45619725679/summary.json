@@ -1,0 +1,105 @@
+{
+ "run_id": "45619725679",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/45619725679",
+ "date": "2026-11-25 13:57 UTC",
+ "event": "schedule",
+ "code": [
+  "`efef397` (README: the last E-value difference is a defect in blastp's erfc [skip ci])"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "zen5": false,
+   "blast_wall": 84.87,
+   "jvm_wall": 86.37,
+   "ref_wall": null,
+   "blastfast_wall": 57.84,
+   "fast_wall": 55.7,
+   "fast": 0.9630013831258645,
+   "wall": 1.0176740897843761,
+   "cycles": 0.9412183826148913,
+   "instructions": 1.153166945562004,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html",
+   "proteome": "UP000005640_9606",
+   "jvm_commit": "efef397",
+   "ref_commit": "",
+   "rounds": {
+    "blast": [
+     84.9,
+     84.87,
+     84.63
+    ],
+    "jvm": [
+     87.67,
+     86.05,
+     86.37
+    ],
+    "almost": [
+     86.21,
+     85.82,
+     86.59
+    ],
+    "blastfast": [
+     57.82,
+     58.45,
+     57.84
+    ],
+    "fast": [
+     55.7,
+     56.56,
+     55.5
+    ]
+   }
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "INTEL(R) XEON(R) PLATINUM 8573C",
+   "cpus": "4",
+   "zen5": false,
+   "blast_wall": 164.27,
+   "jvm_wall": 101.92,
+   "ref_wall": null,
+   "blastfast_wall": 108.11,
+   "fast_wall": 62.86,
+   "fast": 0.5814448247155675,
+   "wall": 0.6204419553174652,
+   "cycles": null,
+   "instructions": null,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html",
+   "proteome": "UP000005640_9606",
+   "jvm_commit": "efef397",
+   "ref_commit": "",
+   "rounds": {
+    "blast": [
+     164.72,
+     164.14,
+     164.27
+    ],
+    "jvm": [
+     101.56,
+     102.2,
+     101.92
+    ],
+    "almost": [
+     96.05,
+     98.35,
+     95.55
+    ],
+    "blastfast": [
+     107.74,
+     109.45,
+     108.11
+    ],
+    "fast": [
+     62.86,
+     63.86,
+     62.65
+    ]
+   }
+  }
+ ]
+}
