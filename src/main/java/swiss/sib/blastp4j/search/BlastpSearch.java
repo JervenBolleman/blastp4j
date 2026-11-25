@@ -331,7 +331,7 @@ public final class BlastpSearch {
 	 * they are, and the result is cut to the preliminary hit list size as BLAST's heap of HSP lists is
 	 * ({@code Blast_HitListUpdate}).
 	 */
-	private List<Hit> mergeChunk(List<Hit> combined, List<Hit> chunk, int splitPoint, int overlap) {
+	List<Hit> mergeChunk(List<Hit> combined, List<Hit> chunk, int splitPoint, int overlap) {
 		final Map<Integer, Hit> bySubject = new HashMap<>();
 		for (Hit hit : combined) {
 			bySubject.put(hit.subject(), hit);
@@ -339,9 +339,19 @@ public final class BlastpSearch {
 		final List<Hit> merged = new ArrayList<>();
 		for (Hit hit : chunk) {
 			final Hit before = bySubject.remove(hit.subject());
-			merged.add(before == null ? hit : new Hit(hit.subject(),
-					mergeHsps(before.hsps(), hit.hsps(), splitPoint, overlap),
-					Math.min(before.bestEvalue(), hit.bestEvalue())));
+			if (before == null) {
+				merged.add(hit);
+				continue;
+			}
+			// Blast_HitListUpdate takes the best E-value of what the merge left (s_BlastGetBestEvalue), not the best
+			// of the two chunks: s_BlastMergeTwoHSPs frees the second HSP without moving its E-value to the first,
+			// so an HSP merged away takes its E-value with it, and the subject can fall below the hit list's bar.
+			final List<Hsp> hsps = mergeHsps(before.hsps(), hit.hsps(), splitPoint, overlap);
+			double best = Double.MAX_VALUE;
+			for (Hsp hsp : hsps) {
+				best = Math.min(best, hsp.evalue);
+			}
+			merged.add(new Hit(hit.subject(), hsps, best));
 		}
 		merged.addAll(bySubject.values());
 		merged.sort(BY_EVALUE);

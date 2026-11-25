@@ -2,11 +2,19 @@ package swiss.sib.blastp4j.search;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
 import swiss.sib.blastp4j.align.Hsp;
+import swiss.sib.blastp4j.db.FastaReader;
+import swiss.sib.blastp4j.db.SequenceDatabase;
+import swiss.sib.blastp4j.search.BlastpSearch.Hit;
+import swiss.sib.blastp4j.stats.ScoringParameters;
+import swiss.sib.blastp4j.stats.Statistics;
 
 /**
  * Merging the HSPs of two chunks of a split query ({@code Blast_HSPListsMerge} and {@code s_BlastMergeTwoHSPs}): an
@@ -80,4 +88,25 @@ class QueryChunkMergeTest {
 		List<Hsp> chunk = List.of(hsp(70, 1020, 1300, 520, 800));
 		assertEquals(2, BlastpSearch.mergeHsps(before, chunk, 0, OVERLAP).size());
 	}
+	@Test
+	void anHspMergedAwayTakesItsEvalueWithIt() throws IOException {
+		// Blast_HitListUpdate recomputes a subject's best E-value from the HSPs the merge left
+		// (s_BlastGetBestEvalue), and s_BlastMergeTwoHSPs frees the second HSP without moving its E-value to the
+		// first. So the better E-value of an HSP that merged away must not keep its subject's rank: with
+		// BATCH_SIZE=20000 over 750 human queries, carrying it forward kept three HSPs of two subjects that blastp
+		// drops at the preliminary hit list's bar.
+		final SequenceDatabase db = FastaReader.read(Path.of("src/test/resources/queries/uniprot_human.fasta"));
+		final BlastpSearch search = new BlastpSearch(db,
+				new Statistics(ScoringParameters.BLOSUM62_11_1, db.totalResidues()), 10, true);
+		final Hsp kept = hsp(60, 900, 1100, 400, 600);
+		kept.evalue = 1.0;
+		final Hsp freed = hsp(70, 1020, 1300, 520, 800);
+		freed.evalue = 1e-9;
+		final List<Hit> merged = search.mergeChunk(List.of(new Hit(7, new ArrayList<>(List.of(kept)), 1.0)),
+				List.of(new Hit(7, new ArrayList<>(List.of(freed)), 1e-9)), SPLIT, OVERLAP);
+		assertEquals(1, merged.size());
+		assertEquals(1, merged.get(0).hsps().size(), "the two HSPs became one");
+		assertEquals(1.0, merged.get(0).bestEvalue(), "the E-value of the HSP the merge kept, not of the freed one");
+	}
+
 }
