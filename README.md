@@ -188,6 +188,7 @@ Checked against blastp:
 | same database in six volumes (`.pal`), `6 std btop` (`BlastpTest`) | 196 | all |
 | 10 identifier kinds, `sseqid sacc saccver stitle`, with and without `-parse_seqids` (`BlastpTest`) | 20 | all |
 | titin (34,350 residues, a query blastp splits into chunks) vs Swiss-Prot, defaults | 34,198 | all but one E-value, 3.54e-45 against 3.55e-45 on the same alignment |
+| the same query in a batch with a 5,058-residue one, so that blastp splits the two together | 35,508 | all but that same E-value |
 
 Details that output depends on:
 
@@ -197,8 +198,10 @@ Details that output depends on:
 * The hit-list sizes follow `-max_target_seqs`: 2 times it plus 50 (at most 50 more without composition-based
   statistics, at least 1,050 with).
 * An `-evalue` above 10 turns off the restricted alignment of the preliminary stage.
-* A query of 19,800 residues or more is searched in chunks of about 10,000, which keeps alignments that the
-  whole query's cutoff score would drop; see `search.QueryChunks`.
+* A batch of 19,800 residues or more is searched in chunks of about 10,000, which keeps alignments that the whole
+  query's cutoff score would drop. A batch holds queries until it reaches 10,000 residues, so this needs a query of
+  that length or one long enough to take its batch past it; the hits of a query then depend on which others share
+  its batch. See `search.QueryChunks`.
 
 End-to-end time for the 24 queries against Swiss-Prot (i7-6700HQ, Temurin 25; blastp against its BLAST database,
 blastp4j including reading the FASTA file):

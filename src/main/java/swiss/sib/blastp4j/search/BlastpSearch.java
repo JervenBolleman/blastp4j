@@ -2,6 +2,7 @@ package swiss.sib.blastp4j.search;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -285,16 +286,43 @@ public final class BlastpSearch {
 			final int from = chunks.start(chunk);
 			final byte[] piece = Arrays.copyOfRange(query, from, chunks.end(chunk));
 			final List<Hit> part = prelimOf(piece, pool, tasks);
-			for (Hit hit : part) {
-				for (Hsp h : hit.hsps()) {
-					h.queryStart += from;
-					h.queryEnd += from;
-					h.queryGappedStart += from;
-				}
-			}
+			shift(part, from);
 			combined = mergeChunk(combined, part, from, chunks.overlap());
 		}
 		return combined;
+	}
+
+	/**
+	 * The preliminary stage of a batch BLAST splits into chunks: once per chunk, over the pieces of the batch's
+	 * queries that the chunk holds, with each piece's hits mapped back to its query and merged with those of the
+	 * chunks before it. The answer is one list per query of the batch, in the batch's order.
+	 */
+	private List<List<Hit>> chunkedPrelim(Prepared p, ExecutorService pool, int tasks) throws InterruptedException {
+		final int overlap = QueryChunks.overlapSize();
+		final List<List<Hit>> combined = new ArrayList<>(Collections.nCopies(p.queries().length, List.of()));
+		for (Chunk c : p.chunks()) {
+			final List<List<Hit>> part = prelim(c.prepared(), pool, tasks);
+			for (int i = 0; i < part.size(); i++) {
+				final int q = c.query()[i], from = c.offset()[i];
+				shift(part.get(i), from);
+				combined.set(q, mergeChunk(combined.get(q), part.get(i), from, overlap));
+			}
+		}
+		return combined;
+	}
+
+	/** Moves a chunk's hits from the chunk's own offsets to the whole query's. */
+	private static void shift(List<Hit> hits, int from) {
+		if (from == 0) {
+			return;
+		}
+		for (Hit hit : hits) {
+			for (Hsp h : hit.hsps()) {
+				h.queryStart += from;
+				h.queryEnd += from;
+				h.queryGappedStart += from;
+			}
+		}
 	}
 
 	/**
@@ -402,13 +430,86 @@ public final class BlastpSearch {
 	 * What the preliminary stage of a batch needs before it scans: the queries, their seeding parameters, cutoffs and
 	 * lookup tables. Independent of the batches before it, so it can be built while they are searched
 	 * ({@link #batch}).
+	 * <p>
+	 * A batch long enough for BLAST to split it ({@link QueryChunks}) holds its {@link Chunk}s instead, each with a
+	 * {@link Prepared} of its own over the pieces of the queries it covers; then only {@code queries} and
+	 * {@code chunks} are filled, since the seeding parameters, cutoffs and tables belong to the pieces.
 	 */
 	public record Prepared(byte[][] queries, SeedParameters[] seeds, LookupTable[] tables, int[] cutoffs,
-			BatchWordFinder.Table table, CompressedTable fastTable) {
+			BatchWordFinder.Table table, CompressedTable fastTable, List<Chunk> chunks) {
+		/** A batch searched in one piece, as all but the longest are. */
+		public Prepared(byte[][] queries, SeedParameters[] seeds, LookupTable[] tables, int[] cutoffs,
+				BatchWordFinder.Table table, CompressedTable fastTable) {
+			this(queries, seeds, tables, cutoffs, table, fastTable, List.of());
+		}
 	}
 
-	/** The {@link Prepared} batch of {@code queries} with their {@link #seedParameters}. */
+	/**
+	 * One of BLAST's chunks of a batch long enough to split ({@link QueryChunks}): a preliminary stage of its own
+	 * over the pieces of the batch's queries that the chunk holds, with the query each piece belongs to
+	 * ({@code query[i]}, an index into the batch's queries) and where in that query the piece starts
+	 * ({@code offset[i]}). A query that lies within one chunk has that chunk's piece be the whole of it.
+	 */
+	public record Chunk(Prepared prepared, int[] query, int[] offset) {
+	}
+
+	/**
+	 * The {@link Prepared} batch of {@code queries} with their {@link #seedParameters}, split into BLAST's chunks
+	 * when it is long enough ({@link QueryChunks}).
+	 */
 	public Prepared prepare(List<byte[]> queries, List<SeedParameters> parameters) {
+		long total = 0;
+		for (byte[] q : queries) {
+			total += q.length;
+		}
+		final QueryChunks chunks = QueryChunks.of((int) Math.min(total, Integer.MAX_VALUE));
+		return chunks.split() ? prepareChunks(queries, chunks) : prepareWhole(queries, parameters);
+	}
+
+	/**
+	 * The chunks of a batch BLAST splits: each chunk's own {@link Prepared} over the pieces of the queries it holds.
+	 * A piece whose composition gives no Karlin-Altschul parameters is left out, as a whole query is in
+	 * {@link #batch}; its chunk then finds nothing for that query, and the other chunks still do.
+	 */
+	private Prepared prepareChunks(List<byte[]> queries, QueryChunks chunks) {
+		final int n = queries.size();
+		final int[] start = new int[n + 1];
+		for (int i = 0; i < n; i++) {
+			start[i + 1] = start[i] + queries.get(i).length;
+		}
+		final List<Chunk> cs = new ArrayList<>();
+		for (int c = 0; c < chunks.count(); c++) {
+			final List<byte[]> pieces = new ArrayList<>();
+			final List<SeedParameters> seeds = new ArrayList<>();
+			final List<Integer> query = new ArrayList<>(), offset = new ArrayList<>();
+			for (int i = 0; i < n; i++) {
+				final int from = Math.max(0, chunks.start(c) - start[i]);
+				final int to = Math.min(queries.get(i).length, chunks.end(c) - start[i]);
+				if (from >= to) {
+					continue;
+				}
+				final byte[] piece = from == 0 && to == queries.get(i).length ? queries.get(i)
+						: Arrays.copyOfRange(queries.get(i), from, to);
+				try {
+					seeds.add(seedParameters(piece));
+				} catch (IllegalArgumentException e) {
+					continue;
+				}
+				pieces.add(piece);
+				query.add(i);
+				offset.add(from);
+			}
+			if (!pieces.isEmpty()) {
+				cs.add(new Chunk(prepareWhole(pieces, seeds), query.stream().mapToInt(Integer::intValue).toArray(),
+						offset.stream().mapToInt(Integer::intValue).toArray()));
+			}
+		}
+		final byte[][] qs = queries.toArray(byte[][]::new);
+		return new Prepared(qs, new SeedParameters[n], new LookupTable[n], new int[n], null, null, cs);
+	}
+
+	/** The {@link Prepared} batch of {@code queries}, which BLAST searches in one piece. */
+	private Prepared prepareWhole(List<byte[]> queries, List<SeedParameters> parameters) {
 		final int n = queries.size();
 		final byte[][] qs = queries.toArray(byte[][]::new);
 		final SeedParameters[] seeds = parameters.toArray(SeedParameters[]::new);
@@ -461,8 +562,15 @@ public final class BlastpSearch {
 		return new Batch(first, end, skipped, searched, searched.size() > 1 ? prepare(searched, parameters) : null);
 	}
 
-	/** The preliminary stage of a {@link Prepared} batch, as {@link #prelim(List, ExecutorService, int)}. */
+	/**
+	 * The preliminary stage of a {@link Prepared} batch, as {@link #prelim(List, ExecutorService, int)}. A batch
+	 * BLAST splits is searched chunk by chunk, and each chunk's hits are mapped back to the whole query and merged
+	 * ({@code BlastHSPStreamMerge}); see {@link QueryChunks}.
+	 */
 	public List<List<Hit>> prelim(Prepared p, ExecutorService pool, int tasks) throws InterruptedException {
+		if (!p.chunks().isEmpty()) {
+			return chunkedPrelim(p, pool, tasks);
+		}
 		final byte[][] qs = p.queries();
 		final int n = qs.length;
 		final SeedParameters[] seeds = p.seeds();

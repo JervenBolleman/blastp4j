@@ -29,9 +29,11 @@ import swiss.sib.blastp4j.stats.Statistics;
  * columns of {@code reference/README.md}.
  */
 class QuerySplitReferenceTest {
+	private static final String HUMAN = "src/test/resources/queries/uniprot_human.fasta";
+
 	@Test
 	void aSplitQueryGivesBlastpsHits() throws IOException, InterruptedException {
-		final SequenceDatabase db = FastaReader.read(Path.of("src/test/resources/queries/uniprot_human.fasta"));
+		final SequenceDatabase db = FastaReader.read(Path.of(HUMAN));
 		final SequenceDatabase queries = FastaReader.read(Path.of("src/test/resources/queries/titin.fasta"));
 		final List<String> expected = Files.readAllLines(Path.of("src/test/resources/reference/titin_vs_human.tsv"));
 		final byte[] query = queries.sequence(0);
@@ -46,6 +48,50 @@ class QuerySplitReferenceTest {
 			for (BlastpSearch.Hit h : search.search(query, pool, threads)) {
 				for (Hsp hsp : h.hsps()) {
 					ours.add(TabularFormat.row(queries.id(0), query, db, h.subject(), hsp, statistics));
+				}
+			}
+		}
+		assertEquals(String.join("\n", expected), String.join("\n", ours));
+	}
+
+	/**
+	 * The same query sharing a batch, which BLAST splits over the batch's queries together: SODC_HUMAN (154 residues)
+	 * and titin are one batch of 34,504 residues, cut into three chunks of 11,568. SODC lies within the first, so
+	 * that chunk holds the whole of it and a 11,414-residue piece of titin, and the other two hold pieces of titin
+	 * that start 11,314 and 22,682 residues into it.
+	 */
+	@Test
+	void aSplitBatchGivesBlastpsHits() throws IOException, InterruptedException {
+		final SequenceDatabase db = FastaReader.read(Path.of(HUMAN));
+		final SequenceDatabase human = FastaReader.read(Path.of(HUMAN));
+		final SequenceDatabase titin = FastaReader.read(Path.of("src/test/resources/queries/titin.fasta"));
+		final List<String> expected = Files
+				.readAllLines(Path.of("src/test/resources/reference/sodc_titin_vs_human.tsv"));
+		int sodc = 0;
+		while (!human.id(sodc).equals("sp|P00441|SODC_HUMAN")) {
+			sodc++;
+		}
+		final List<byte[]> batch = List.of(human.sequence(sodc), titin.sequence(0));
+		final List<String> ids = List.of(human.id(sodc), titin.id(0));
+		assertEquals(3, QueryChunks.of(154 + 34350).count(), "chunks of the batch");
+
+		final Statistics statistics = new Statistics(ScoringParameters.BLOSUM62_11_1, db.totalResidues());
+		final List<String> ours = new ArrayList<>();
+		final int threads = Runtime.getRuntime().availableProcessors();
+		try (ExecutorService pool = Executors.newFixedThreadPool(threads)) {
+			final BlastpSearch search = new BlastpSearch(db, statistics, 10, true);
+			final QueryBatches batches = QueryBatches
+					.blastp(new int[] { batch.get(0).length, batch.get(1).length });
+			final List<List<BlastpSearch.Hit>> prelim = search.prelim(batch, pool, threads);
+			for (int q = 0; q < batch.size(); q++) {
+				final boolean earlyTermination = batches.next();
+				final BlastpSearch.Result result = search.finish(batch.get(q), prelim.get(q), pool, threads,
+						earlyTermination);
+				batches.done(result.filledToCutoff());
+				for (BlastpSearch.Hit h : result.hits()) {
+					for (Hsp hsp : h.hsps()) {
+						ours.add(TabularFormat.row(ids.get(q), batch.get(q), db, h.subject(), hsp, statistics));
+					}
 				}
 			}
 		}
