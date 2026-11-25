@@ -65,6 +65,11 @@ public final class Hsp {
 		return qFrom <= q && qTo >= q && sFrom <= s && sTo >= s;
 	}
 
+	/** {@code CONTAINED_IN_HSP}: whether the point {@code (q, s)} lies within this alignment's query and subject ranges. */
+	public static boolean corner(Hsp hsp, int q, int s) {
+		return inside(hsp.queryStart, hsp.queryEnd, q, hsp.subjectStart, hsp.subjectEnd, s);
+	}
+
 	@Override
 	public String toString() {
 		return "Hsp[score=" + score + ", q=" + queryStart + ".." + queryEnd + ", s=" + subjectStart + ".." + subjectEnd

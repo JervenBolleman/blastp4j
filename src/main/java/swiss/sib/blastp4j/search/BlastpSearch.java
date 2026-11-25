@@ -3,7 +3,10 @@ package swiss.sib.blastp4j.search;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -241,23 +244,136 @@ public final class BlastpSearch {
 			// BLAST's batch of one query: the fast seeding exists for batches only.
 			return finish(query, prelim(List.of(query), pool, tasks).get(0), pool, tasks, earlyTermination);
 		}
-		SeedParameters seeds = seedParameters(query);
-		LookupTable table = LookupTable.of(query, seeds.threshold());
-		int cutoff = cutoff(query);
+		final QueryChunks chunks = QueryChunks.of(query.length);
+		if (chunks.split()) {
+			return finish(query, chunkedPrelim(query, chunks, pool, tasks), pool, tasks, earlyTermination);
+		}
+		return finish(query, prelimOf(query, pool, tasks), pool, tasks, earlyTermination);
+	}
 
-		// Preliminary stage.
-		AtomicInteger next = new AtomicInteger();
-		List<Callable<List<Hit>>> prelimTasks = new ArrayList<>();
+	/**
+	 * The preliminary stage of one query, or of one chunk of a query: its hits, best first and cut to the preliminary
+	 * hit list size, with offsets in {@code query}.
+	 */
+	private List<Hit> prelimOf(byte[] query, ExecutorService pool, int tasks) throws InterruptedException {
+		final SeedParameters seeds = seedParameters(query);
+		final LookupTable table = LookupTable.of(query, seeds.threshold());
+		final int cutoff = cutoff(query);
+		final AtomicInteger next = new AtomicInteger();
+		final List<Callable<List<Hit>>> prelimTasks = new ArrayList<>();
 		for (int t = 0; t < tasks; t++) {
 			prelimTasks.add(() -> prelim(query, WordFinder.of(query, table, seeds), cutoff, next));
 		}
-		List<Hit> prelim = new ArrayList<>();
+		final List<Hit> prelim = new ArrayList<>();
 		for (List<Hit> part : runAll(pool, prelimTasks)) {
 			prelim.addAll(part);
 		}
 		prelim.sort(BY_EVALUE);
-		return finish(query, prelim.subList(0, Math.min(prelimHitlistSize, prelim.size())), pool, tasks,
-				earlyTermination);
+		return new ArrayList<>(prelim.subList(0, Math.min(prelimHitlistSize, prelim.size())));
+	}
+
+	/**
+	 * The preliminary stage of a query BLAST splits into chunks: once per chunk, each chunk a query of its own with
+	 * its own seeding parameters, cutoff score and E-values, and the chunks' hits mapped back to the whole query and
+	 * merged ({@code BlastHSPStreamMerge}, {@code Blast_HitListMerge} and {@code Blast_HSPListsMerge}). See
+	 * {@link QueryChunks} for why this changes the result and not only who does the work.
+	 */
+	private List<Hit> chunkedPrelim(byte[] query, QueryChunks chunks, ExecutorService pool, int tasks)
+			throws InterruptedException {
+		List<Hit> combined = List.of();
+		for (int chunk = 0; chunk < chunks.count(); chunk++) {
+			final int from = chunks.start(chunk);
+			final byte[] piece = Arrays.copyOfRange(query, from, chunks.end(chunk));
+			final List<Hit> part = prelimOf(piece, pool, tasks);
+			for (Hit hit : part) {
+				for (Hsp h : hit.hsps()) {
+					h.queryStart += from;
+					h.queryEnd += from;
+					h.queryGappedStart += from;
+				}
+			}
+			combined = mergeChunk(combined, part, from, chunks.overlap());
+		}
+		return combined;
+	}
+
+	/**
+	 * {@code Blast_HitListMerge} of a chunk's hits into those of the chunks before it, the chunk starting at
+	 * {@code splitPoint} in the whole query. Subjects both have are merged HSP list by HSP list, the others taken as
+	 * they are, and the result is cut to the preliminary hit list size as BLAST's heap of HSP lists is
+	 * ({@code Blast_HitListUpdate}).
+	 */
+	private List<Hit> mergeChunk(List<Hit> combined, List<Hit> chunk, int splitPoint, int overlap) {
+		final Map<Integer, Hit> bySubject = new HashMap<>();
+		for (Hit hit : combined) {
+			bySubject.put(hit.subject(), hit);
+		}
+		final List<Hit> merged = new ArrayList<>();
+		for (Hit hit : chunk) {
+			final Hit before = bySubject.remove(hit.subject());
+			merged.add(before == null ? hit : new Hit(hit.subject(),
+					mergeHsps(before.hsps(), hit.hsps(), splitPoint, overlap),
+					Math.min(before.bestEvalue(), hit.bestEvalue())));
+		}
+		merged.addAll(bySubject.values());
+		merged.sort(BY_EVALUE);
+		return new ArrayList<>(merged.subList(0, Math.min(prelimHitlistSize, merged.size())));
+	}
+
+	/**
+	 * {@code Blast_HSPListsMerge} for a split query: an HSP of the chunks before the split point that reaches past it
+	 * and an HSP of this chunk that starts within the overlap are merged when the first one's end diagonal and the
+	 * second one's start diagonal are within {@link QueryChunks#MERGE_DIAG_CLOSE} of each other and the second one's
+	 * start or end lies inside the first ({@code s_BlastMergeTwoHSPs} with {@code allow_gap}, which a gapped search
+	 * sets). The rest are kept, and all of them end up ordered by score.
+	 */
+	static List<Hsp> mergeHsps(List<Hsp> before, List<Hsp> chunk, int splitPoint, int overlap) {
+		final List<Hsp> kept = new ArrayList<>(chunk);
+		// query_is_split of Blast_HitListMerge: a chunk that starts at the query's own start is not past a split
+		// point, so its HSP list is appended rather than merged (Blast_HSPListAppend).
+		for (Hsp first : splitPoint > 0 ? before : List.<Hsp>of()) {
+			if (first.queryEnd <= splitPoint) {
+				continue;
+			}
+			for (Iterator<Hsp> it = kept.iterator(); it.hasNext();) {
+				final Hsp second = it.next();
+				if (second.queryStart < splitPoint + overlap
+						&& Math.abs((first.queryEnd - first.subjectEnd) - (second.queryStart - second.subjectStart))
+								< QueryChunks.MERGE_DIAG_CLOSE
+						&& mergeTwo(first, second)) {
+					it.remove();
+				}
+			}
+		}
+		final List<Hsp> all = new ArrayList<>(before);
+		all.addAll(kept);
+		all.sort(Hsp.BY_SCORE);
+		return all;
+	}
+
+	/**
+	 * {@code s_BlastMergeTwoHSPs} with {@code allow_gap}: {@code first} takes in {@code second} when a corner of
+	 * {@code second} lies inside it, and then spans both. BLAST's score for the result is the better of the two
+	 * scores and the two scores spread over the merged length; the traceback aligns it again in any case.
+	 */
+	private static boolean mergeTwo(Hsp first, Hsp second) {
+		if (!Hsp.corner(first, second.queryStart, second.subjectStart)
+				&& !Hsp.corner(first, second.queryEnd, second.subjectEnd)) {
+			return false;
+		}
+		final double density = (double) (first.score + second.score)
+				/ ((first.queryEnd - first.queryStart) + (second.queryEnd - second.queryStart));
+		first.queryStart = Math.min(first.queryStart, second.queryStart);
+		first.subjectStart = Math.min(first.subjectStart, second.subjectStart);
+		first.queryEnd = Math.max(first.queryEnd, second.queryEnd);
+		first.subjectEnd = Math.max(first.subjectEnd, second.subjectEnd);
+		if (second.score > first.score) {
+			first.queryGappedStart = second.queryGappedStart;
+			first.subjectGappedStart = second.subjectGappedStart;
+			first.score = second.score;
+		}
+		first.score = Math.max((int) (density * (first.queryEnd - first.queryStart)), first.score);
+		return true;
 	}
 
 	/**
