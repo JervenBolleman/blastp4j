@@ -187,7 +187,7 @@ Checked against blastp:
 | same, `-comp_based_stats 0 -evalue 1000 -max_target_seqs 20`, other columns (`BlastpTest`) | 1,422 | all |
 | same database in six volumes (`.pal`), `6 std btop` (`BlastpTest`) | 196 | all |
 | 10 identifier kinds, `sseqid sacc saccver stitle`, with and without `-parse_seqids` (`BlastpTest`) | 20 | all |
-| titin (34,350 residues, a query blastp splits into chunks) vs Swiss-Prot, defaults | 34,198 | all but one E-value, 3.54e-45 against 3.55e-45 on the same alignment |
+| titin (34,350 residues, a query blastp splits into chunks) vs Swiss-Prot, defaults | 34,198 | all but one E-value, 3.54e-45 against blastp4j's 3.55e-45 on the same alignment: a defect in blastp's `erfc` (see below) |
 | the same query in a batch with a 5,058-residue one, so that blastp splits the two together | 35,508 | all but that same E-value |
 
 Details that output depends on:
@@ -202,6 +202,16 @@ Details that output depends on:
   query's cutoff score would drop. A batch holds queries until it reaches 10,000 residues, so this needs a query of
   that length or one long enough to take its batch past it; the hits of a query then depend on which others share
   its batch. See `search.QueryChunks`.
+* **blastp's `erfc` is wrong by up to 1e-7 for arguments in [0.5, 1.5), and blastp4j does not copy that.**
+  `src/algo/blast/core/boost_erf.c` declares a seven-coefficient denominator for that branch and evaluates only six
+  of them, dropping `Q[6] * (z - 0.5)^6` with `Q[6] = 3.375e-6`; the other four branches use all of theirs. The
+  Spouge finite-size correction (`BLAST_SpougeStoE`) calls it as `ErfC(-n_F / sqrt(2)) / 2`, and when the subject is
+  shorter than `a * score + b` the two terms of its subject factor cancel, which multiplies the error by the
+  cancellation. Of 1,197 HSPs of titin against Swiss-Prot with E-values read at full precision from a `-outfmt 11`
+  archive, the 999 that do not cancel match blastp4j to 1.8e-9 (median 1.1e-15) and the 103 that do differ by up to
+  6.2e-7 -- and reproducing the branch as written reproduces blastp's own values to 5e-15. It changes no E-value by
+  enough to matter, and shows in the output only when one lands within that distance of a `%.2e` rounding tie, as
+  this one does. Reported in `for_ncbi_erfc.md`.
 
 End-to-end time for the 24 queries against Swiss-Prot (i7-6700HQ, Temurin 25; blastp against its BLAST database,
 blastp4j including reading the FASTA file):
