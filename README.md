@@ -938,6 +938,97 @@ the matrix load's latency; the reloads left in the loop do not cost time.
 *Reverted:* the next cell's matrix score loaded a cell earlier still (d6845e0, 912a8ff): N2 +1.5%/-1.5%, rerun
 0%/-0.1%. The core already overlaps that load.
 
+*Tried, no gain: each lane its own slot offset, re-centred when it drifts* (4f786d7, reverted in f9507a1).
+`SemiGappedLanes.row` computes every slot between the lowest and the highest band of its 8 lanes, and the lanes drift
+apart as their alignments gap: over the 750 human queries, 95.76 M rows with 7.92 working lanes compute 77.61 slots a
+row against a widest band of 64.97 and a mean band of 40.64, so **12.64 slots (16.3%) are drift**, 7.43 G slot
+iterations in all, about 580 G instructions or 23% of the search. Simulated over the real rows, moving one lane a row
+-- the one at either end of the span whose re-centring shrinks the span most -- saves 13.2% of the slots at 0.23
+moves a row, which looked like 2.5% of the search. Built, it is not: over six interleaved runs a side, instructions
++0.50% and cycles +0.61% (ranges overlapping) with **branches +5.09% and branch misses +10.08%**, those two with no
+overlap over the twelve runs; output byte-identical and `mvn test` green, so the code is right and merely useless.
+The simulation counted slot iterations and priced a move at 600 instructions, but a row's 78 instructions a slot
+include 16 `rsp` spills, so the slots are not where the time is, and the real cost is the branches around `drifted`
+on every row, moved or not. **A policy evaluated once a row cannot be paid for by a saving that happens 0.2 times a
+row.**
+
+**The row kernel (`align.RowLanes`): exact, 21% faster on this laptop, 6.2% slower on the Neoverse-N2, and therefore
+dormant.** On AArch64 the extension lanes are off, so the score-only extensions run scalar, and the literature's
+answer is to vectorise *within* one row instead. Relaxing the lane gate to 4 first showed what stands in the way
+(fff62be, reverted in 3318747): the JDK does emit an SVE gather for the substitution scores,
+`ld1w {z17.s}, p7/z, [x11, z17.s, uxtw #2]`, and that one instruction was 11.07% of the whole program's samples. The
+lanes won what they were meant to win, 4-6% fewer instructions and 14-20% fewer branches, and still cost 5 to 7.5%
+wall time, because the N2 cracks the gather into four loads that each can miss L1. So the kernel had to reach the
+scores without a gather, and three pieces make that possible:
+
+* **The gap along a row is a prefix maximum.** The serial chain `E(j+1) = max(H(j) - goe, E(j) - ext)` looks
+  unvectorisable, but a gap routed through an earlier `E` pays `goe` twice and `ext <= goe`, so it never beats
+  opening one directly: with `H0 = max(diag, F)`, `E(j+1) = P(j) - goe - j*ext` where `P(j) = max(k <= j)(H0(k) +
+  k*ext)`. Four shift-and-maximum steps over 16 lanes replace the chain (`RowScanTest`, checked against the serial
+  recurrence over 412,934 cells with random gap costs). `MININT` cannot be the "no gap" sentinel in that form, since
+  it overflows under `+ j*ext`.
+* **Both of `Blast_SemiGappedAlign`'s gap freezes at a dropped cell are unobservable**, so the row can be computed
+  floor-free with the X-drop as a mask over it: a dropped cell is below the floor, the floor never falls, and a value
+  below the floor only ever wins a maximum against values below the floor, so no branch decision ever sees it.
+  `UniformBandTest` is a second implementation in that shape, equal in score and best cell over 2,800 extensions and
+  23.2 M cells, and it fails when any of the claims is broken.
+* **The substitution scores come from a table register.** A matrix row is 28 bytes and BLOSUM62 fits a byte, so two
+  table registers hold 32 rows and one two-vector `selectFrom` -- `TBL` on AArch64, a pair of `vpshufb` on x86-64 --
+  yields 16 query letters' scores at once.
+
+`RowKernelBench` replays the real extensions of CDK1_HUMAN against all of Swiss-Prot (15,883 extensions over 10.7 M
+residues) with everything around the row loop done once in the setup, and prints their score sum as the check. The
+first kernel took 933 ms against the cells' 449 and blamed C2's node budget; that was wrong, and 123 Vector API
+operations in one method still compile with no allocation. What C2 needs is that the vector class and the lane count
+each operation hands `VectorSupport` are compile-time constants and that no vector leaves the compilation, which
+three things broke, each worth 100 to 300 ms (d6af0e3): a **variable lane index** for a row's last partial group (the
+lanes past the band carry the sentinel now, so every lane is read at a constant index, which also removed the in-band
+mask); the **two table registers passed as arguments**, which arrive as the declared `ByteVector` because only a
+receiver is profiled, so the table lookup itself ran in Java; and the **prefix maximum as a helper called twice**,
+inlined at the first call site and refused at the second ("callee is too large"). Then 16-bit cells (1695f9b, 482 to
+434 ms: a row of 38.5 cells is 2.4 groups of 16 lanes instead of 4.8 of 8, and an extension with `min(m, n) > 2976`
+or `xDrop > 8180` goes to the cells), the matrix as one `byte[]` with a row every 32 instead of a 28-store copy per
+row (a5e8f32, 434 to 385 ms), and the prefix maximum's shift clamped at lane 0 rather than filled with a sentinel --
+the usual clamped Hillis-Steele scan, since a prefix maximum needs only a lane that loses (355 ms, **-21% against the
+cells**). Two things found by printing the assembly rather than by reading the code: a 16-short cross-lane shuffle is
+*not* one instruction on AVX2 (24 `vpshufb`, 11 `vperm2i128`, 16 `vpaddb` and 16 `vpblendvb` around 13 `vpmaxsw`,
+since `vpermw` needs AVX-512BW), and the groups write where the diagonal reads one column apart, so a group's store
+overwrote the score the *next* group's first diagonal needs -- wrong only when a row had more than one group.
+
+Two measurement notes before the verdict. **A full x86-64 search does not exercise this kernel at all**, so the
+earlier byte-identical checks of it were empty: `semiGapped` never runs there, which was proved rather than inferred
+by making `RowLanes.rows` return `bestScore + 7` and seeing the output not change by one byte. And **the AArch64 path
+can be run on x86 hardware**: `-XX:MaxVectorSize=16` leaves 4 int lanes, so `SemiGappedLanes.AVAILABLE` is false and
+the search goes through `semiGapped` exactly as the N2 does, with 8 short lanes as the N2 has -- a full search of the
+750 queries that way is byte-identical with the kernel on and off.
+
+**The runner decided it (66632ba, reverted in ff60fb5).** Run 45517722367, the kernel on under `[aarch64]` against
+6af19df in the same job on one Neoverse-N2, three rounds, output identical in every one:
+
+| | kernel | cells | |
+|---|---:|---:|---|
+| wall | 93.20 s | 87.72 s | **+6.2%**, no overlap (92.78 93.20 94.58 against 86.06 87.72 88.01) |
+| instructions | 3287.2 G | 3143.2 G | +4.6% |
+| cycles | 1102.4 G | 1019.8 G | +8.1% |
+| branches | 327.0 G | 365.4 G | **-10.5%** |
+| branch misses | 9.5 G | 12.3 G | **-23%** |
+| stall_frontend | 51.8 G | 62.6 G | -17% |
+| stall_backend | 217.1 G | 192.0 G | **+13%** |
+
+The kernel did what it was built to do and it was not enough: branches fell 10.5% and misses 23%, the frontend stalls
+fell with them, and the backend ate the gain. Per method, `RowLanes::group` is 26.2% of cycles and 22.7% of all
+backend stalls at **170.6 stalls per 1,000 cycles** with only 2.1 branch misses per 1,000, against `ExRows::row`, the
+scalar loop it replaces, at 52.6 stalls and 25.0 misses. It traded branch misses for backend stalls, and on this core
+the vector pipe is the dearer currency -- the same lesson as the four-lane gather. The x86-64 job was the control and
+flat (79.26 s against 78.97), and BLAST+ in the same job was steady, so the machine was not drifting. The local proxy
+was right about correctness and wrong about speed, which is what the runners are for.
+
+So the kernel stays in the tree **dormant behind `-Dblastp4j.rowLanes=true`**, exact and unused: it needs vectors
+wider than the N2's 128 bits to pay, and the one machine in the fleet that has them (Zen 5, 512-bit) is x86-64, where
+`semiGapped` never runs. What the step leaves behind either way is its arithmetic -- the gap as a prefix maximum, the
+X-drop as a mask over a floor-free row, and both of BLAST's freezes proved unobservable.
+
+
 ## Composition-based statistics
 
 blastp's default, mode 2 ("conditional compositional score matrix adjustment", Altschul et al. 2005; Yu and
