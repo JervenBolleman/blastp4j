@@ -251,6 +251,22 @@ against 402.5 to 411.7 G) and 1.22 times its instructions (625.2 to 637.1 G). Wa
 19.0 and 20.1 s in the rounds without throttling. Where the first batch is short, as with the 500 bean queries the
 architecture comparison workflow used then, the warm-up costs 1.5 to 2.5% of cycles instead.
 
+**What the runner comparison can resolve.** The workflow builds the code and its reference in the same job and runs
+them in the same interleaved rounds, so the two are compared within one machine. Run 45594428603 calibrated it with
+the same commit on both sides (efef397 against itself): the medians agreed to 0.17% on the Neoverse-N2 and 0.6% on a
+Xeon 6975P-C, the fast path to 0.6% and 0.8%, while the three rounds of one side spread 3.6% and 2.5%. A median
+difference under about 1% is therefore nothing and a single round is worth nothing, and since both sides of that run
+held the same code, a repeat of a pair can agree with itself and still be an artifact: what settles a small
+difference is a slot swap, the same two commits with the code and the reference exchanged.
+
+The query splitting (6da852d, see [Usage](#usage)) is what that calibration was made for. It took 1.0 to 2.1% more
+wall time than its parent on the Neoverse-N2 in three runs (45582360043, 45606018490, and 45619175394 with the slots
+swapped, so the difference follows the commit and not the slot) and nothing on x86-64, where the three runs gave
++0.25%, -1.3% and +0.7% on three different CPUs. No batch of this workload is split: the 750 queries' longest is
+3,907 residues and the largest batch 11,397, against the 19,800 that BLAST splits at, so the added work is one sum of
+a batch's residues and one test per batch, 40 of each in an 85-second run. The difference is code layout, not work,
+and the change is a correctness fix that stands whatever it costs.
+
 ### fastblastp's speed
 
 A blastp-fast search is about 4 times shorter than a blastp one, so on the 500 bean queries the JIT dominated it:
