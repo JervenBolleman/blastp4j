@@ -206,14 +206,14 @@ Details that output depends on:
   query's cutoff score would drop. A batch holds queries until it reaches 10,000 residues, so this needs a query of
   that length or one long enough to take its batch past it; the hits of a query then depend on which others share
   its batch. See `search.QueryChunks`.
-* **A split batch is identical to blastp's only where the preliminary hit list's cap does not bind.** The chunks'
-  searches, the merge of their HSPs and the E-values all agree exactly -- the pieces of a split query searched as
-  ordinary queries give byte-identical output, and so does a split batch with `-max_target_seqs 2000` -- but when
-  the cap binds, both programs cut the merged chunk lists to the same 1,050 subjects and about two of those differ,
-  at the bar. Forcing a split with `BATCH_SIZE=20000` on 750 human queries, blastp4j reports 197,688 lines against
-  blastp's 197,685, differing in 3, all of them extra HSPs of two subjects whose alignments lie in or across the
-  100-residue overlap. The default batch size of 10,000 does not reach the split, so an ordinary search is
-  unaffected unless a query is long enough to take its batch past 19,800.
+* A merged chunk's subject takes **the best E-value of the HSPs the merge left**, not the better of the two chunks'
+  (4bd2316). `s_BlastMergeTwoHSPs` frees the second HSP without moving its E-value to the first, and
+  `Blast_HitListUpdate` then recomputes the subject's rank from what survives (`s_BlastGetBestEvalue`), so an HSP
+  that merged away must not leave its E-value behind. It matters only where the preliminary hit list's cap binds,
+  and then it takes a slot from a subject blastp keeps: forcing a split with `BATCH_SIZE=20000` on the 750 human
+  queries, blastp4j reported 197,688 lines against blastp's 197,685 and now reports the same 197,685. The same batch
+  is identical with `-comp_based_stats 0` (16,714 lines) and with `-max_target_seqs 2000` (8,795), where the cap
+  does not bind at all.
 * **blastp's `erfc` is wrong by up to 1e-7 for arguments in [0.5, 1.5), and blastp4j does not copy that.**
   `src/algo/blast/core/boost_erf.c` declares a seven-coefficient denominator for that branch and evaluates only six
   of them, dropping `Q[6] * (z - 0.5)^6` with `Q[6] = 3.375e-6`; the other four branches use all of theirs. The
@@ -767,9 +767,10 @@ constant rather than new machinery:
 Doubling the batch is what "two batches in one pass" amounts to, and it saves 0.26%, inside an instruction count's
 own 0.3 to 0.9% repeatability. The best size, 40,000, is past the 32,768 of the 16-bit states, so it would take the
 `int[]` fallback for every batch and give back what those won. The sweep was measured before blastp4j had BLAST's
-query splitting, and the byte-identity it reported across those sizes no longer holds above 19,800 residues: there
-both programs split the batch and report differently from a batch of 10,000 (blastp4j by 14 lines of 197,686 on the
-750 human queries, blastp by 17). That is a further reason to leave the constant alone, not only its 0.26%.
+query splitting, and the byte-identity it reported across those sizes does not hold above 19,800 residues: there both
+programs split the batch, and both then report 17 lines differently from a batch of 10,000 on the 750 human queries
+(the same 17, the two agreeing with each other since 4bd2316). That is a further reason to leave the constant alone,
+not only its 0.26%.
 
 *Ruled out, measured: the states in 8 bits.* The diagonal array misses harder than anything else in the program, and
 shrinking it does not stop the misses. With `mem_load_retired.l1_miss:upp` placed on instructions (`bin/machcode.py`;
