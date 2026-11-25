@@ -195,6 +195,10 @@ Details that output depends on:
 * `std` is `qaccver saccver ...`, not `qseqid sseqid ...`. With a `-parse_seqids` database the subject is printed as
   its accession (`P60052`). The query, read without `-parse_deflines`, keeps its whole identifier.
 * `qcovhsp` is rounded below 99% and truncated above, so 684 of 685 residues is 99, not 100.
+* The tabular bit score takes exponent notation above 99,999, not above 9,999 (`CAlignFormatUtil::GetScoreString`),
+  with three decimals in that form, the integer part above 99.9 and one decimal otherwise (b54456b). Self-hits of the
+  human proteome straddle the threshold: 48,000 residues score 97,997 and print as `97997`, 50,000 score 102,200 and
+  print as `1.022e+05`.
 * The hit-list sizes follow `-max_target_seqs`: 2 times it plus 50 (at most 50 more without composition-based
   statistics, at least 1,050 with).
 * An `-evalue` above 10 turns off the restricted alignment of the preliminary stage.
