@@ -58,15 +58,29 @@ final class RowLanes implements GappedAligner.RowLoops {
 	/** The sentinels a shift brings in. */
 	private static final ShortVector SENTINEL = ShortVector.broadcast(S, FLOOR);
 	/**
-	 * The lanes moved up by 1, 2, 4 and 8, as shuffles whose low lanes are out of range, so that
-	 * {@code v.rearrange(UP, SENTINEL)} takes them from {@link #SENTINEL}. {@code slice}, which is the API's own way to
-	 * say this, costs four vector operations where this costs one: it compares an iota against the origin, rearranges
-	 * both vectors and blends. The ones a shorter vector has no lanes for are never read; {@link #L} is a static final,
-	 * so C2 folds the tests away.
+	 * The lanes moved up by one, as a shuffle whose lane 0 is out of range, so that {@code v.rearrange(UP1, SENTINEL)}
+	 * takes it from {@link #SENTINEL}. {@code slice}, which is the API's own way to say this, costs four vector
+	 * operations where this costs two: it compares an iota against the origin, rearranges both vectors and blends.
 	 */
-	private static final VectorShuffle<Short> UP1 = VectorShuffle.iota(S, -1, 1, false),
-			UP2 = VectorShuffle.iota(S, -2, 1, false), UP4 = L >= 8 ? VectorShuffle.iota(S, -4, 1, false) : UP1,
-			UP8 = L >= 16 ? VectorShuffle.iota(S, -8, 1, false) : UP1;
+	private static final VectorShuffle<Short> UP1 = VectorShuffle.iota(S, -1, 1, false);
+	/**
+	 * The same four shifts for a prefix maximum, with the index <b>clamped</b> at lane 0 instead of running off the
+	 * end. A prefix maximum does not need the sentinel shifted in, only a lane that loses the maximum, and lane 0
+	 * against itself loses it: {@code max(v[0], v[0])} is {@code v[0]}. That is one instruction instead of two —
+	 * {@code vpermd} alone, where a shift with a fill is {@code vpermd} and then a {@code vpblendvb} to put the
+	 * sentinel in lane 0 (seen with hsdis) — and there are eight such shifts in a group.
+	 */
+	private static final VectorShuffle<Short> CLAMP1 = clamped(1), CLAMP2 = clamped(2), CLAMP4 = clamped(4),
+			CLAMP8 = clamped(8);
+
+	/** Lane {@code t} takes lane {@code t - by}, or lane 0 where that is below it. */
+	private static VectorShuffle<Short> clamped(int by) {
+		final int[] indexes = new int[L];
+		for (int t = 0; t < L; t++) {
+			indexes[t] = Math.max(t - by, 0);
+		}
+		return VectorShuffle.fromValues(S, indexes);
+	}
 
 	private final int goe, ext;
 	/** The row loop for the extensions this one hands back, and the two bounds that decide which those are. */
@@ -270,13 +284,13 @@ final class RowLanes implements GappedAligner.RowLoops {
 		// The gap along the row as a prefix maximum: A(t) = max(k <= t)(H0(k) + k * ext), then
 		// G(t) = max(carried - t * ext, A(t - 1) - goe - (t - 1) * ext) and H = max(H0, G).
 		ShortVector lifted = h0.add(step);
-		lifted = lifted.max(lifted.rearrange(UP1, SENTINEL));
-		lifted = lifted.max(lifted.rearrange(UP2, SENTINEL));
+		lifted = lifted.max(lifted.rearrange(CLAMP1));
+		lifted = lifted.max(lifted.rearrange(CLAMP2));
 		if (L >= 8) {
-			lifted = lifted.max(lifted.rearrange(UP4, SENTINEL));
+			lifted = lifted.max(lifted.rearrange(CLAMP4));
 		}
 		if (L >= 16) {
-			lifted = lifted.max(lifted.rearrange(UP8, SENTINEL));
+			lifted = lifted.max(lifted.rearrange(CLAMP8));
 		}
 		final ShortVector gap = ShortVector.broadcast(S, (short) gapRow).sub(step)
 				.max(lifted.rearrange(UP1, SENTINEL).sub(step).add((short) (ext - goe)));
@@ -288,13 +302,13 @@ final class RowLanes implements GappedAligner.RowLoops {
 		// The X-drop, as a mask against a floor that is a prefix maximum of the scores. Including a dropped cell in
 		// that maximum is harmless: it is below the floor, so it is never the maximum. The lanes past the band are at
 		// the sentinel, so they drop with it and need no mask of their own.
-		ShortVector run = hv.max(hv.rearrange(UP1, SENTINEL));
-		run = run.max(run.rearrange(UP2, SENTINEL));
+		ShortVector run = hv.max(hv.rearrange(CLAMP1));
+		run = run.max(run.rearrange(CLAMP2));
 		if (L >= 8) {
-			run = run.max(run.rearrange(UP4, SENTINEL));
+			run = run.max(run.rearrange(CLAMP4));
 		}
 		if (L >= 16) {
-			run = run.max(run.rearrange(UP8, SENTINEL));
+			run = run.max(run.rearrange(CLAMP8));
 		}
 		final VectorMask<Short> dropped = hv.lt(run.max((short) bestScore).sub((short) xDrop));
 		// A dropped cell's score is killed so that it cannot feed a diagonal into the next row.
