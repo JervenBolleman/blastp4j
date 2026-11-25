@@ -708,6 +708,96 @@ d17f101). Measured since on an EPYC 9V45 (main's push run 42221716347, against 7
 30.15 s (-2.7%), BLAST+ 33.82 s, almostblastp 27.89 s; output identical. The earlier loss with 16 lanes did not come
 back: the scan has changed much since.
 
+**The November 2026 review of the scan.** Eight steps were planned against the human workload (750 proteome
+queries, about three times the old bean one), and judged by what one paired runner job can resolve, measured above.
+Two were kept, two built and reverted, three ruled out before building, and the eighth, the row kernel, is under
+[Gapped extension](#gapped-extension-and-traceback).
+
+*Kept:* the diagonals' states in 16 bits (d2cbf30), one `char` per diagonal instead of an `int`, 32 KB for a full
+batch instead of 64, with `findLong` on an `int[]` for a subject of 32,768 residues or more. Locally 430.3 to
+420.3 G cycles (-2.3%), L1 replacements 9.9 to 9.0 G and L2 misses 8.7 to 7.3 G; on the runners (42976070437,
+against 66288a2 in the same job) -2.5% wall on an EPYC 9V74, negative in all three rounds, and -0.9% on the
+Neoverse-N2 with the sign flipping between rounds. The same for fastblastp's compressed table (42a9ca6, reverted in
+7a203fd) cost 1.2%, inside the spread.
+
+*Kept:* an extended diagonal stored a word earlier (19cfaf5), so the scan no longer tests the flag: a hit inside the
+extension then looks like an overlapping hit and one a window past it like a new first hit, which is what the finder
+decides anyway. It removes 91.9 M of 294.9 M finder calls (31%) and takes the compiled hit loop from 39 instructions
+and 4 conditional jumps to 31 and 1. Locally over 12 runs interleaved ABBA and BAAB: instructions -1.27%, cycles
+-2.78%, branches -1.45%, **branch misses -9.53%**. On the runners (45283223805) the Xeon 6975P-C took 2.25% less
+wall time in every round, with -1.53% instructions, -2.22% cycles and -10.71% branch misses; the N2 was flat in wall
+time with -8.27% branch misses. An earlier reading of +3.8% instructions was the bean workload, whose hit density is
+different: what the step is worth is the share of finder calls it removes.
+
+*The fixed cost per position is about 3% of instructions, and nothing removed it.* Halving `BATCH_SIZE`, which
+doubles the number of scans, costs 75.2 G of 2545 G instructions with identical output: about 160 instructions for
+each of the 11.46 M positions of each scan. `BatchWordFinder.find` is 15.9% of cycles on the Xeon and 16.3% on the
+N2, so the per-position preamble is about 3% of the search and the hit loop about 13%. Two ways to cut the preamble
+failed. *Tried, no gain:* `cells` padded to a power of two so that C2 drops its two bounds checks (ee7ed78, reverted
+in 47bbeb6) -- 13 `jae` in the compiled `find` down to 11, instructions -0.08% over 12 runs each way, neutral on both
+runners. *Tried, no gain:* the same trick once per *hit* instead, `entry` and `narrow` padded 47% and the per-hit
+read masked (f9e9bdd, reverted in 71eba8f) -- the hit loop from 36 instructions and 3 conditional jumps to 31 and 2,
+instructions -0.84% locally (3.9 sigma) but cycles +0.38%, and the runners disagreed in sign (x86-64 -1.69%
+instructions, the N2 +1.90% and +5.56% on a rerun). What failed there was the N2's counter rather than the code: its
+reference build has measured 3140.2, 3275.9, 3245.2 and 3137.6 G instructions for the same code, a 4.4% spread,
+because the workflow takes one perf stat run per system after the timing rounds. **A C2 fact worth keeping:** the
+bounds check goes only when the index is ANDed with *that array's own* length; a numerically identical constant
+brings it back, and asserting the length before the loop never removes it.
+
+*Ruled out, measured: scanning two batches in one pass.* `BATCH_SIZE` already is the scan's batch, and the output is
+byte-identical from 5,000 to 80,000 residues -- the size only moves BLAST's composition-stage early termination,
+which skips a subject once every query's heap is full and so cannot drop a reported HSP -- so the idea is one
+constant rather than new machinery:
+
+| Batch | 5,000 | 10,000 (BLAST's own) | 20,000 | 40,000 | 80,000 |
+|---|---:|---:|---:|---:|---:|
+| Instructions | 2620.8 G | 2545.6 G | 2539.1 G | 2514.6 G | 2525.8 G |
+| Against 10,000 | +2.95% | — | -0.26% | -1.22% | -0.78% |
+
+Doubling the batch is what "two batches in one pass" amounts to, and it saves 0.26%, inside an instruction count's
+own 0.3 to 0.9% repeatability. The best size, 40,000, is past the 32,768 of the 16-bit states, so it would take the
+`int[]` fallback for every batch and give back what those won.
+
+*Ruled out, measured: the states in 8 bits.* The diagonal array misses harder than anything else in the program, and
+shrinking it does not stop the misses. With `mem_load_retired.l1_miss:upp` placed on instructions (`bin/machcode.py`;
+the imprecise event is useless here, its top sample sitting on a register-to-register `mov` through PEBS skid),
+`find` is 14.4% of cycles but **43.9% of the program's L1 load misses** and 47.5% of its L2 misses, and one load
+carries most of that:
+
+| Load | L1 misses | L2 misses | Caught by L2 |
+|---|---:|---:|---:|
+| `d[diag]`, the 32 KB array | **4.41 G (33.2%)** | 0.22 G | **95%** |
+| `entry[next]`, the int and the narrow char copy | 0.83 G | 0.63 G | 24% |
+| `cells[cell + 2]` | 0.42 G | 0.26 G | 37% |
+
+So nearly every probe misses L1 and nearly every one of those hits L2: the array is never resident and never far
+away, which caps what a smaller one can win. The size is not the cause either -- 32 KB to 16 KB removes 8.2% of the
+L1 misses and 32 KB to 8 KB removes 7.9%, no further gain at a quarter of the size. What evicts it is the entry
+stream flowing through the same L1 between two probes of one line; four threads instead of eight, doing the same
+work, drop the L1 misses 38%, which is the two hyperthread siblings' streams evicting each other and is the largest
+cache effect in the program. Halving the array could then win about 0.25% of cycles, against the 1.2 to 2.1% of
+instructions that the aging sweep and the extended-diagonal side table were estimated to cost.
+
+*Ruled out, probed: a second pass per subject over the logged hits* (muBLASTP's and cuBLASTP's shape; 0c79693,
+reverted in ece98e2). The premise was that the call costs the hit loop its registers, and it looked right: the
+common-case body was 30 instructions of which 12 were `rsp` traffic, three of its values reloaded twice in one
+iteration. Making the slow path a method of its own did exactly what it was meant to -- 29 instructions with 3 `rsp`
+accesses, the seven invariants in registers, the double reloads gone -- and **not one counter separated**
+(instructions +0.61%, cycles +0.73%, branches -0.59%, branch misses +0.09%, all overlapping over three interleaved
+pairs in both orders). The runners agreed (45476232679: +0.8% on x86-64 against an in-job control that moved the
+same way; AArch64 is a pure control there, since `DEFER` is true and the hit loop never calls). A stack slot is
+L1-resident by construction and store-to-load forwarded, so on a 4-wide out-of-order core those reloads were free:
+**register pressure in this loop is cosmetic**, and what the loop waits for is the dependent `d[diag]` load above.
+That is most likely why the three earlier call-free variants lost as well, each paying real instructions to fix
+something that costs nothing.
+
+*A benchmark that did not turn out sharper:* `BatchScanBench` (cb4cdca) scans the whole database once for one batch,
+the shape the preliminary stage seeds in, with `batchSize` a parameter. Its instruction count repeats to about 1.5%
+and its ms/op to about 3%, against a full search's 0.9% on instructions, because only about 28 G instructions run and
+the JIT's and the allocator's variation are a large share of them. Its scan class is hidden, so `-XX:CompileCommand`
+needs `BatchWordFinder*::find`; without the wildcard it silently matches nothing.
+
+
 ## Gapped extension and traceback
 
 `align.GappedAligner`, `align.HspTree` and `search.BlastpSearch` follow BLAST+'s `blast_gapalign.c`, `blast_itree.c`,
