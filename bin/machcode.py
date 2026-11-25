@@ -4,10 +4,11 @@
 Usage: machcode.py LOG IPS [TOP]
 
 LOG is the JVM's output with -XX:CompileCommand=print for some methods. With the hsdis library the JVM prints the
-disassembly; without it, the code as bytes ([MachCode]), which is then disassembled here with objdump (for this
-machine's architecture). IPS is "perf script -F ip" of a perf record of the same run, one sampled instruction address
-(hex) per line. Each instruction is shown with its samples: first the TOP (default 40) instructions with the
-most samples, then every compiled method that has samples, in full (after the first line starting with ==). Shares are of all samples of the run.
+disassembly (bin/build-hsdis.sh builds one); without it, the code as bytes ([MachCode]), which is then disassembled
+here with objdump (for this machine's architecture). IPS is "perf script -F ip" of a perf record of the same run, one
+sampled instruction address (hex) per line. Each instruction is shown with its samples: first the TOP (default 40)
+instructions with the most samples, then every compiled method that has samples, in full (after the first line
+starting with ==). Shares are of all samples of the run.
 """
 import collections
 import os
