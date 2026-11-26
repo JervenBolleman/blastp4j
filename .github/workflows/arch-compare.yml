@@ -167,8 +167,8 @@ jobs:
               awk '$2 ~ /^(UseAVX|UseSVE|MaxVectorSize)$/ { printf "%s%s=%s", s, $2, $4; s = " " }')"
             # The options this machine actually gets, which is what bin/blastp4j and bin/compare-blastp.sh run with:
             # the machine-dependent lines of bin/jvm.options resolved, so that the report says which runs had 512-bit
-            # vectors (the [zen5] lines) or the row kernel ([aarch64]) rather than leaving it to be inferred from the
-            # CPU model. report.py marks the 512-bit runs on the history chart from this.
+            # vectors (the [avx512] lines) or the row kernel ([aarch64]) rather than leaving it to be inferred from
+            # the CPU model. report.py marks the 512-bit runs on the history chart from this.
             echo "CPU family: $(lscpu | sed -n 's/^CPU family: *//p' | head -1)"
             echo "JVM options: $(sh blastp4j/bin/jvm-options)"
             echo "BLAST+: $BLAST_VERSION"

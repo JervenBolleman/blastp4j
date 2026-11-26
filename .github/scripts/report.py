@@ -159,7 +159,9 @@ def workload(date, named=""):
 # vectors; every other x86-64 runner keeps 256, because 512 was slower on Zen 4 and on the Xeons. A job on it therefore
 # measures different code from the other x86-64 jobs, so the history chart marks its points. The signal is the options
 # the job ran with, which machine.txt carries from bin/jvm-options; jobs from before it did are told apart by their CPU
-# model, as the workload is by its date. The models are the ones the runners have offered so far.
+# model, as the workload is by its date. The models are the ones the runners have offered so far. The key is still
+# called zen5, since the runs on the reports branch carry that name, but since the [avx512] stanza it means any job
+# with 512-bit vectors: AMD Zen 5 and later, and Intel parts with AVX-512.
 ZEN5_MODELS = ("9V45",)
 
 

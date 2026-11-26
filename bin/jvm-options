@@ -1,14 +1,20 @@
 #!/usr/bin/env sh
 # Prints the JVM options in bin/jvm.options that apply to this machine, on one line: every line that is not a comment,
-# the lines starting with "[arch] " only where uname -m prints arch, and those starting with "[zen5] " only on AMD Zen 5
-# (the first CPU of /proc/cpuinfo: vendor AuthenticAMD, CPU family 26, with the avx512f flag).
+# the lines starting with "[arch] " only where uname -m prints arch, and those starting with "[avx512] " only on a CPU
+# whose AVX-512 units are full width, where 512-bit vectors are worth their frequency and their empty lanes. From the
+# first CPU of /proc/cpuinfo (CPUINFO overrides it, for tests): the avx512f flag, and either vendor GenuineIntel
+# (Ice Lake-SP and later Xeons; the E-core parts such as Sierra Forest have no avx512f, so they are left out) or
+# vendor AuthenticAMD with CPU family 26 or later (Zen 5, Zen 6 and after; Zen 4 is family 25 and executes a 512-bit
+# operation as two 256-bit halves, so width buys it nothing).
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-zen5=$(awk -F': *' '/^vendor_id/ { v = $2 } /^cpu family/ { f = $2 } /^flags/ { a = (" " $2 " ") ~ / avx512f /; exit }
-	END { print (v == "AuthenticAMD" && f == 26 && a) ? "zen5" : "" }' /proc/cpuinfo 2>/dev/null)
-awk -v arch="$(uname -m)" -v zen5="$zen5" '
+CPUINFO="${CPUINFO:-/proc/cpuinfo}"
+tag=$(awk -F': *' '/^vendor_id/ { v = $2 } /^cpu family/ { f = $2 + 0 }
+	/^flags/ { a = (" " $2 " ") ~ / avx512f /; exit }
+	END { print (a && (v == "GenuineIntel" || (v == "AuthenticAMD" && f >= 26))) ? "avx512" : "" }' "$CPUINFO" 2>/dev/null)
+awk -v arch="$(uname -m)" -v tag="$tag" '
 	/^#/ || NF == 0 { next }
 	/^\[/ {
-		if ($1 != "[" arch "]" && !(zen5 != "" && $1 == "[" zen5 "]")) next
+		if ($1 != "[" arch "]" && !(tag != "" && $1 == "[" tag "]")) next
 		sub(/^\[[^]]*\] */, "")
 	}
 	{ printf "%s ", $0 }' "$HERE/bin/jvm.options"
