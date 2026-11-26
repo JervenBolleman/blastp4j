@@ -1,0 +1,30 @@
+{
+ "run_id": "45913100963",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/45913100963",
+ "date": "2026-11-26 23:49 UTC",
+ "event": "workflow_dispatch",
+ "code": [],
+ "rows": [
+  {
+   "architecture": "*",
+   "cpu": "?",
+   "cpus": "?",
+   "zen5": false,
+   "blast_wall": null,
+   "jvm_wall": null,
+   "ref_wall": null,
+   "blastfast_wall": null,
+   "fast_wall": null,
+   "fast": null,
+   "wall": null,
+   "cycles": null,
+   "instructions": null,
+   "identical": false,
+   "profile": "",
+   "proteome": "",
+   "jvm_commit": "",
+   "ref_commit": "",
+   "rounds": {}
+  }
+ ]
+}
