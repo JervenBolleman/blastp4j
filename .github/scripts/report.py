@@ -155,21 +155,21 @@ def workload(date, named=""):
     return named or ("UP000005640_9606" if date >= HUMAN_FROM else "UP000000226_3885")
 
 
-# AMD Zen 5 (AuthenticAMD, CPU family 26, with AVX-512) is the one runner CPU that bin/jvm.options gives 512-bit
-# vectors; every other x86-64 runner keeps 256, because 512 was slower on Zen 4 and on the Xeons. A job on it therefore
-# measures different code from the other x86-64 jobs, so the history chart marks its points. The signal is the options
-# the job ran with, which machine.txt carries from bin/jvm-options; jobs from before it did are told apart by their CPU
-# model, as the workload is by its date. The models are the ones the runners have offered so far. The key is still
-# called zen5, since the runs on the reports branch carry that name, but since the [avx512] stanza it means any job
-# with 512-bit vectors: AMD Zen 5 and later, and Intel parts with AVX-512.
-ZEN5_MODELS = ("9V45",)
+# bin/jvm.options' [avx512] stanza gives 512-bit vectors to AMD family 26 and later (Zen 5, Zen 6) and to Intel parts
+# with avx512f (Ice Lake-SP and later Xeons); every other x86-64 runner keeps 256, because 512 was slower on Zen 4 and
+# on the older Xeons. Such a job therefore measures different code from the other x86-64 jobs, so the history chart
+# marks its points. The signal is the options the job ran with, which machine.txt carries from bin/jvm-options; jobs
+# from before it did are told apart by their CPU model, as the workload is by its date, and the only model the runners
+# had offered by then was Zen 5's. Named for the width and not for a CPU: the stanza was Zen 5 alone until 2026-11-26,
+# and summaries written before that call the key zen5, which read_jobs still accepts.
+WIDE512_MODELS = ("9V45",)
 
 
-def zen5(cpu, options=""):
+def wide512(cpu, options=""):
     """Whether a job ran with 512-bit vectors: what its own options say, or what its CPU model implies."""
     if "MaxVectorSize" in options:
         return "MaxVectorSize=64" in options
-    return any(model in cpu for model in ZEN5_MODELS)
+    return any(model in cpu for model in WIDE512_MODELS)
 
 
 def ratio(a, b):
@@ -271,7 +271,7 @@ def run(out, jobs):
                 profiles[system] = f"{arch}/{name}"
         row = {
             "architecture": arch, "cpu": m.get("CPU model", "?"), "cpus": m.get("CPUs", "?"),
-            "zen5": zen5(m.get("CPU model", ""), m.get("JVM options", "")),
+            "wide512": wide512(m.get("CPU model", ""), m.get("JVM options", "")),
             "blast_wall": wall.get("blast"), "jvm_wall": wall.get("jvm"), "ref_wall": wall.get("ref"),
             "blastfast_wall": wall.get("blastfast"), "fast_wall": wall.get("fast"),
             "fast": ratio(wall.get("fast"), wall.get("blastfast")),
@@ -369,7 +369,8 @@ def per_commit(site, runs):
                 run["measured"] = True
                 job = {"run": d, "date": s.get("date", d), "arch": r.get("architecture", "?"),
                        "cpu": r.get("cpu", "?"), "ref_commit": ref[:7],
-                       "zen5": bool(r.get("zen5", zen5(r.get("cpu", "")))),
+                       # "zen5" is what summaries written before 2026-11-27 call it.
+                       "wide512": bool(r.get("wide512", r.get("zen5", wide512(r.get("cpu", ""))))),
                        "workload": workload(s.get("date", ""), r.get("proteome", ""))}
                 job.update({k: rounds[k] for k in ("blast", "jvm", "ref", "almost", "blastfast", "fast", "fastref") if k in rounds})
                 g["jobs"].append(job)
@@ -523,9 +524,9 @@ HISTORY_SCRIPT = """
         const lo = Math.min.apply(null, rs), hi = Math.max.apply(null, rs);
         (by[j.arch] || (by[j.arch] = [])).push({
           x: j.date.replace(" UTC", ""), y: median(rs), lo: lo, hi: hi, run: j.run, workload: j.workload || "",
-          zen5: !!j.zen5,
+          wide512: !!j.wide512,
           text: "<b>" + commit.hash + "</b> " + (commit.subject || "") + "<br>" + j.cpu
-            + (j.zen5 ? " · 512-bit vectors" : "") + " · " + j.arch
+            + (j.wide512 ? " · 512-bit vectors" : "") + " · " + j.arch
             + " · run " + j.run + " · " + j.date + "<br>" + NAMES[num] + " over " + NAMES[den] + ", "
             + rs.length + (rs.length === 1 ? " round " : " rounds ") + lo.toFixed(3) + "–" + hi.toFixed(3)
             + "<br>" + (j.workload || "") + " · click for this run's report",
@@ -538,27 +539,27 @@ HISTORY_SCRIPT = """
 
   function build() {
     const bg = css("--bg"), out = [];
-    let anyZen5 = false;
+    let anyWide512 = false;
     for (const [num, den, dash] of SERIES) {
       const by = points(num, den);
       for (const arch of Object.keys(by).sort()) {
         const color = hex(css(ARCH[arch])), ps = by[arch];
-        anyZen5 = anyZen5 || ps.some(function (p) { return p.zen5; });
+        anyWide512 = anyWide512 || ps.some(function (p) { return p.wide512; });
         out.push({points: ps, trace: {
           type: "scatter", mode: "lines+markers", name: arch + " " + NAMES[num], legendgroup: arch,
           x: ps.map(function (p) { return p.x; }), y: ps.map(function (p) { return p.y; }),
           text: ps.map(function (p) { return p.text; }), customdata: ps.map(function (p) { return p.run; }),
           hovertemplate: "%{text}<br>ratio <b>%{y:.3f}</b><extra></extra>",
           line: {color: color, width: 2, dash: dash},
-          // A hollow diamond where the job ran with 512-bit vectors (AMD Zen 5): the color is the architecture and
+          // A hollow diamond where the job ran with 512-bit vectors: the color is the architecture and
           // the dash the program, so the symbol is what is left to say the CPU changed the code. Hollow rather than
           // filled because these points sit in dense clusters, where one filled shape among others of the same color
           // is not something an eye picks out; the open one draws the page through it. It needs the series color on
           // its outline, where a filled marker takes the background as a ring to separate it from its neighbours.
-          marker: {color: color, size: ps.map(function (p) { return p.zen5 ? 11 : 8; }),
-            symbol: ps.map(function (p) { return p.zen5 ? "diamond-open" : "circle"; }),
-            line: {width: ps.map(function (p) { return p.zen5 ? 2 : 1; }),
-              color: ps.map(function (p) { return p.zen5 ? color : bg; })}},
+          marker: {color: color, size: ps.map(function (p) { return p.wide512 ? 11 : 8; }),
+            symbol: ps.map(function (p) { return p.wide512 ? "diamond-open" : "circle"; }),
+            line: {width: ps.map(function (p) { return p.wide512 ? 2 : 1; }),
+              color: ps.map(function (p) { return p.wide512 ? color : bg; })}},
           error_y: {type: "data", symmetric: false, color: color, thickness: 1, width: 3,
             array: ps.map(function (p) { return p.hi - p.y; }),
             arrayminus: ps.map(function (p) { return p.y - p.lo; })},
@@ -568,10 +569,10 @@ HISTORY_SCRIPT = """
     // A key for the symbol. The legend's own entries are one per architecture and program, and their markers take the
     // symbol of whichever point happens to come first, so the one thing that says what a diamond means has to be an
     // entry of its own: a trace with no data, in the muted color, since the symbol belongs to no architecture.
-    if (out.length && anyZen5) {
+    if (out.length && anyWide512) {
       const muted = css("--muted");
       out.push({points: [], trace: {
-        type: "scatter", mode: "markers", name: "(on AMD Zen 5: 512-bit vectors)", x: [null], y: [null],
+        type: "scatter", mode: "markers", name: "(512-bit vectors)", x: [null], y: [null],
         marker: {color: muted, size: 11, symbol: "diamond-open", line: {color: muted, width: 2}},
         hoverinfo: "skip",
       }});
@@ -711,9 +712,10 @@ model.</p>
 <p class="muted">Six lines: blastp4j, almostblastp and fastblastp, on each architecture, over the BLAST+ task each one
 must match (<code>blastp</code> for the first two, <code>blastp -task blastp-fast</code> for fastblastp, which also
 runs more queries). A point is one job: the median of its rounds' ratios, and the bar is the lowest and the highest of
-them. A <b>diamond</b> instead of a circle marks a job on AMD Zen 5, the one runner CPU that
-<code>bin/jvm.options</code> gives 512-bit vectors; the other x86-64 CPUs keep 256, so those points measure code built
-for a different vector width. Numerator and denominator come from the same round of the same job, which is what makes the runs on different
+them. A <b>diamond</b> instead of a circle marks a job that ran with <b>512-bit vectors</b>, which
+<code>bin/jvm.options</code> gives any CPU with full-width AVX-512 units (AMD Zen 5 and later, Intel parts with
+<code>avx512f</code>); the other x86-64 CPUs keep 256, so those points measure code built for a different vector
+width. Numerator and denominator come from the same round of the same job, which is what makes the runs on different
 runner CPUs comparable; what scatter is left between neighbouring points is the runners themselves. A dotted line marks
 a change of database and queries, across which the ratios are of different searches. Click a point for that run's
 report; the table below has every run, the Mac workflow's among them, which this chart leaves out.</p>
