@@ -719,9 +719,14 @@ AVX-512's encoding, its 32 registers and its masks in use where the CPU has them
 are full width (`[avx512]`: `-XX:UseAVX=3 -XX:MaxVectorSize=64`), there for the word scan too (ea24369, d17f101).
 That stanza was Zen 5 alone until 2026-11-26; `bin/jvm-options` now takes AMD family 26 or later (Zen 5, Zen 6 and
 after) and any Intel part with `avx512f` (Ice Lake-SP and later Xeons, the E-core ones having none). Zen 4 stays at
-256 bits, halving every 512-bit operation as it does, and on Intel the width is untested: the one measurement is the
-10% the word scan lost with 16 lanes on a Xeon 8573C, before the scan was rewritten, and a Skylake-SP or Cascade Lake
-runner is the one to watch, since those downclock under 512-bit code. Measured on an EPYC 9V45 (main's push run
+256 bits, halving every 512-bit operation as it does. On Intel the width pays: in run 45913276113 the same code at
+512 bits against 256 on one Xeon 6975P-C (Granite Rapids) took **3.25% less wall time** in the full search (76.06 s
+against 78.62) and **4.40% less** in fastblastp (46.69 against 48.84), no round of one overlapping the other's
+([74.82, 76.57, 76.80] against [78.40, 79.04, 78.42]) and the output identical; the AArch64 job of the same run is
+the control and moved +1.19%. A scheduled run the day before had put it at 2.5 to 3% on that model, against the four
+256-bit runs before it. The one earlier Intel measurement, where 16 lanes cost the word scan 10% on a Xeon 8573C,
+predates the scan's rewrite. Skylake-SP and Cascade Lake are still the parts to watch, since those downclock under
+512-bit code. Measured on an EPYC 9V45 (main's push run
 42221716347, against 752525a): 29.33 s wall against
 30.15 s (-2.7%), BLAST+ 33.82 s, almostblastp 27.89 s; output identical. The earlier loss with 16 lanes did not come
 back: the scan has changed much since.
