@@ -1,0 +1,105 @@
+{
+ "run_id": "45999584153",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/45999584153",
+ "date": "2026-11-27 13:26 UTC",
+ "event": "schedule",
+ "code": [
+  "`2416968` (Comparison: the chart's 512-bit mark named for the width, not for Zen 5)"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "wide512": false,
+   "blast_wall": 84.32,
+   "jvm_wall": 84.91,
+   "ref_wall": null,
+   "blastfast_wall": 56.93,
+   "fast_wall": 53.93,
+   "fast": 0.9473037063059898,
+   "wall": 1.0069971537001898,
+   "cycles": 0.8981646471846043,
+   "instructions": 1.1340191506781048,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html",
+   "proteome": "UP000005640_9606",
+   "jvm_commit": "2416968",
+   "ref_commit": "",
+   "rounds": {
+    "blast": [
+     84.49,
+     84.32,
+     84.2
+    ],
+    "jvm": [
+     86.66,
+     84.04,
+     84.91
+    ],
+    "almost": [
+     84.25,
+     83.17,
+     83.94
+    ],
+    "blastfast": [
+     56.93,
+     56.46,
+     57.13
+    ],
+    "fast": [
+     53.93,
+     53.87,
+     54.35
+    ]
+   }
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "Intel(R) Xeon(R) 6975P-C",
+   "cpus": "4",
+   "wide512": true,
+   "blast_wall": 125.96,
+   "jvm_wall": 77.15,
+   "ref_wall": null,
+   "blastfast_wall": 82.13,
+   "fast_wall": 48.39,
+   "fast": 0.5891878728844515,
+   "wall": 0.6124960304858686,
+   "cycles": 0.5504404362416107,
+   "instructions": 0.5651203019342664,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html",
+   "proteome": "UP000005640_9606",
+   "jvm_commit": "2416968",
+   "ref_commit": "",
+   "rounds": {
+    "blast": [
+     126.24,
+     125.29,
+     125.96
+    ],
+    "jvm": [
+     77.15,
+     77.26,
+     76.66
+    ],
+    "almost": [
+     72.68,
+     71.36,
+     73.09
+    ],
+    "blastfast": [
+     81.88,
+     82.55,
+     82.13
+    ],
+    "fast": [
+     47.02,
+     48.98,
+     48.39
+    ]
+   }
+  }
+ ]
+}
