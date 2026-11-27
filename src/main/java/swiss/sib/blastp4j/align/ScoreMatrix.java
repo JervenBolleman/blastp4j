@@ -25,15 +25,25 @@ public final class ScoreMatrix {
 	final int[] scores;
 	/**
 	 * The same scores 32 wide, {@code wide[query << 5 | subject]}, zero outside 28 x 28: 1024 entries, so that an index
-	 * masked with {@code wide.length - 1} needs no bounds check in C2's loops.
+	 * masked with {@code wide.length - 1} needs no bounds check in C2's loops. Shorts, so that the table is 2 KB rather
+	 * than 4 KB in the L1D {@link GappedAligner.ExRows}' cell loops share with their band arrays and trace: every score
+	 * fits, since BLAST's own floor for a matrix entry is {@code COMPO_SCORE_MIN = INT2_MIN} and the scaled scores stay
+	 * far below INT2_MAX (the widest seen over a full search of the human proteome is [-32768, 533]). The loops widen
+	 * each score to an int as they load it, which is free on both ISAs, so the arithmetic is unchanged.
 	 */
-	final int[] wide;
+	final short[] wide;
 
 	private ScoreMatrix(int[] scores) {
 		this.scores = scores;
-		this.wide = new int[32 * 32];
+		this.wide = new short[32 * 32];
 		for (int a = 0; a < N; a++) {
-			System.arraycopy(scores, a * N, wide, a << 5, N);
+			for (int b = 0; b < N; b++) {
+				final int v = scores[a * N + b];
+				if (v < Short.MIN_VALUE || v > Short.MAX_VALUE) {
+					throw new IllegalArgumentException("score out of 16-bit range: " + v);
+				}
+				wide[(a << 5) + b] = (short) v;
+			}
 		}
 	}
 
