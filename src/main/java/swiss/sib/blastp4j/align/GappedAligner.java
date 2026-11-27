@@ -666,7 +666,7 @@ public final class GappedAligner {
 		 * Changes {@code best} and {@code bestGap} (the caller keeps a copy), nothing else.
 		 */
 		private int scoreRows(GappedAligner g, byte[] a, int aBase, int m, byte[] bs, int n, boolean reverse, int xDrop,
-				int from, int first, int bSize, int bestScore, short[] mat) {
+				int from, int first, int bSize, int bestScore, int[] mat) {
 			final int goe = this.goe, ext = this.ext;
 			// From mat itself, as in row: C2 then drops the bounds check of the masked index.
 			final int mask = mat.length - 1;
@@ -750,7 +750,7 @@ public final class GappedAligner {
 		 * ({@code jvm.options}), so that the values {@link #rows} keeps across its rows are not live in the cell loop: on
 		 * AArch64 C2 kept the loop's arrays and bestScore in stack slots there, reloaded every cell.
 		 */
-		private int row(GappedAligner g, int[] best, int[] bestGap, short[] mat, byte[] bs, byte[] tb, int base, int row,
+		private int row(GappedAligner g, int[] best, int[] bestGap, int[] mat, byte[] bs, byte[] tb, int base, int row,
 				int ai, int first, int bSize, int bestScore, int xDrop) {
 			final int goe = this.goe, ext = this.ext;
 			// From mat itself, not a parameter: so C2 knows the masked index is in bounds and drops the check.
@@ -814,8 +814,8 @@ public final class GappedAligner {
 				int bSize, EditScript ops) {
 			final int goe = this.goe, ext = this.ext;
 			final int[] best = g.best, bestGap = g.bestGap, rowStart = g.rowStart;
-			// The 32-wide matrix (1024 entries, shorts): row and scoreRows mask their index with mat.length - 1.
-			final short[] mat = g.matrix.wide;
+			// The 32-wide matrix (1024 entries): row and scoreRows mask their index with mat.length - 1.
+			final int[] mat = g.matrix.wide;
 			final int numExtraCells = ext > 0 ? xDrop / ext + 3 : n + 3;
 			final int[] saved = g.savedBest, savedGap = g.savedGap;
 			byte[] tb = g.trace;
