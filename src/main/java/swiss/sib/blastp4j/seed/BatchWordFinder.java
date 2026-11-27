@@ -137,6 +137,12 @@ public final class BatchWordFinder implements BatchScan {
 	 */
 	private final int[] rest;
 	/**
+	 * The entry of each hit in {@link #rest}, at the same index: the scan has it in a register when it defers the
+	 * hit, so keeping it spares the deferred loop a second read of {@code entry}, whose base and length C2 reloads
+	 * from the stack and whose bounds it checks (3.07% of the samples of run 46027930493 on the Neoverse-N2).
+	 */
+	private final int[] restEntry;
+	/**
 	 * Whether the finder calls wait until after a position's hits: on AArch64 only. On the Neoverse-N2 runner that took
 	 * 3.7% less wall time (run 42374103357), as the loop then reloads fewer values from the stack; on x86-64 2.8% more
 	 * (a Xeon 6973P-C, same run) and 1.5% more cycles locally (i7-6700HQ).
@@ -162,6 +168,7 @@ public final class BatchWordFinder implements BatchScan {
 			longest = Math.max(longest, table.start()[w + 1] - table.start()[w]);
 		}
 		rest = new int[longest];
+		restEntry = new int[longest];
 	}
 
 	/**
@@ -254,7 +261,7 @@ public final class BatchWordFinder implements BatchScan {
 		}
 		final int[] cells = table.cells(), entry = table.entry(), query = table.query(), base = table.base();
 		final char[] d = diags;
-		final int[] later = rest;
+		final int[] later = rest, laterEntry = restEntry;
 		final int diagMask = this.diagMask;
 		final int offset = diagOffset, windowL = window, lastL = window - LookupTable.WORD_SIZE - 1;
 		final WordFinder[] f = finders;
@@ -287,6 +294,7 @@ public final class BatchWordFinder implements BatchScan {
 						final int older = (diff - windowL) >> 31; // -1 if the hit overlaps the last one: keep that
 						d[diag] = (char) ((state & older) | ((s + offset) & ~older));
 					} else if (DEFER) {
+						laterEntry[r] = e;
 						later[r++] = k;
 					} else {
 						final int i = query[k];
@@ -300,7 +308,7 @@ public final class BatchWordFinder implements BatchScan {
 				}
 				if (DEFER) {
 					for (int j = 0; j < r; j++) {
-						final int h = later[j], i = query[h], eh = entry[h];
+						final int h = later[j], i = query[h], eh = laterEntry[j];
 						final int diag = (eh - s) & diagMask & (d.length - 1);
 						d[diag] = narrow(f[i].next(residues, start, length, eh - base[i], s, out[i], wide(d[diag]), offset));
 					}
