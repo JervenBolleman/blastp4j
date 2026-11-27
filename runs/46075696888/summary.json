@@ -1,0 +1,125 @@
+{
+ "run_id": "46075696888",
+ "run_url": "https://github.com/JervenBolleman/blastp4j/actions/runs/46075696888",
+ "date": "2026-11-27 23:28 UTC",
+ "event": "push",
+ "code": [
+  "`a821f26` (Seeding: the ungapped extension out of line on AArch64, as ExRows' cell loop is (experiment))"
+ ],
+ "rows": [
+  {
+   "architecture": "aarch64",
+   "cpu": "Neoverse-N2",
+   "cpus": "4",
+   "wide512": false,
+   "blast_wall": 84.97,
+   "jvm_wall": 86.38,
+   "ref_wall": 88.28,
+   "blastfast_wall": 56.69,
+   "fast_wall": 53.68,
+   "fast": 0.9469042159110954,
+   "wall": 1.016594092032482,
+   "cycles": 0.9198180520870495,
+   "instructions": 1.1642439789083654,
+   "identical": true,
+   "profile": "aarch64/jvm-profile.html",
+   "proteome": "UP000005640_9606",
+   "jvm_commit": "a821f26",
+   "ref_commit": "bec02b3",
+   "rounds": {
+    "blast": [
+     84.97,
+     85.18,
+     84.64
+    ],
+    "jvm": [
+     86.45,
+     86.38,
+     85.35
+    ],
+    "almost": [
+     83.18,
+     83.01,
+     82.41
+    ],
+    "blastfast": [
+     57.16,
+     56.69,
+     56.57
+    ],
+    "fast": [
+     53.66,
+     53.68,
+     54.08
+    ],
+    "ref": [
+     88.31,
+     88.28,
+     86.61
+    ],
+    "fastref": [
+     54.14,
+     52.84,
+     53.9
+    ]
+   }
+  },
+  {
+   "architecture": "x86_64",
+   "cpu": "Intel(R) Xeon(R) 6975P-C",
+   "cpus": "4",
+   "wide512": true,
+   "blast_wall": 125.23,
+   "jvm_wall": 76.88,
+   "ref_wall": 76.79,
+   "blastfast_wall": 81.43,
+   "fast_wall": 47.04,
+   "fast": 0.5776740758934054,
+   "wall": 0.6139104048550666,
+   "cycles": 0.5553100836357898,
+   "instructions": 0.6103250958938565,
+   "identical": true,
+   "profile": "x86_64/jvm-profile.html",
+   "proteome": "UP000005640_9606",
+   "jvm_commit": "a821f26",
+   "ref_commit": "bec02b3",
+   "rounds": {
+    "blast": [
+     125.39,
+     125.23,
+     124.49
+    ],
+    "jvm": [
+     76.88,
+     77.28,
+     76.8
+    ],
+    "almost": [
+     71.38,
+     71.3,
+     72.49
+    ],
+    "blastfast": [
+     82.15,
+     81.43,
+     81.14
+    ],
+    "fast": [
+     48.37,
+     47.04,
+     46.84
+    ],
+    "ref": [
+     76.79,
+     76.34,
+     78.52
+    ],
+    "fastref": [
+     46.75,
+     46.22,
+     46.97
+    ]
+   }
+  }
+ ]
+}
