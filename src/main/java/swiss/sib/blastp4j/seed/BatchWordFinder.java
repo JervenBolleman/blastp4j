@@ -270,8 +270,11 @@ public final class BatchWordFinder implements BatchScan {
 				// The word's first entry from its own line of cells, the others from entry.
 				final int cell = 2 * word, end = cells[cell + 2];
 				// A counted loop: each hit loads the next one's entry, so that the loop has one test of k against end
-				// instead of the two the break gave it (entry has one more entry for the last hit's read). C2 still
-				// reloads entry's length and checks it per hit, which three source variants have failed to change.
+				// instead of the two the break gave it (entry has one more entry for the last hit's read). That did
+				// work, although the comment here long said otherwise: in run 46027930493 the AArch64 loop reads
+				// entry[k + 1] with no bounds check and no reload of the length, only a reload of the array's base,
+				// which is register pressure and not a check. Of the 32 bounds checks left in the method, 13 reload
+				// a length, and none of those is this one.
 				int e = cells[cell + 1];
 				for (int k = cells[cell]; k < end; k++) {
 					// The usual hits, decided from the entry: the diagonal's last hit is a window or more back, so
