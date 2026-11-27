@@ -781,17 +781,15 @@ public final class GappedAligner {
 					}
 					gapRow -= ext;
 					gapCol -= ext;
-					if (gapCol < score - goe) {
-						bestGap[bi] = score - goe;
-					} else {
-						bestGap[bi] = gapCol;
-						script += EXTEND_GAP_B;
-					}
-					if (gapRow < score - goe) {
-						gapRow = score - goe;
-					} else {
-						script += EXTEND_GAP_A;
-					}
+					// Both gap decisions as scoreRows takes them, with Math.max, and the flag from the sign bit rather
+					// than a branch: extend when the running gap is at least what opening here would give, so
+					// open - gap - 1 < 0. Over a full search of the 24 human queries the B decision went 53.0% to 47.0%
+					// over 288 M cells, which no predictor can learn; A went 25.8% to 74.2%.
+					final int open = score - goe;
+					script += ((open - gapCol - 1) >> 31) & EXTEND_GAP_B;
+					script += ((open - gapRow - 1) >> 31) & EXTEND_GAP_A;
+					bestGap[bi] = Math.max(open, gapCol);
+					gapRow = Math.max(open, gapRow);
 					best[bi] = score;
 				}
 				score = next;
