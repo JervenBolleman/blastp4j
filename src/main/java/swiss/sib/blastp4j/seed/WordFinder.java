@@ -49,6 +49,15 @@ public final class WordFinder implements WordScan {
 	 * need not check the lookups against it.
 	 */
 	static final byte[] PADDED = new byte[32 * 32];
+	/**
+	 * {@link #PADDED}, as an instance field so that it is not a compile-time constant: C2 folds a static final
+	 * array's address into the code and then rematerialises it at every use rather than keeping it in a register,
+	 * which costs movabs twice per unrolled iteration on x86-64 and mov plus two movk twice on AArch64 (63 of the
+	 * 1,480 instructions of BatchWordFinder::find in run 46007209880, one of them into a register the next
+	 * instruction overwrites unread). Masked with its own length, which is how C2 drops the bounds check now that
+	 * the length is no longer a constant.
+	 */
+	private final byte[] padded = PADDED;
 	static {
 		byte[] matrix = Blosum62.matrix();
 		for (int a = 0; a < Blosum62.SIZE; a++) {
@@ -365,7 +374,7 @@ public final class WordFinder implements WordScan {
 		// One beyond the position within the word that gives the best starting score.
 		int score = 0, leftScore = 0, rightD = 0;
 		for (int i = 0; i < LookupTable.WORD_SIZE; i++) {
-			score += PADDED[(rowOfQuery[qRight + i] + residues[start + sRight + i]) & 1023];
+			score += padded[(rowOfQuery[qRight + i] + residues[start + sRight + i]) & (padded.length - 1)];
 			if (score > leftScore) {
 				leftScore = score;
 				rightD = i + 1;
@@ -400,7 +409,7 @@ public final class WordFinder implements WordScan {
 		int best = n + 1, score = 0, maxScore = 0, floor = -xDrop;
 		final int sBase = start + sOff - n, qBase = qOff - n;
 		for (int i = n; i >= 0; i--) {
-			score += PADDED[(rowOfQuery[qBase + i] + residues[sBase + i]) & 1023];
+			score += padded[(rowOfQuery[qBase + i] + residues[sBase + i]) & (padded.length - 1)];
 			if (BRANCH_FREE_MAX) {
 				// -1 while score is a new maximum, so that the best offset is a mask and not a branch:
 				// C2 gives Math.max a select but the ternary a branch, with the same compare again to drive it.
@@ -427,7 +436,7 @@ public final class WordFinder implements WordScan {
 		int best = -1, score = maxScore, i;
 		int floor = Math.max(0, maxScore - xDrop);
 		for (i = 0; i < n; i++) {
-			score += PADDED[(rowOfQuery[qOff + i] + residues[start + sOff + i]) & 1023];
+			score += padded[(rowOfQuery[qOff + i] + residues[start + sOff + i]) & (padded.length - 1)];
 			if (BRANCH_FREE_MAX) {
 				// -1 while score is a new maximum, so that the best offset is a mask and not a branch:
 				// C2 gives Math.max a select but the ternary a branch, with the same compare again to drive it.

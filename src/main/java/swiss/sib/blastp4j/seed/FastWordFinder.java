@@ -13,6 +13,8 @@ import java.util.List;
 final class FastWordFinder {
 	private static final int WORD = CompressedTable.WORD;
 	private static final byte[] PADDED = WordFinder.PADDED;
+	/** {@link WordFinder#padded}: an instance field, so that C2 keeps the base in a register. */
+	private final byte[] padded = PADDED;
 	private static final int EXTENDED = WordFinder.EXTENDED;
 	private static final boolean BRANCH_FREE_MAX = WordFinder.BRANCH_FREE_MAX;
 
@@ -89,7 +91,7 @@ final class FastWordFinder {
 	private int extendTwoHit(byte[] residues, int start, int length, int sLeft, int sRight, int qRight) {
 		int score = 0, leftScore = 0, rightD = 0;
 		for (int i = 0; i < WORD; i++) {
-			score += PADDED[(rowOfQuery[qRight + i] + residues[start + sRight + i]) & 1023];
+			score += padded[(rowOfQuery[qRight + i] + residues[start + sRight + i]) & (padded.length - 1)];
 			if (score > leftScore) {
 				leftScore = score;
 				rightD = i + 1;
@@ -119,7 +121,7 @@ final class FastWordFinder {
 		int best = n + 1, score = 0, maxScore = 0, floor = -xDrop;
 		final int sBase = start + sOff - n, qBase = qOff - n;
 		for (int i = n; i >= 0; i--) {
-			score += PADDED[(rowOfQuery[qBase + i] + residues[sBase + i]) & 1023];
+			score += padded[(rowOfQuery[qBase + i] + residues[sBase + i]) & (padded.length - 1)];
 			if (BRANCH_FREE_MAX) {
 				// -1 while score is a new maximum, so that the best offset is a mask and not a branch:
 				// C2 gives Math.max a select but the ternary a branch, with the same compare again to drive it.
@@ -145,7 +147,7 @@ final class FastWordFinder {
 		int best = -1, score = maxScore, i;
 		int floor = Math.max(0, maxScore - xDrop);
 		for (i = 0; i < n; i++) {
-			score += PADDED[(rowOfQuery[qOff + i] + residues[start + sOff + i]) & 1023];
+			score += padded[(rowOfQuery[qOff + i] + residues[start + sOff + i]) & (padded.length - 1)];
 			if (BRANCH_FREE_MAX) {
 				// -1 while score is a new maximum, so that the best offset is a mask and not a branch:
 				// C2 gives Math.max a select but the ternary a branch, with the same compare again to drive it.
