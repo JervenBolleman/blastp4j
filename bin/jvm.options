@@ -23,8 +23,10 @@
 # the scan's registers on the extension: in run 46027930493 the hottest loop of the whole program reloads s, the
 # diagonal array's base, the entry array's base and s + offset from stack slots on every hit, 5 loads in 29
 # instructions, two of them of the same slot. AArch64 only, because DEFER, which gives that loop its shape, is
-# AArch64 only. The pattern also matches the hidden-class copies.
-[aarch64] -XX:CompileCommand=dontinline,swiss.sib.blastp4j.seed.WordFinder*::extendTwoHit
+# AArch64 only. The pattern also matches the hidden-class copies. Pinned at next rather than at extendTwoHit,
+# so that find keeps the scan alone: next is the whole handling of a hit, and the scan reaches it only for the
+# hits it defers, so the call is not on the common path.
+[aarch64] -XX:CompileCommand=dontinline,swiss.sib.blastp4j.seed.WordFinder*::next
 # Vector width: the code uses the preferred vectors everywhere, so these choose it. 256 bits on x86-64, which still
 # leaves AVX-512's instructions, its 32 registers and its masks in use where the CPU has them: MaxVectorSize caps the
 # width alone, where UseAVX=2 would give up the encoding too. 512 bits where the AVX-512 units are full width
