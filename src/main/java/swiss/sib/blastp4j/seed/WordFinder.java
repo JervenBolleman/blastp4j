@@ -399,7 +399,10 @@ public final class WordFinder implements WordScan {
 		for (int i = n; i >= 0; i--) {
 			score += PADDED[(rowOfQuery[qBase + i] + residues[sBase + i]) & 1023];
 			if (BRANCH_FREE_MAX) {
-				best = score > maxScore ? i : best;
+				// -1 while score is a new maximum, so that the best offset is a mask and not a branch:
+				// C2 gives Math.max a select but the ternary a branch, with the same compare again to drive it.
+				final int m = (maxScore - score) >> 31;
+				best = (i & m) | (best & ~m);
 				maxScore = Math.max(maxScore, score);
 				floor = maxScore - xDrop;
 			} else if (score > maxScore) {
@@ -423,7 +426,10 @@ public final class WordFinder implements WordScan {
 		for (i = 0; i < n; i++) {
 			score += PADDED[(rowOfQuery[qOff + i] + residues[start + sOff + i]) & 1023];
 			if (BRANCH_FREE_MAX) {
-				best = score > maxScore ? i : best;
+				// -1 while score is a new maximum, so that the best offset is a mask and not a branch:
+				// C2 gives Math.max a select but the ternary a branch, with the same compare again to drive it.
+				final int m = (maxScore - score) >> 31;
+				best = (i & m) | (best & ~m);
 				maxScore = Math.max(maxScore, score);
 				floor = Math.max(0, maxScore - xDrop);
 			} else if (score > maxScore) {
