@@ -67,9 +67,15 @@ public final class WordFinder implements WordScan {
 		}
 	}
 
+	/**
+	 * The query's residues. The ungapped extension shifts one by 5 where it needs its row of the padded matrix,
+	 * rather than reading the shifted value from a parallel array: that array held 4 bytes per residue, about
+	 * 40 KB over a 10,000-residue batch, against 10 KB for these residues and 1 KB for the matrix itself, and the
+	 * extension holds about 26% of the whole program's L1D refills in run 46027930493 on the Neoverse-N2 -- more
+	 * than any other region, the diagonal array included. One lsl per residue pair buys three quarters of that
+	 * working set back.
+	 */
 	private final byte[] query;
-	/** The start of each query residue's row of the padded matrix. */
-	private final int[] rowOfQuery;
 	private final LookupTable table;
 	private final int window, xDrop, cutoff;
 	/**
@@ -147,10 +153,6 @@ public final class WordFinder implements WordScan {
 		this.xDrop = p.xDrop();
 		this.cutoff = p.cutoff();
 		final int length = diagonals(query.length, window);
-		rowOfQuery = new int[query.length];
-		for (int q = 0; q < query.length; q++) {
-			rowOfQuery[q] = query[q] << 5;
-		}
 		diagState = new int[length];
 		diagMask = length - 1;
 		diagOffset = window;
@@ -374,7 +376,7 @@ public final class WordFinder implements WordScan {
 		// One beyond the position within the word that gives the best starting score.
 		int score = 0, leftScore = 0, rightD = 0;
 		for (int i = 0; i < LookupTable.WORD_SIZE; i++) {
-			score += padded[(rowOfQuery[qRight + i] + residues[start + sRight + i]) & (padded.length - 1)];
+			score += padded[((query[qRight + i] << 5) + residues[start + sRight + i]) & (padded.length - 1)];
 			if (score > leftScore) {
 				leftScore = score;
 				rightD = i + 1;
@@ -409,7 +411,7 @@ public final class WordFinder implements WordScan {
 		int best = n + 1, score = 0, maxScore = 0, floor = -xDrop;
 		final int sBase = start + sOff - n, qBase = qOff - n;
 		for (int i = n; i >= 0; i--) {
-			score += padded[(rowOfQuery[qBase + i] + residues[sBase + i]) & (padded.length - 1)];
+			score += padded[((query[qBase + i] << 5) + residues[sBase + i]) & (padded.length - 1)];
 			if (BRANCH_FREE_MAX) {
 				// -1 while score is a new maximum, so that the best offset is a mask and not a branch:
 				// C2 gives Math.max a select but the ternary a branch, with the same compare again to drive it.
@@ -436,7 +438,7 @@ public final class WordFinder implements WordScan {
 		int best = -1, score = maxScore, i;
 		int floor = Math.max(0, maxScore - xDrop);
 		for (i = 0; i < n; i++) {
-			score += padded[(rowOfQuery[qOff + i] + residues[start + sOff + i]) & (padded.length - 1)];
+			score += padded[((query[qOff + i] << 5) + residues[start + sOff + i]) & (padded.length - 1)];
 			if (BRANCH_FREE_MAX) {
 				// -1 while score is a new maximum, so that the best offset is a mask and not a branch:
 				// C2 gives Math.max a select but the ternary a branch, with the same compare again to drive it.
