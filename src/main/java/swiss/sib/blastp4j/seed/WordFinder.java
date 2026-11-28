@@ -77,15 +77,12 @@ public final class WordFinder implements WordScan {
 	/** Set in a diagonal's state while hits on it are ignored, as they lie within the extension. */
 	static final int EXTENDED = 1 << 30;
 	/**
-	 * Whether the ungapped extensions track their best score without a branch on a new maximum (arithmetic instead,
-	 * which the predictor need not learn), so that only the X-drop exit branches. On AArch64 only until now: 654b5e5
-	 * (run 42000813261) took 0.8% less wall time on the Neoverse-N2, with 6% fewer branch misses, but 1.8% more on
-	 * x86-64 (an EPYC 9V74), so cfdae36 gave it to AArch64 alone. That measurement was of the bean proteome and 500
-	 * queries, which the human workload replaced on 2026-11-22 with about three times the instructions, and on it the
-	 * ungapped extension holds 39.96% of all the branch misses of the x86-64 run (WordFinder::extendTwoHit, 11.1 per
-	 * 1,000 cycles, run 46007209880) while missing L2 0.3 times per 1,000 cycles. So it is retried here for both.
+	 * Whether the ungapped extensions track their best score without a branch on a new maximum (a select instead, which
+	 * the predictor need not learn), so that only the X-drop exit branches: on AArch64 only. On the runners (654b5e5,
+	 * run 42000813261) that took 0.8% less wall time on the Neoverse-N2, with 6% fewer branch misses, and 1.8% more on
+	 * x86-64 (an EPYC 9V74).
 	 */
-	static final boolean BRANCH_FREE_MAX = true;
+	static final boolean BRANCH_FREE_MAX = "aarch64".equals(System.getProperty("os.arch"));
 	private final int diagMask;
 	private int diagOffset;
 	// Output of the last extension.
