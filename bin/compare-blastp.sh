@@ -146,9 +146,13 @@ for s in "${PROFILED[@]}"; do
 		# The methods with the most samples of their own (the top frame), hidden-class copies merged by --norm.
 		"$JFRCONV" --norm --simple -o collapsed "$OUT/$s-profile.jfr" "$OUT/$s-profile.collapsed" >/dev/null
 		echo "self time, top 15 methods:"
+		# Through a file rather than straight into head: head closes the pipe at its fifteenth line and sort, still
+		# writing, takes SIGPIPE and reports "write failed: 'standard output': Broken pipe" on the way out. The
+		# listing itself was always complete, the message is only sort's exit, and the whole ranking is kept here.
 		awk '{ n = $NF; sub(/ [0-9]+$/, ""); k = split($0, f, ";"); self[f[k]] += n; total += n }
 			END { for (m in self) printf "%6.2f%%  %s\n", 100 * self[m] / total, m }' "$OUT/$s-profile.collapsed" |
-			sort -rn | head -15
+			sort -rn > "$OUT/$s-self.txt"
+		head -15 "$OUT/$s-self.txt"
 	else
 		echo "skipped: set ASYNC_PROFILER to libasyncProfiler.so"
 	fi
