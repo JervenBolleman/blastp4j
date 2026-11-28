@@ -28,6 +28,7 @@ import html
 import os
 import re
 import shutil
+import statistics
 import sys
 
 RUN_URL = os.environ.get("RUN_URL", "")
@@ -251,23 +252,52 @@ def commit_link(code):
     return f"{link} {html.escape(m.group(2))}"
 
 
+def job_cells(jobs):
+    """The job directories grouped by the cell they measure, (architecture, CPU model). The repeat axis of the
+    workflow matrix runs a cell several times in one run, on separate virtual machines; those jobs measure the same
+    code on the same kind of core, so their rounds belong together. A repeat that landed on another CPU model does
+    not -- the x86-64 runners vary from job to job -- so it stays a cell of its own rather than being pooled."""
+    out = {}
+    for job in sorted(jobs):
+        m = machine(read(os.path.join(job, "machine.txt")))
+        out.setdefault((m.get("Architecture", os.path.basename(job)), m.get("CPU model", "?")), []).append((job, m))
+    return out
+
+
+def merged_rounds(per_job):
+    """The rounds of a cell's jobs, concatenated per system, so that a verdict is read from all of them."""
+    out = {}
+    for rounds in per_job:
+        for system, walls in rounds.items():
+            out.setdefault(system, []).extend(walls)
+    return out
+
+
 def run(out, jobs):
     os.makedirs(out, exist_ok=True)
     rows, summary, sections, commits = [], [], [], set()
-    for job in sorted(jobs):
-        m = machine(read(os.path.join(job, "machine.txt")))
-        arch = m.get("Architecture", os.path.basename(job))
-        search = read(os.path.join(job, "full-search.txt"))
-        wall, counters, identical = full_search(search)
+    for (arch, _cpu), group in sorted(job_cells(jobs).items()):
+        job, m = group[0]
+        searches = [read(os.path.join(j, "full-search.txt")) for j, _ in group]
+        search = searches[0]
+        wall, counters, _ = full_search(search)
+        identical = all(full_search(t)[2] for t in searches)
         blast, jvm = counters.get("blast", {}), counters.get("jvm", {})
-        rounds, tested = search_rounds(search)
+        parsed = [search_rounds(t) for t in searches]
+        rounds, tested = merged_rounds([r for r, _ in parsed]), parsed[0][1]
+        # The table's wall times are the medians of every round of the cell, not of the first repeat's alone.
+        for system, walls in rounds.items():
+            got = [w for w in walls if w is not None]
+            if got:
+                wall[system] = round(statistics.median(got), 2)
         commits.add(m.get("Code", ""))
         profiles = {}
         for system in ("jvm", "almost", "fast"):
             name = f"{system}-profile.html"
-            if os.path.exists(os.path.join(job, name)):
+            src = next((os.path.join(j, name) for j, _ in group if os.path.exists(os.path.join(j, name))), None)
+            if src:
                 os.makedirs(os.path.join(out, arch), exist_ok=True)
-                shutil.copy(os.path.join(job, name), os.path.join(out, arch, name))
+                shutil.copy(src, os.path.join(out, arch, name))
                 profiles[system] = f"{arch}/{name}"
         row = {
             "architecture": arch, "cpu": m.get("CPU model", "?"), "cpus": m.get("CPUs", "?"),
@@ -298,10 +328,14 @@ def run(out, jobs):
             + f"<td>{'identical' if identical else '<b class=bad>different</b>'}</td>"
             f"<td>{link}</td></tr>")
         facts = "".join(f"<dt>{html.escape(k)}</dt><dd>{inline(v)}</dd>" for k, v in m.items())
+        repeats = "".join(
+            f'<h3>repeat {i}</h3>' + markdown(read(os.path.join(j, "report.md")), shift=1)
+            for i, (j, _) in enumerate(group[1:], start=2))
         sections.append(
             f'<section><h2 id="{html.escape(arch)}">{html.escape(arch)}: {html.escape(row["cpu"])}</h2>'
             f'<dl class="facts">{facts}</dl>'
             + markdown(read(os.path.join(job, "report.md")), shift=1)
+            + repeats
             + "</section>")
     has_ref = any(r["ref_wall"] is not None for r in rows)
     has_fast = any(r["fast_wall"] is not None for r in rows)

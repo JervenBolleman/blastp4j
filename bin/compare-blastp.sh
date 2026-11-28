@@ -8,6 +8,10 @@
 # is so much faster that it needs more queries for a search long enough to leave the JIT's warm-up behind.
 #
 # 1. ROUNDS timing rounds (default 5), the chosen systems interleaved in each round (/usr/bin/time: wall, user, sys).
+#    BASELINE_ROUNDS (default ROUNDS) of them time blast, blastfast and almost as well; later rounds time only the
+#    code under test (jvm, ref, fast, fastref). A verdict is the ratio of two of those within one round, and BLAST+
+#    repeats to about a third of a percent, so rounds beyond the first few buy it nothing and cost as much as the
+#    ones that do buy something.
 # 2. One perf stat run per system (instructions, cycles, branches, branch misses, and the stall and cache-refill
 #    events this machine's perf knows, as on the Neoverse-N2 or Intel cores), after all timing rounds; skipped where
 #    perf has no hardware counters.
@@ -17,7 +21,10 @@
 # Every output is compared with the first one written of its task (BLAST+'s when blast, or blastfast, is chosen):
 # blastfast, fast and fastref with each other, the others with each other.
 #
-# Settings (environment): QUERY, DB, THREADS (8), ROUNDS (5), OUT (target/compare), BLASTP (blastp on PATH),
+# DIAGNOSTICS=false stops after the timing rounds: steps 2 and 3 each run every system once more, so together they
+# cost about as much as all the rounds, and a run whose point is the wall times does not need them.
+#
+# Settings (environment): QUERY, DB, THREADS (8), ROUNDS (5), BASELINE_ROUNDS (ROUNDS), DIAGNOSTICS (true), OUT (target/compare), BLASTP (blastp on PATH),
 # TIME (GNU time, for -o and -f; default /usr/bin/time, on macOS gtime from Homebrew's gnu-time), JAVA_HOME or JAVA, NATIVE (the native executable, needed for native), ASYNC_PROFILER (libasyncProfiler.so; without
 # it the profile run is skipped). The JVM runs the jar built by "mvn package", with this machine's options from
 # bin/jvm.options (as bin/blastp4j). ref runs another build's jar, REF_JAR, with the options of that build's tree,
@@ -29,6 +36,8 @@ FAST_QUERY="${FAST_QUERY:-$QUERY}"
 DB="${DB:-$HOME/data/uniprot/blastdb/sprot}"
 THREADS="${THREADS:-8}"
 ROUNDS="${ROUNDS:-5}"
+BASELINE_ROUNDS="${BASELINE_ROUNDS:-$ROUNDS}"
+DIAGNOSTICS="${DIAGNOSTICS:-true}"
 OUT="${OUT:-$HERE/target/compare}"
 BLASTP="${BLASTP:-blastp}"
 JAVA="${JAVA:-${JAVA_HOME:+$JAVA_HOME/bin/}java}"
@@ -93,9 +102,13 @@ search() {
 }
 
 echo "systems: ${SYSTEMS[*]}; query $QUERY (blastp-fast: $FAST_QUERY); db $DB; $THREADS threads; output in $OUT"
-echo "== timing, $ROUNDS rounds (wall s, user s, sys s)"
+echo "== timing, $ROUNDS rounds (wall s, user s, sys s)$([ "$BASELINE_ROUNDS" != "$ROUNDS" ] && echo ", $BASELINE_ROUNDS of them for blast, blastfast and almost")"
 for r in $(seq 1 "$ROUNDS"); do
 	for s in "${SYSTEMS[@]}"; do
+		# The baselines drop out after BASELINE_ROUNDS; the code under test goes on to ROUNDS.
+		if [ "$r" -gt "$BASELINE_ROUNDS" ]; then
+			case $s in blast | blastfast | almost) continue ;; esac
+		fi
 		search "$s" "time-$s-$r" "$TIME" -o "$OUT/time-$s-$r.txt" -f "%e %U %S"
 		echo "round $r $s: $(cat "$OUT/time-$s-$r.txt") ($SAME)"
 	done
@@ -103,6 +116,14 @@ done
 for s in "${SYSTEMS[@]}"; do
 	echo "$s median wall: $(cat "$OUT"/time-"$s"-*.txt | cut -d' ' -f1 | sort -n | awk '{a[NR]=$1} END{print (NR%2 ? a[(NR+1)/2] : (a[NR/2]+a[NR/2+1])/2) " s"}')"
 done
+
+# Everything below is diagnosis rather than measurement: one perf stat run, one profile run and one machine-code run
+# per system, each a whole search again. A verdict is read from the timing rounds above, so a run that only needs the
+# numbers can leave these out and spend the time on more rounds instead.
+if [ "$DIAGNOSTICS" != true ]; then
+	echo "== diagnostics skipped (DIAGNOSTICS=$DIAGNOSTICS)"
+	exit 0
+fi
 
 echo "== perf stat"
 # Virtual machines often have no hardware counters; perf then reports them as not supported.

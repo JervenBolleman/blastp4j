@@ -1,6 +1,20 @@
 # Compares blastp4j (C2) with BLAST+ (gcc) on x86-64 and on AArch64, to see whether the gap in the X-drop alignment
 # loop (register spills: C2 has fewer allocatable registers than gcc on x86-64) shrinks on AArch64.
 #
+# A build job first makes the jars once, on the AArch64 runner (GitHub's cheaper one), and every measuring job
+# unpacks them: the bytecode does not depend on what measures it, and REPEATS jobs an architecture would otherwise
+# build it REPEATS times.
+#
+# Per architecture, REPEATS times over as many jobs, whose rounds the report pools into one row a (architecture, CPU
+# model) -- a repeat that landed on another CPU model stays a row of its own, since the x86-64 runners vary. One
+# paired measurement of a cell resolves about 1.8% at two standard deviations, which is the size of the differences
+# this repository looks for, so a verdict needs the rounds of several jobs and not of one (docs/measurement-power.md).
+# Steps 1 and 2 and the diagnostic passes of step 3 run on the first repeat alone, and not at all when DIAGNOSTICS is
+# false: each of them runs every system a whole search again, so together they cost about as much as all the timing
+# rounds, and they are for understanding a result rather than for reaching one. BASELINE_ROUNDS likewise times BLAST+
+# and almostblastp for fewer rounds than the code under test, because BLAST+ repeats to about a third of a percent
+# and rounds past the first few tell nothing new about it.
+#
 # Per architecture:
 # 1. Spills: the stack accesses in Blast_SemiGappedAlign and GappedAligner.semiGapped, static and weighted by
 #    cpu-clock samples (.github/scripts/compare-spills.sh); C2's code is printed with hsdis.
@@ -50,8 +64,17 @@ on:
         description: Number of proteome sequences, evenly spaced over the file, used as queries in the full search
         default: "750"
       rounds:
-        description: Timing rounds of the full search
+        description: Timing rounds of the full search, of the code under test (jvm, ref, fast, fastref)
+        default: "14"
+      baseline_rounds:
+        description: "Timing rounds of the baselines (blast, blastfast, almost); empty for as many as the code's"
         default: "3"
+      repeats:
+        description: "How many times each architecture measures, as separate jobs of this run: their rounds are pooled"
+        default: "3"
+      diagnostics:
+        description: "Also run perf stat, the profiler and the machine-code pass, and the spills and benchmark steps (the first repeat only): true or false"
+        default: "true"
       variants:
         description: "Benchmark variants, label=JVM options after bin/jvm.options, separated by ;"
         default: "launcher=;oops-on=-XX:+UseCompressedOops;oops-off=-XX:-UseCompressedOops"
@@ -86,7 +109,9 @@ permissions:
 env:
   # The inputs, with their defaults for the scheduled runs, which have no inputs.
   QUERIES: ${{ inputs.queries || '750' }}
-  ROUNDS: ${{ inputs.rounds || '3' }}
+  ROUNDS: ${{ inputs.rounds || '14' }}
+  BASELINE_ROUNDS: ${{ inputs.baseline_rounds || '3' }}
+  REPEATS: ${{ inputs.repeats || '3' }}
   VARIANTS: ${{ inputs.variants || 'launcher=;oops-on=-XX:+UseCompressedOops;oops-off=-XX:-UseCompressedOops' }}
   BENCH_ROUNDS: ${{ inputs.bench_rounds || '1' }}
   BENCHMARK: ${{ inputs.benchmark || '.' }}
@@ -102,21 +127,17 @@ env:
   PROTEOME_URL: https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/Eukaryota/UP000005640/UP000005640_9606.fasta.gz
 
 jobs:
-  compare:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-24.04
-            blast: x64-linux
-            profiler: linux-x64
-          - runner: ubuntu-24.04-arm
-            blast: aarch64-linux
-            profiler: linux-arm64
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 180
-    env:
-      REPORT: ${{ github.workspace }}/report
+  # The jars once, for every measuring job: they are the same bytecode whatever measures them, and building them in
+  # each job would build them REPEATS times an architecture. On the AArch64 runner, which GitHub bills at $0.005 a
+  # minute against $0.006 for x86-64 and calls the more efficient of the two; the repository is public, so neither
+  # costs anything here, but the cheaper one is the one to idle on. The artifact is self-contained -- the
+  # dependencies are copied beside the classes and target/cp.txt names them relatively -- so a measuring job needs
+  # no Maven, no repository of its own and no cssw4j checkout.
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    outputs:
+      repeats: ${{ steps.plan.outputs.repeats }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -139,6 +160,78 @@ jobs:
           cache-dependency-path: |
             blastp4j/pom.xml
             cssw4j/pom.xml
+      - name: Build
+        run: |
+          mvn -B -q -f cssw4j/pom.xml install -DskipTests
+          for d in blastp4j reference; do
+            [ -d "$d" ] || continue
+            mvn -B -q -f "$d/pom.xml" package -DskipTests
+            # The dependencies beside the classes, and a classpath of paths relative to the tree, so that the jobs
+            # that measure need nothing from ~/.m2.
+            mvn -B -q -f "$d/pom.xml" dependency:copy-dependencies -DincludeScope=test \
+              -DoutputDirectory="$PWD/$d/target/lib"
+            (cd "$d" && ls target/lib/*.jar | paste -sd: >target/cp.txt)
+          done
+      - name: Pack
+        # One archive rather than the trees themselves: upload-artifact roots an artifact at the least common
+        # ancestor of its paths, which without a reference checkout is blastp4j/target and would lose the tree the
+        # measuring jobs unpack into. It is also thousands of class files, which travel better as one file.
+        run: tar czf jars.tgz blastp4j/target $([ -d reference/target ] && echo reference/target)
+      - name: Repeats
+        id: plan
+        run: echo "repeats=[$(seq 1 "$REPEATS" | paste -sd,)]" >>"$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: jars
+          path: jars.tgz
+          retention-days: 1
+          if-no-files-found: error
+
+  compare:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm]
+        repeat: ${{ fromJSON(needs.build.outputs.repeats) }}
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+            blast: x64-linux
+            profiler: linux-x64
+          - arch: arm
+            runner: ubuntu-24.04-arm
+            blast: aarch64-linux
+            profiler: linux-arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    env:
+      REPORT: ${{ github.workspace }}/report
+      # The diagnostic passes cost about as much as all the timing rounds, and one job's worth of them says
+      # everything the others' would: the first repeat runs them, the rest spend the time on rounds instead.
+      DIAGNOSTICS: ${{ matrix.repeat == 1 && (inputs.diagnostics || 'true') || 'false' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.code }}
+          path: blastp4j
+      - uses: actions/checkout@v7
+        if: env.REFERENCE
+        with:
+          ref: ${{ env.REFERENCE }}
+          path: reference
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+      # The jars, the classes and their dependencies as the build job made them, into the trees just checked out.
+      - uses: actions/download-artifact@v8
+        with:
+          name: jars
+      - name: Unpack
+        run: |
+          tar xzf jars.tgz
+          ls -l blastp4j/target/blastp4j-*.jar
 
       - name: Install packages
         run: |
@@ -198,12 +291,13 @@ jobs:
           echo "JDK $runtime, hsdis from jdk${JAVA_VERSION}u tag jdk-${runtime%%-*}"
       - name: Cache hsdis
         id: hsdis
+        if: env.DIAGNOSTICS == 'true'
         uses: actions/cache@v6
         with:
           path: hsdis
           key: hsdis-binutils-${{ runner.arch }}-${{ steps.image.outputs.jdk-tag }}-${{ steps.image.outputs.version }}
       - name: Build hsdis
-        if: steps.hsdis.outputs.cache-hit != 'true'
+        if: env.DIAGNOSTICS == 'true' && steps.hsdis.outputs.cache-hit != 'true'
         run: |
           git clone -q --depth 1 --branch "${{ steps.image.outputs.jdk-tag }}" \
             "https://github.com/openjdk/jdk${JAVA_VERSION}u.git" jdk-src
@@ -214,6 +308,7 @@ jobs:
           find build -name 'hsdis-*.so' -exec cp {} ../hsdis/ \;
           ls -l ../hsdis
       - name: Install hsdis
+        if: env.DIAGNOSTICS == 'true'
         run: cp hsdis/hsdis-*.so "$JAVA_HOME/lib/server/"
 
       - name: Cache BLAST+
@@ -244,16 +339,6 @@ jobs:
             tar xz
           mv "async-profiler-$ASYNC_PROFILER_VERSION-${{ matrix.profiler }}" async-profiler
 
-      - name: Build
-        run: |
-          mvn -B -q -f cssw4j/pom.xml install -DskipTests
-          mvn -B -q -f blastp4j/pom.xml package -DskipTests
-          mvn -B -q -f blastp4j/pom.xml dependency:build-classpath -Dmdep.outputFile="$PWD/blastp4j/target/cp.txt"
-          if [ -d reference ]; then
-            mvn -B -q -f reference/pom.xml package -DskipTests
-            mvn -B -q -f reference/pom.xml dependency:build-classpath -Dmdep.outputFile="$PWD/reference/target/cp.txt"
-          fi
-
       - name: Data
         run: |
           mkdir -p data/blastdb
@@ -275,12 +360,14 @@ jobs:
             "blastp-fast: $(grep -c '^>' data/fast-queries.fasta)"
 
       - name: Spills
+        if: env.DIAGNOSTICS == 'true'
         working-directory: blastp4j
         run: |
           QUERY=../data/queries.fasta DB=../data/blastdb/sprot OUT=target/spills .github/scripts/compare-spills.sh |
             tee -a "$GITHUB_STEP_SUMMARY" "$REPORT/report.md"
 
       - name: Benchmark
+        if: env.DIAGNOSTICS == 'true'
         working-directory: blastp4j
         run: |
           base="$(bin/jvm-options)"
@@ -351,7 +438,8 @@ jobs:
               export REF_HOME="$(cd ../reference && pwd)"
               echo "jvm: $(git rev-parse --short HEAD), ref: $(git -C ../reference rev-parse --short HEAD)"
             fi
-            QUERY=../data/queries.fasta FAST_QUERY=../data/fast-queries.fasta DB=../data/blastdb/sprot THREADS="$(nproc)" ROUNDS="$ROUNDS" OUT=target/compare \
+            QUERY=../data/queries.fasta FAST_QUERY=../data/fast-queries.fasta DB=../data/blastdb/sprot THREADS="$(nproc)" \
+              ROUNDS="$ROUNDS" BASELINE_ROUNDS="$BASELINE_ROUNDS" DIAGNOSTICS="$DIAGNOSTICS" OUT=target/compare \
               ASYNC_PROFILER="$(cd .. && pwd)/async-profiler/lib/libasyncProfiler.so" bin/compare-blastp.sh "${systems[@]}"
             } | tee "$REPORT/full-search.txt"
             echo '```'
@@ -361,7 +449,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: compare-${{ runner.arch }}
+          name: compare-${{ runner.arch }}-${{ matrix.repeat }}
           path: |
             blastp4j/target/spills/*.s
             blastp4j/target/spills/*.log
@@ -372,7 +460,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: report-${{ runner.arch }}
+          name: report-${{ runner.arch }}-${{ matrix.repeat }}
           path: report
 
   report:
