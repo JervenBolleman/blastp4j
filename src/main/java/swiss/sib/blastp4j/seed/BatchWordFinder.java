@@ -133,12 +133,15 @@ public final class BatchWordFinder implements BatchScan {
 	 * The entries of the current subject position whose hits go to a query's finder, handled after the position's
 	 * other hits, where {@link #DEFER} says so: a call in the loop over the hits keeps the loop's values on the stack
 	 * (C2 has no callee-saved registers). The hits of one position are on different diagonals, so their order does not
-	 * matter, except among those that go to the finders, which keep theirs. Each holds the hit's index above its
-	 * entry, which the scan has in a register when it defers the hit: one load and one bounds check in the deferred
-	 * loop, rather than a second read of {@code entry}, whose base and length C2 reloads from the stack and whose
-	 * bounds it checks (3.07% of the samples of run 46027930493 on the Neoverse-N2).
+	 * matter, except among those that go to the finders, which keep theirs.
 	 */
-	private final long[] rest;
+	private final int[] rest;
+	/**
+	 * The entry of each hit in {@link #rest}, at the same index: the scan has it in a register when it defers the
+	 * hit, so keeping it spares the deferred loop a second read of {@code entry}, whose base and length C2 reloads
+	 * from the stack and whose bounds it checks (3.07% of the samples of run 46027930493 on the Neoverse-N2).
+	 */
+	private final int[] restEntry;
 	/**
 	 * Whether the finder calls wait until after a position's hits: on AArch64 only. On the Neoverse-N2 runner that took
 	 * 3.7% less wall time (run 42374103357), as the loop then reloads fewer values from the stack; on x86-64 2.8% more
@@ -164,7 +167,8 @@ public final class BatchWordFinder implements BatchScan {
 		for (int w = 0; w < LookupTable.WORDS; w++) {
 			longest = Math.max(longest, table.start()[w + 1] - table.start()[w]);
 		}
-		rest = new long[longest];
+		rest = new int[longest];
+		restEntry = new int[longest];
 	}
 
 	/**
@@ -257,7 +261,7 @@ public final class BatchWordFinder implements BatchScan {
 		}
 		final int[] cells = table.cells(), entry = table.entry(), query = table.query(), base = table.base();
 		final char[] d = diags;
-		final long[] later = rest;
+		final int[] later = rest, laterEntry = restEntry;
 		final int diagMask = this.diagMask;
 		final int offset = diagOffset, windowL = window, lastL = window - LookupTable.WORD_SIZE - 1;
 		final WordFinder[] f = finders;
@@ -293,7 +297,8 @@ public final class BatchWordFinder implements BatchScan {
 						final int older = (diff - windowL) >> 31; // -1 if the hit overlaps the last one: keep that
 						d[diag] = (char) ((state & older) | ((s + offset) & ~older));
 					} else if (DEFER) {
-						later[r++] = ((long) k << 32) | (e & 0xffffffffL);
+						laterEntry[r] = e;
+						later[r++] = k;
 					} else {
 						final int i = query[k];
 						final int next = f[i].next(residues, start, length, e - base[i], s, out[i], wide(state), offset);
@@ -306,8 +311,7 @@ public final class BatchWordFinder implements BatchScan {
 				}
 				if (DEFER) {
 					for (int j = 0; j < r; j++) {
-						final long pair = later[j];
-						final int h = (int) (pair >>> 32), i = query[h], eh = (int) pair;
+						final int h = later[j], i = query[h], eh = laterEntry[j];
 						final int diag = (eh - s) & diagMask & (d.length - 1);
 						d[diag] = narrow(f[i].next(residues, start, length, eh - base[i], s, out[i], wide(d[diag]), offset));
 					}
